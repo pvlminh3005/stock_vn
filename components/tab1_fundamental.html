@@ -1,0 +1,336 @@
+<!-- Tab 1: Cơ bản & Doanh nghiệp (FA) -->
+<div id="tab1Content" class="p-5 md:p-6 space-y-6">
+  <div>
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+        <i class="fa-solid fa-file-invoice-dollar text-blue-400"></i> Chỉ số tài chính &amp; Sức khỏe doanh nghiệp
+        (BCTC thực tế)
+      </h3>
+      <span id="auditBadge"
+        class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
+        ✓ BCTC Kiểm Toán Thực Tế
+      </span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+      <!-- P/E -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>P/E (Định giá)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-blue-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-blue-400 border-b border-slate-700 pb-1 mb-1">Hệ số P/E (Price to Earnings)</div>
+              <p class="text-[11px] text-slate-300">Nhà đầu tư sẵn sàng trả bao nhiêu tiền cho 1 đồng lợi nhuận của công ty.</p>
+              <p class="text-[10px] text-emerald-400 mt-1">✓ P/E &le; 12x: Định giá rẻ, hấp dẫn để gom.<br>⚠️ P/E &gt; 25x: Định giá cao, rủi ro điều chỉnh nếu tăng trưởng chậm lại.</p>
+            </div>
+          </span>
+        </div>
+        <div id="peValue" class="text-base md:text-lg font-bold font-mono text-white mt-1">--</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">TTM gần nhất</div>
+      </div>
+
+      <!-- P/B -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>P/B (Sổ sách)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-blue-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-blue-400 border-b border-slate-700 pb-1 mb-1">Hệ số P/B (Price to Book Value)</div>
+              <p class="text-[11px] text-slate-300">So sánh giá thị trường với giá trị tài sản ròng trên mỗi cổ phần.</p>
+              <p class="text-[10px] text-emerald-400 mt-1">✓ P/B &le; 1.5x: Vùng giá an toàn, sát tài sản thật.<br>Thích hợp định giá ngân hàng, BĐS, sản xuất nặng.</p>
+            </div>
+          </span>
+        </div>
+        <div id="pbValue" class="text-base md:text-lg font-bold font-mono text-white mt-1">--</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">Sát BVPS</div>
+      </div>
+
+      <!-- ROE -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>ROE (Hiệu quả vốn)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-emerald-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1">ROE (Return on Equity)</div>
+              <p class="text-[11px] text-slate-300">Hiệu quả sinh lời trên 100 đồng vốn chủ sở hữu bỏ ra.</p>
+              <p class="text-[10px] text-emerald-400 mt-1">✓ ROE &gt; 15%: Doanh nghiệp làm ăn tốt.<br>⭐ ROE &gt; 20%: Doanh nghiệp thuộc top đầu siêu lợi thế cạnh tranh (như FPT, VCB, MBB).</p>
+            </div>
+          </span>
+        </div>
+        <div id="roeValue" class="text-base md:text-lg font-bold font-mono text-emerald-400 mt-1">--</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">&gt;15% là xuất sắc</div>
+      </div>
+
+      <!-- EPS -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>EPS (Lợi nhuận/CP)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-cyan-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-cyan-400 border-b border-slate-700 pb-1 mb-1">EPS (Earnings Per Share)</div>
+              <p class="text-[11px] text-slate-300">Khoản lợi nhuận sau thuế kiếm được trên mỗi cổ phiếu lưu hành.</p>
+              <p class="text-[10px] text-cyan-300 mt-1">✓ EPS càng cao và tăng trưởng đều qua các năm chứng tỏ doanh nghiệp tăng trưởng bền vững.</p>
+            </div>
+          </span>
+        </div>
+        <div id="epsValue" class="text-base md:text-lg font-bold font-mono text-cyan-300 mt-1">--</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">VND / cổ phiếu</div>
+      </div>
+
+      <!-- Tăng trưởng LNST -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>Tăng trưởng LNST</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-emerald-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1">Tăng trưởng Lợi Nhuận Sau Thuế</div>
+              <p class="text-[11px] text-slate-300">Tỷ lệ % tăng trưởng lợi nhuận so với cùng kỳ năm trước (YoY).</p>
+              <p class="text-[10px] text-emerald-400 mt-1">✓ &gt; 15% - 20%: Cổ phiếu tăng trưởng mạnh.<br>Động lực quan trọng nhất kéo thị giá cổ phiếu bứt phá.</p>
+            </div>
+          </span>
+        </div>
+        <div id="profitGrowthValue" class="text-base md:text-lg font-bold font-mono text-emerald-300 mt-1">--</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">So cùng kỳ năm</div>
+      </div>
+
+      <!-- Đòn bẩy Nợ (D/E) -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>Đòn bẩy Nợ (D/E)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-amber-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-amber-400 border-b border-slate-700 pb-1 mb-1">Hệ số Nợ vay / Vốn chủ sở hữu (D/E)</div>
+              <p class="text-[11px] text-slate-300">Đo lường mức độ vay nợ tài chính của doanh nghiệp.</p>
+              <p class="text-[10px] text-amber-300 mt-1">✓ Sản xuất, bán lẻ &lt; 1.0x: Cực kỳ an toàn.<br>⚠️ &gt; 2.0x: Áp lực trả lãi vay lớn khi lãi suất tăng cao (không áp dụng cho ngân hàng).</p>
+            </div>
+          </span>
+        </div>
+        <div id="debtValue" class="text-base md:text-lg font-bold font-mono text-amber-400 mt-1">--</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">Nợ vay / VCSH</div>
+      </div>
+
+      <!-- Dòng tiền thuần HĐKD (OCF) -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span>Dòng tiền OCF</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-emerald-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1">Lưu Chuyển Tiền Thuần HĐKD (OCF)</div>
+              <p class="text-[11px] text-slate-300">Dòng tiền thật thu về từ hoạt động sản xuất kinh doanh cốt lõi:</p>
+              <p class="text-[10px] text-emerald-400 mt-1">✓ OCF &gt; 0: Tiền thật về két, chất lượng lợi nhuận cao.<br>⚠️ OCF &lt; 0 kéo dài dù báo lãi: Rủi ro lãi ảo / đọng vốn ở công nợ.</p>
+            </div>
+          </span>
+        </div>
+        <div id="ocfValue" class="text-base md:text-lg font-bold font-mono text-emerald-400 mt-1">--</div>
+        <div id="ocfSubTxt" class="text-[10px] text-slate-500 mt-0.5 truncate">Dòng tiền thật</div>
+      </div>
+
+      <!-- Biên Lợi Nhuận Gộp / Ròng (hoặc NIM cho Bank) -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <span id="marginLabel">Biên Lợi Nhuận</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-blue-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-blue-400 border-b border-slate-700 pb-1 mb-1">Biên Lợi Nhuận (Margins) / NIM</div>
+              <p class="text-[11px] text-slate-300">Hiệu suất chuyển hóa doanh thu thành lợi nhuận:</p>
+              <p class="text-[10px] text-blue-400 mt-1">✓ Biên gộp cao (&gt;30%): Lợi thế định giá sản phẩm.<br>✓ Với Ngân hàng: Hiển thị NIM và tỷ lệ nợ xấu/LDR.</p>
+            </div>
+          </span>
+        </div>
+        <div id="marginValue" class="text-base md:text-lg font-bold font-mono text-blue-400 mt-1">--</div>
+        <div id="marginSub" class="text-[10px] text-slate-500 mt-0.5">Gộp / Ròng</div>
+      </div>
+    </div>
+
+    <!-- Tóm tắt mô hình kinh doanh -->
+    <div class="mt-3 p-4 bg-slate-950/60 border border-slate-800 rounded-xl">
+      <div class="text-xs font-bold text-slate-300 mb-1 flex items-center gap-1.5">
+        <i class="fa-solid fa-lightbulb text-amber-400"></i> Nhận định chất lượng kinh doanh &amp; Luận điểm đầu tư:
+      </div>
+      <p id="companySummaryTxt" class="text-xs text-slate-400 leading-relaxed">
+        Đang phân tích dữ liệu cơ bản của doanh nghiệp...
+      </p>
+    </div>
+  </div>
+
+  <!-- Khung Hệ Thống Định Lượng & Đánh Giá Rủi Ro (Securities Risk Engine) -->
+  <div id="futureOutlookCard" class="p-4 sm:p-5 rounded-2xl border border-indigo-900/60 bg-gradient-to-br from-indigo-950/50 via-slate-950 to-slate-900/90 shadow-2xl relative overflow-hidden space-y-4">
+    
+    <!-- Header: Title, Status Badge, Fear & Greed & Copy Markdown -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner flex-shrink-0">
+          <i class="fa-solid fa-shield-halved text-base"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h4 class="text-sm sm:text-base font-extrabold text-slate-100 tracking-tight">
+              Định Lượng &amp; Đánh Giá Rủi Ro Chứng Khoán
+            </h4>
+            <span id="outlookBadge" class="text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              THEO DÕI
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-0.5">
+            Securities Data &amp; Risk Assessment Engine • Quy trình 5 bước &amp; Ngưỡng chặn Guardrail
+          </p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+        <div id="fearGreedBadge" class="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 flex items-center gap-1.5 text-xs font-mono">
+          <span class="text-slate-400 text-[10px] font-sans">Tâm lý:</span>
+          <span id="outlookConfidence" class="font-bold text-amber-400">--</span>
+        </div>
+        <button id="copyMarkdownBtn" onclick="copyRiskReportMarkdown()" class="px-2.5 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 text-xs font-medium transition flex items-center gap-1.5">
+          <i class="fa-regular fa-copy"></i>
+          <span>Copy MD</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Banner Cảnh Báo Guardrail (Chỉ hiện khi kích hoạt) -->
+    <div id="guardrailAlertBanner" class="hidden p-3 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-300 text-xs flex items-start gap-2.5 animate-pulse">
+      <i class="fa-solid fa-triangle-exclamation text-rose-400 text-sm mt-0.5 flex-shrink-0"></i>
+      <div class="flex-1 space-y-0.5">
+        <div class="font-bold text-rose-200 uppercase tracking-wide text-[11px]">Cảnh Báo Kích Hoạt Ngưỡng Chặn (Risk Guardrail Triggered)</div>
+        <div id="guardrailAlertContent" class="text-slate-300 leading-relaxed text-xs">--</div>
+      </div>
+    </div>
+
+    <!-- 3 Cột: Phần 1, Phần 2, Phần 3 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+      <!-- Phần 1: Tổng quan Tác động Vĩ mô & Ngành -->
+      <div class="p-3.5 bg-slate-900/90 border border-slate-800/90 rounded-xl flex flex-col justify-between space-y-2">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-[11px] font-bold text-rose-400 flex items-center gap-1.5 uppercase tracking-wide">
+              <i class="fa-solid fa-landmark text-xs"></i> 1. Vĩ Mô &amp; Ngành
+            </span>
+            <span id="macroEnvBadge" class="text-[10px] px-2 py-0.5 rounded font-bold uppercase border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+              Tích cực
+            </span>
+          </div>
+          <p id="outlookMacro" class="text-xs text-slate-300 leading-relaxed">--</p>
+        </div>
+        <div class="text-[10px] text-slate-500 pt-2 border-t border-slate-800/60 flex items-center justify-between">
+          <span>Nguồn: GSO &amp; Báo cáo Vĩ mô</span>
+          <span id="macroSectorName" class="text-slate-400 font-medium">--</span>
+        </div>
+      </div>
+
+      <!-- Phần 2: Nội Tại & Rủi Ro Pháp Lý Doanh Nghiệp -->
+      <div class="p-3.5 bg-slate-900/90 border border-slate-800/90 rounded-xl flex flex-col justify-between space-y-2">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-[11px] font-bold text-blue-400 flex items-center gap-1.5 uppercase tracking-wide">
+              <i class="fa-solid fa-file-shield text-xs"></i> 2. Nội Tại &amp; Pháp Lý
+            </span>
+            <span id="faMetricsQuick" class="text-[10px] font-mono text-slate-400">P/E -- | ROE --</span>
+          </div>
+          <p id="outlookFundamental" class="text-xs text-slate-300 leading-relaxed">--</p>
+        </div>
+        <div id="governanceRiskBox" class="text-[11px] p-2 rounded bg-slate-950/80 border border-slate-800/80 text-slate-300 leading-snug">
+          <span class="text-slate-400 font-semibold text-[10px] block mb-0.5">Rủi ro quản trị &amp; pha loãng:</span>
+          <span id="governanceRiskText">--</span>
+        </div>
+      </div>
+
+      <!-- Phần 3: Dòng Tiền & Tâm Lý Thị Trường -->
+      <div class="p-3.5 bg-slate-900/90 border border-slate-800/90 rounded-xl flex flex-col justify-between space-y-2 md:col-span-2 lg:col-span-1">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wide">
+              <i class="fa-solid fa-money-bill-trend-up text-xs"></i> 3. Dòng Tiền &amp; Tâm Lý
+            </span>
+            <span id="foreignNetQuickBadge" class="text-[10px] px-2 py-0.5 rounded font-mono font-bold border bg-slate-800 text-slate-300 border-slate-700">NN: --</span>
+          </div>
+          <p id="outlookFlow" class="text-xs text-slate-300 leading-relaxed">--</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-center text-xs font-mono pt-2 border-t border-slate-800/60">
+          <div class="p-1.5 rounded bg-slate-950/60 border border-slate-800/60">
+            <span class="text-[10px] text-slate-400 block font-sans">Lực mua CĐ</span>
+            <span id="activeBuyQuick" class="font-bold text-emerald-400">--%</span>
+          </div>
+          <div class="p-1.5 rounded bg-slate-950/60 border border-slate-800/60">
+            <span class="text-[10px] text-slate-400 block font-sans">Vol / MA20</span>
+            <span id="volRatioQuick" class="font-bold text-blue-400">--x</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phần 4: Ma Trận Kịch Bản Kỳ Vọng & Quản Trị Rủi Ro -->
+    <div class="p-3.5 bg-slate-950/80 border border-indigo-950/80 rounded-xl space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-arrows-split-up-and-left text-indigo-400"></i> 4. Ma Trận Kịch Bản Kỳ Vọng &amp; Quản Trị Rủi Ro
+        </span>
+        <div class="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
+          Tỷ lệ Lợi nhuận/Rủi ro: <strong id="rrRatioValue" class="text-emerald-400">1:2.0</strong>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+        <div class="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-900/40 space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-emerald-400 font-bold flex items-center gap-1.5 text-[11px]">
+              <i class="fa-solid fa-circle-arrow-up"></i> Kịch bản Khả quan (Bull Case)
+            </span>
+            <span id="bullTargetBadge" class="text-[11px] font-mono font-bold text-emerald-300">-- đ</span>
+          </div>
+          <p id="bullScenario" class="text-slate-300 text-[11px] leading-relaxed">--</p>
+        </div>
+        <div class="p-2.5 rounded-lg bg-amber-950/20 border border-amber-900/40 space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-amber-400 font-bold flex items-center gap-1.5 text-[11px]">
+              <i class="fa-solid fa-shield-heart"></i> Kịch bản Thận trọng / Phòng thủ (Bear Case)
+            </span>
+            <span id="bearSupportBadge" class="text-[11px] font-mono font-bold text-amber-300">-- đ</span>
+          </div>
+          <p id="bearScenario" class="text-slate-300 text-[11px] leading-relaxed">--</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phần 5: Kết Luận Hành Động & Lưu Ý Cốt Lõi -->
+    <div class="p-3.5 rounded-xl border border-slate-800 bg-slate-900/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 flex-shrink-0">
+          <i class="fa-solid fa-crosshairs text-base text-blue-400"></i>
+        </div>
+        <div>
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">5. Kết Luận Hành Động &amp; Khuyến Nghị</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span id="actionStatusText" class="text-sm font-black uppercase tracking-wide text-emerald-400">
+              THEO DÕI
+            </span>
+            <span class="text-xs text-slate-400 hidden sm:inline">• Tuân thủ nghiêm ngưỡng chặn bảo vệ vốn</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 sm:max-w-xl sm:border-l sm:border-slate-800 sm:pl-3.5 space-y-0.5">
+        <span class="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">
+          <i class="fa-solid fa-bell text-rose-400 text-[10px]"></i> Lưu Ý Cốt Lõi Cần Theo Dõi Tiếp Theo:
+        </span>
+        <p id="coreWarningText" class="text-slate-200 text-xs leading-relaxed font-medium">--</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Tin tức tham chiếu -->
+  <div>
+    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+      <i class="fa-solid fa-newspaper text-blue-400"></i> Cổng thông tin sự kiện &amp; Báo cáo BCTC tham chiếu
+    </h3>
+    <div id="newsListContainer" class="space-y-2"></div>
+  </div>
+
+</div>

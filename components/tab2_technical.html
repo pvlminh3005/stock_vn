@@ -1,0 +1,162 @@
+<!-- Tab 2: Kỹ thuật & Hỗ trợ / Kháng cự (TA) -->
+<div id="tab2Content" class="p-5 md:p-6 space-y-6 hidden">
+  <div>
+    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Tín hiệu Kỹ thuật &amp; Ngưỡng Động
+    </h3>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <!-- MA20 -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-xs text-slate-400 flex items-center justify-between">
+          <span>Đường MA20</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-blue-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-blue-400 border-b border-slate-700 pb-1 mb-1">Đường Trung bình Động 20
+                phiên (MA20)</div>
+              <p class="text-[11px] text-slate-300">Kim chỉ nam cho giao dịch ngắn hạn T+:</p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300 text-[10px] mt-1">
+                <li><strong class="text-emerald-400">Giá trên MA20:</strong> Xu hướng tăng, phe mua kiểm soát.</li>
+                <li><strong class="text-rose-400">Giá dưới MA20:</strong> Xu hướng giảm/điều chỉnh, không nên mở vị thế
+                  mua mới.</li>
+              </ul>
+            </div>
+          </span>
+        </div>
+        <div id="ma20Val" class="text-base font-bold font-mono text-white mt-1">--</div>
+        <div id="maTrend" class="text-xs font-bold mt-1">--</div>
+      </div>
+
+      <!-- MA50 -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-xs text-slate-400 flex items-center justify-between">
+          <span>Đường MA50</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-amber-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-amber-400 border-b border-slate-700 pb-1 mb-1">Đường Trung bình Động 50
+                phiên (MA50)</div>
+              <p class="text-[11px] text-slate-300">Đại diện cho xu hướng giá trung hạn 2 - 3 tháng:</p>
+              <p class="text-[10px] text-slate-400 mt-1">Cổ phiếu duy trì trên cả MA20 và MA50 xác nhận xu hướng uptrend
+                bền vững.</p>
+            </div>
+          </span>
+        </div>
+        <div id="ma50Val" class="text-base font-bold font-mono text-white mt-1">--</div>
+        <div class="text-xs text-slate-500 mt-1 font-mono">Xu hướng trung hạn</div>
+      </div>
+
+      <!-- Hỗ trợ động -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-xs text-slate-400 flex items-center justify-between">
+          <span>Hỗ trợ động (25 phiên)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-emerald-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1">Hỗ Trợ Kỹ Thuật
+                (Dynamic Support)</div>
+              <p class="text-[11px] text-slate-300">Đáy thấp nhất trong 25 phiên giao dịch gần nhất:</p>
+              <p class="text-[10px] text-emerald-400 mt-1">Vùng lực cầu tham gia đỡ giá mạnh. Nếu thủng mốc này thì phải
+                cắt lỗ ngay.</p>
+            </div>
+          </span>
+        </div>
+        <div id="supportVal" class="text-base font-bold font-mono text-emerald-400 mt-1">--</div>
+        <div class="text-xs text-slate-500 mt-1">Đáy gần nhất</div>
+      </div>
+
+      <!-- Kháng cự động -->
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+        <div class="text-xs text-slate-400 flex items-center justify-between">
+          <span>Kháng cự động (25 phiên)</span>
+          <span class="tooltip-trigger tooltip-bottom">
+            <i class="fa-solid fa-circle-question text-slate-500 hover:text-rose-400 transition text-[10px]"></i>
+            <div class="tooltip-box text-left font-sans">
+              <div class="font-bold text-xs text-rose-400 border-b border-slate-700 pb-1 mb-1">Kháng Cự Kỹ Thuật
+                (Dynamic Resistance)</div>
+              <p class="text-[11px] text-slate-300">Đỉnh cao nhất trong 25 phiên giao dịch gần nhất:</p>
+              <p class="text-[10px] text-rose-400 mt-1">Vùng tập trung áp lực chốt lời của nhà đầu tư. Thích hợp đặt
+                lệnh Target bán chốt lãi.</p>
+            </div>
+          </span>
+        </div>
+        <div id="resistanceVal" class="text-base font-bold font-mono text-rose-400 mt-1">--</div>
+        <div class="text-xs text-slate-500 mt-1">Đỉnh cản gần nhất</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Xu hướng Đa Khung Thời Gian (Multi-Timeframe Confluence D1 vs W1) -->
+  <div class="p-5 bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800 rounded-xl space-y-4">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h4 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-layer-group text-cyan-400"></i> Xu hướng Đa Khung Thời Gian (D1 Daily vs W1 Weekly)
+      </h4>
+      <span id="multiTfBadge"
+        class="text-xs font-bold px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-mono">--</span>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
+        <span class="text-xs text-slate-400 block mb-1">D1 MA20 (Ngắn hạn)</span>
+        <span id="multiTfDailyMA20" class="text-base font-bold font-mono text-white">--</span>
+        <span id="multiTfDailyTrend" class="text-[10px] font-bold block mt-1 text-slate-400">--</span>
+      </div>
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
+        <span class="text-xs text-slate-400 block mb-1">W1 MA10 Tuần (Trung hạn)</span>
+        <span id="multiTfWeeklyMA10" class="text-base font-bold font-mono text-cyan-400">--</span>
+        <span id="multiTfWeeklyTrend" class="text-[10px] font-bold block mt-1 text-slate-400">--</span>
+      </div>
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
+        <span class="text-xs text-slate-400 block mb-1">Đánh giá Đồng thuận</span>
+        <span id="multiTfConfluenceVal" class="text-xs font-bold text-amber-400 block mt-1">--</span>
+        <span class="text-[10px] text-slate-500 block mt-1 font-mono">D1 &amp; W1 Alignment</span>
+      </div>
+    </div>
+
+    <div class="border-t border-slate-800/80 pt-3">
+      <div class="text-xs text-slate-400 mb-1 font-bold uppercase">Nhận định &amp; Hành động Đa Khung:</div>
+      <p id="multiTfDesc" class="text-xs text-slate-300 leading-relaxed">--</p>
+    </div>
+  </div>
+
+  <!-- Quản Trị Vị Thế & Quy Mô Giải Ngân (Position Sizing Guide) -->
+  <div
+    class="p-5 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950/40 border border-indigo-900/40 rounded-xl space-y-4">
+    <div class="flex items-center justify-between">
+      <h4 class="text-sm font-bold text-indigo-300 flex items-center gap-2">
+        <i class="fa-solid fa-calculator text-indigo-400"></i> Quản Trị Vị Thế &amp; Phân Bổ Tỷ Trọng NAV
+      </h4>
+      <span
+        class="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-950 border border-indigo-700 text-indigo-300">Ngân
+        sách rủi ro 1.5% NAV</span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-indigo-950">
+        <span class="text-xs text-slate-400 block mb-1">Tỷ trọng Max NAV</span>
+        <span id="posMaxNav" class="text-lg font-black font-mono text-indigo-400">--</span>
+        <span class="text-[10px] text-slate-500 block mt-1">Trần phân bổ cổ phiếu</span>
+      </div>
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-indigo-950">
+        <span class="text-xs text-slate-400 block mb-1">Vị thế Thăm dò (Pilot)</span>
+        <span id="posPilotNav" class="text-lg font-black font-mono text-emerald-400">--</span>
+        <span class="text-[10px] text-slate-500 block mt-1">35% quy mô mục tiêu</span>
+      </div>
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-indigo-950">
+        <span class="text-xs text-slate-400 block mb-1">Gia tăng (Pyramid)</span>
+        <span id="posPyramidNav" class="text-lg font-black font-mono text-blue-400">--</span>
+        <span class="text-[10px] text-slate-500 block mt-1">65% khi có lãi đệm</span>
+      </div>
+      <div class="p-3 bg-slate-900/90 rounded-xl border border-indigo-950">
+        <span class="text-xs text-slate-400 block mb-1">Tỷ lệ Cắt Lỗ Tối đa</span>
+        <span id="posMaxRiskPct" class="text-lg font-black font-mono text-rose-400">--</span>
+        <span class="text-[10px] text-slate-500 block mt-1">Kỷ luật Stop loss</span>
+      </div>
+    </div>
+
+    <div class="border-t border-indigo-950 pt-3">
+      <div class="text-xs text-indigo-300 mb-1 font-bold uppercase">Khuyến nghị phân bổ dòng vốn:</div>
+      <p id="posRecommendation" class="text-xs text-slate-300 leading-relaxed">--</p>
+    </div>
+  </div>
+</div>

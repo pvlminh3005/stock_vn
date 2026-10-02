@@ -27,10 +27,10 @@
 }
 
 /* Chart Container */
-#chartWrapper {
+#chartContainer {
   position: relative;
   width: 100%;
-  height: 380px;
+  height: 520px;
 }
 
 /* RSI Meter Marker */

@@ -1,0 +1,213 @@
+<!-- CÁC THƯỚC ĐO TRỰC QUAN (VISUAL METERS: RSI, VOLUME, MUA/BÁN CHỦ ĐỘNG, RS O'NEIL) -->
+<div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+  <!-- 1. RSI Meter -->
+  <div class="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2">
+    <div class="flex items-center justify-between text-xs">
+      <span class="text-slate-400 font-medium flex items-center gap-1.5">
+        <i class="fa-solid fa-wave-square text-blue-400"></i> RSI (14 phiên)
+        <span class="tooltip-trigger tooltip-bottom">
+          <i class="fa-solid fa-circle-question text-slate-500 hover:text-blue-400 transition text-[11px]"></i>
+          <div class="tooltip-box text-left">
+            <div class="font-bold text-xs text-blue-400 border-b border-slate-700 pb-1 mb-1 font-sans">Chỉ số Sức
+              mạnh Tương đối (RSI 14)</div>
+            <div class="text-[11px] text-slate-300 space-y-1 font-sans">
+              <p>Đo lường mức độ biến động giá giữa các phiên tăng và giảm:</p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
+                <li><strong class="text-emerald-400">&lt; 35 (Quá bán):</strong> Giá giảm sâu vào vùng hỗ trợ, dễ
+                  bật nảy kỹ thuật.</li>
+                <li><strong class="text-blue-400">45 - 65 (Cân bằng):</strong> Vùng tích lũy bền vững, an toàn
+                  nhất để giải ngân T+.</li>
+                <li><strong class="text-rose-400">&gt; 70 (Quá mua):</strong> Tăng nóng, nguy cơ bị áp lực chốt
+                  lời lớn, tránh mua đuổi.</li>
+              </ul>
+            </div>
+          </div>
+        </span>
+      </span>
+      <span id="rsiMeterVal" class="font-mono font-bold text-white">--</span>
+    </div>
+    <div class="relative h-2.5 bg-slate-800 rounded-full overflow-visible mt-2">
+      <!-- Dải màu: Quá bán (<30) -> Cân bằng (30-70) -> Quá mua (>70) -->
+      <div
+        class="absolute inset-0 rounded-full bg-gradient-to-r from-emerald-500 via-blue-500 to-rose-500 opacity-80">
+      </div>
+      <!-- Con trỏ vị trí RSI -->
+      <div id="rsiPointer" class="rsi-pointer" style="left: 50%;"></div>
+    </div>
+    <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+      <span>0 (Quá bán)</span>
+      <span>30</span>
+      <span>70</span>
+      <span>100 (Quá mua)</span>
+    </div>
+  </div>
+
+  <!-- 2. Volume & Dòng tiền đột biến -->
+  <div class="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2">
+    <div class="flex items-center justify-between text-xs">
+      <span class="text-slate-400 font-medium flex items-center gap-1.5">
+        <i class="fa-solid fa-water text-cyan-400"></i> Dòng tiền / Vol xTB20
+        <span class="tooltip-trigger tooltip-bottom">
+          <i class="fa-solid fa-circle-question text-slate-500 hover:text-cyan-400 transition text-[11px]"></i>
+          <div class="tooltip-box text-left">
+            <div class="font-bold text-xs text-cyan-400 border-b border-slate-700 pb-1 mb-1 font-sans">Hệ số Bùng
+              nổ Khối lượng (Vol xTB20)</div>
+            <div class="text-[11px] text-slate-300 space-y-1 font-sans">
+              <p>So sánh khối lượng khớp phiên hôm nay với Trung bình 20 phiên gần nhất:</p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
+                <li><strong class="text-emerald-400">&ge; 1.4x:</strong> Dòng tiền lớn (Tay to/Cá mập) kích hoạt
+                  gom hàng bùng nổ.</li>
+                <li><strong class="text-blue-400">1.0x - 1.3x:</strong> Thanh khoản tích cực, lực cầu vào đều đặn.
+                </li>
+                <li><strong class="text-amber-400">&le; 0.6x:</strong> Cạn cung test nền, bên bán kiệt sức, sắp có
+                  biến động mới.</li>
+              </ul>
+            </div>
+          </div>
+        </span>
+      </span>
+      <span id="volRatioBadge"
+        class="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">--</span>
+    </div>
+    <div class="text-xs font-bold text-white truncate" id="volSignalText">Đang phân tích thanh khoản...</div>
+    <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono pt-1">
+      <span>Khối lượng phiên:</span>
+      <span id="latestVolVal" class="font-semibold text-slate-200">-- cp</span>
+    </div>
+  </div>
+
+  <!-- 3. Tỷ lệ Khớp Mua / Bán Chủ Động (SSI Order Flow) -->
+  <div class="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2">
+    <div class="flex items-center justify-between text-xs">
+      <span class="text-slate-400 font-medium flex items-center gap-1.5">
+        <i class="fa-solid fa-arrows-split-up-and-left text-amber-400"></i> Lực Cầu Chủ Động
+        <span class="tooltip-trigger tooltip-bottom">
+          <i class="fa-solid fa-circle-question text-slate-500 hover:text-amber-400 transition text-[11px]"></i>
+          <div class="tooltip-box text-left">
+            <div class="font-bold text-xs text-amber-400 border-b border-slate-700 pb-1 mb-1 font-sans">Tỷ lệ Khớp
+              Mua / Bán Chủ Động</div>
+            <div class="text-[11px] text-slate-300 space-y-1 font-sans">
+              <p>Đo lường mức độ quyết liệt của dòng tiền theo sổ lệnh:</p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
+                <li><strong class="text-emerald-400">Mua chủ động (Xanh):</strong> Lệnh mua ăn thẳng vào giá bán
+                  (sẵn sàng mua giá cao).</li>
+                <li><strong class="text-rose-400">Bán chủ động (Đỏ):</strong> Lệnh bán táng thẳng vào giá mua
+                  (thoát hàng giá thấp).</li>
+                <li>Tỷ lệ mua <strong class="text-emerald-400">&gt; 55%</strong> chứng tỏ phe mua đang làm chủ
+                  cuộc chơi.</li>
+              </ul>
+            </div>
+          </div>
+        </span>
+      </span>
+      <span id="buyActiveRatioVal" class="font-mono font-bold text-emerald-400">--%</span>
+    </div>
+    <!-- Thanh phân bổ Mua (Xanh) vs Bán (Đỏ) -->
+    <div class="w-full h-2.5 bg-rose-950 rounded-full overflow-hidden flex">
+      <div id="buyActiveBar" class="h-full bg-emerald-500 transition-all duration-500" style="width: 50%;"></div>
+      <div id="sellActiveBar" class="h-full bg-rose-500 transition-all duration-500" style="width: 50%;"></div>
+    </div>
+    <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+      <span class="text-emerald-400 font-medium">Mua: <span id="buyVolTxt">--</span></span>
+      <span class="text-rose-400 font-medium">Bán: <span id="sellVolTxt">--</span></span>
+    </div>
+  </div>
+
+  <!-- 4. Sức mạnh giá RS O'Neil so với VN-Index (CANSLIM) -->
+  <div class="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2">
+    <div class="flex items-center justify-between text-xs">
+      <span class="text-slate-400 font-medium flex items-center gap-1.5">
+        <i class="fa-solid fa-bolt text-amber-400"></i> RS Rating (vs VNI)
+        <span class="tooltip-trigger tooltip-bottom">
+          <i class="fa-solid fa-circle-question text-slate-500 hover:text-amber-400 transition text-[11px]"></i>
+          <div class="tooltip-box text-left">
+            <div class="font-bold text-xs text-amber-400 border-b border-slate-700 pb-1 mb-1 font-sans">Sức Mạnh Giá RS (O'Neil / CANSLIM)</div>
+            <div class="text-[11px] text-slate-300 space-y-1 font-sans">
+              <p>Đo lường mức độ sinh lời vượt trội (Alpha) của cổ phiếu so với VN-Index (1 - 99):</p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
+                <li><strong class="text-emerald-400">&ge; 80 (Leader):</strong> Siêu cổ phiếu dẫn dắt thị trường, xung lực mạnh nhất sàn.</li>
+                <li><strong class="text-blue-400">65 - 79 (Kênh trên):</strong> Mạnh hơn VN-Index, giữ giá tốt khi thị trường chỉnh.</li>
+                <li><strong class="text-slate-300">45 - 64 (Trung tính):</strong> Biến động cùng pha với chỉ số chung.</li>
+                <li><strong class="text-rose-400">&lt; 40 (Laggard):</strong> Cổ phiếu kênh dưới tụt hậu, dễ gãy sâu.</li>
+              </ul>
+            </div>
+          </div>
+        </span>
+      </span>
+      <span id="rsMeterVal" class="font-mono font-bold text-emerald-400">--/99</span>
+    </div>
+    <div class="relative h-2.5 bg-slate-800 rounded-full overflow-visible mt-2">
+      <!-- Dải màu RS: Laggard (<40) -> Neutral (40-65) -> Leader (>80) -->
+      <div class="absolute inset-0 rounded-full bg-gradient-to-r from-rose-500 via-amber-500 via-blue-500 to-emerald-400 opacity-80"></div>
+      <!-- Con trỏ vị trí RS -->
+      <div id="rsPointer" class="rsi-pointer" style="left: 50%;"></div>
+    </div>
+    <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+      <span>Alpha 1M: <strong id="rsAlpha1M" class="text-slate-300">--</strong></span>
+      <span>Alpha 3M: <strong id="rsAlpha3M" class="text-slate-300">--</strong></span>
+    </div>
+  </div>
+</div>
+
+<!-- KHÔI PHÂN CHIA RÕ RÀNG: LƯỚT SÓNG T+ VS TRUNG / DÀI HẠN -->
+<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+  <!-- Cột 1: Lướt sóng T+ -->
+  <div id="cardTPlus" class="p-4 rounded-xl border bg-slate-900 border-slate-800 transition space-y-2.5">
+    <div class="flex items-center justify-between">
+      <span class="text-xs uppercase font-extrabold text-amber-400 flex items-center gap-1.5">
+        <i class="fa-solid fa-bolt"></i> Vị thế Lướt sóng (T+)
+      </span>
+      <span id="badgeTPlus"
+        class="text-xs font-extrabold px-2.5 py-0.5 rounded border border-slate-700 bg-slate-800">--</span>
+    </div>
+    <div id="reasonTPlus" class="text-xs text-slate-300 leading-relaxed min-h-[38px]">
+      Đang phân tích tín hiệu xung lực nến, hỗ trợ và kháng cự động...
+    </div>
+    <div class="pt-2 border-t border-slate-800/80 grid grid-cols-4 text-[11px] font-mono text-center gap-1">
+      <div>
+        <span class="text-slate-500 block text-[10px]">Vùng vào T+</span>
+        <span id="tEntryVal" class="text-emerald-400 font-bold">--</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block text-[10px]">Mục tiêu (TP)</span>
+        <span id="tTargetVal" class="text-blue-400 font-bold">--</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block text-[10px]">Cắt lỗ (SL)</span>
+        <span id="tStopVal" class="text-rose-400 font-bold">--</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block text-[10px]">Tỷ lệ R:R</span>
+        <span id="tRRVal" class="text-amber-400 font-bold">--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cột 2: Đầu tư Trung / Dài hạn -->
+  <div id="cardMidTerm" class="p-4 rounded-xl border bg-slate-900 border-slate-800 transition space-y-2.5">
+    <div class="flex items-center justify-between">
+      <span class="text-xs uppercase font-extrabold text-blue-400 flex items-center gap-1.5">
+        <i class="fa-solid fa-building-columns"></i> Vị thế Trung &amp; Dài Hạn
+      </span>
+      <span id="badgeMidTerm"
+        class="text-xs font-extrabold px-2.5 py-0.5 rounded border border-slate-700 bg-slate-800">--</span>
+    </div>
+    <div id="reasonMidTerm" class="text-xs text-slate-300 leading-relaxed min-h-[38px]">
+      Đang đánh giá định giá P/E, P/B và vùng chiết khấu cơ bản...
+    </div>
+    <div class="pt-2 border-t border-slate-800/80 grid grid-cols-3 text-[11px] font-mono text-center">
+      <div>
+        <span class="text-slate-500 block text-[10px]">Vùng gom DCA</span>
+        <span id="mEntryVal" class="text-emerald-400 font-bold">--</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block text-[10px]">Mục tiêu trung hạn</span>
+        <span id="mTargetVal" class="text-blue-400 font-bold">--</span>
+      </div>
+      <div>
+        <span class="text-slate-500 block text-[10px]">Cắt lỗ bảo toàn</span>
+        <span id="mStopVal" class="text-rose-400 font-bold">--</span>
+      </div>
+    </div>
+  </div>
+</div>

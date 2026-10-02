@@ -1,0 +1,133 @@
+<!-- Quick Header: Stock Price, Exchange, Range & Live Info -->
+<div id="quickHeader"
+  class="mt-4 p-4 md:p-5 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-4">
+  <div class="flex items-center gap-3">
+    <span id="displayTicker"
+      class="text-3xl md:text-4xl font-black font-mono text-white tracking-wider">---</span>
+    <div>
+      <div id="companyName" class="text-sm md:text-base font-bold text-slate-200">Vui lòng chọn hoặc nhập mã chứng
+        khoán</div>
+      <div class="flex flex-wrap items-center gap-2 mt-1">
+        <span id="exchangeBadge"
+          class="text-xs text-blue-400 bg-blue-950/60 border border-blue-900/60 px-2 py-0.5 rounded font-mono font-semibold">HOSE</span>
+        <span id="sectorBadge" class="text-xs text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded">Ngành:
+          ---</span>
+        <span id="updateTime" class="text-xs text-slate-400 font-mono">Phiên: --/--/----</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-4 sm:gap-6">
+    <!-- Bảng giá Cao nhất / Tham chiếu / Thấp nhất -->
+    <div class="hidden sm:flex flex-col text-right font-mono text-xs space-y-0.5">
+      <div><span class="text-slate-500">Cao nhất:</span> <span id="priceHigh"
+          class="text-emerald-400 font-semibold">--</span></div>
+      <div><span class="text-slate-500">Tham chiếu:</span> <span id="priceRef"
+          class="text-amber-300 font-semibold">--</span></div>
+      <div><span class="text-slate-500">Thấp nhất:</span> <span id="priceLow"
+          class="text-rose-400 font-semibold">--</span></div>
+    </div>
+
+    <!-- Giá khớp & Biến động -->
+    <div class="text-right">
+      <div class="text-xs text-slate-400 mb-0.5">Giá khớp lệnh</div>
+      <div id="currentPrice" class="text-2xl md:text-3xl font-extrabold font-mono text-blue-400">--</div>
+      <div id="priceChangeBadge"
+        class="inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded bg-slate-800 text-slate-400">--</div>
+    </div>
+  </div>
+</div>
+
+<!-- BANNER PHÁN ĐOÁN TỔNG HỢP (OVERALL VERDICT & SCORING) -->
+<div id="verdictBanner"
+  class="mt-4 p-3.5 rounded-xl border border-blue-900/50 bg-blue-950/20 flex flex-col md:flex-row md:items-center justify-between gap-3">
+  <div class="flex items-center gap-2.5">
+    <span id="verdictIcon" class="text-xl text-blue-400"><i class="fa-solid fa-circle-info"></i></span>
+    <div>
+      <div class="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Đánh giá tổng hợp vị thế</div>
+      <div id="verdictText" class="text-sm font-bold text-white mt-0.5">Hệ thống đang sẵn sàng phân tích mã chứng
+        khoán...</div>
+    </div>
+  </div>
+
+  <!-- 2 Đồng hồ điểm: TA Score & FA Score kèm Tooltip (?) -->
+  <div class="flex items-center gap-3 self-end md:self-auto font-mono">
+    <!-- 1. Điểm Kỹ thuật (TA Score) -->
+    <div class="p-2 bg-slate-900 border border-slate-800 rounded-lg text-center min-w-[105px]">
+      <div class="text-[10px] text-slate-400 font-sans flex items-center justify-center gap-1">
+        <span>Điểm Kỹ thuật</span>
+        <span class="tooltip-trigger tooltip-right">
+          <i class="fa-solid fa-circle-question text-blue-400 hover:text-blue-300 transition text-[11px]"></i>
+          <div class="tooltip-box text-left">
+            <div
+              class="font-bold text-xs text-amber-400 border-b border-slate-700 pb-1 mb-1.5 flex items-center gap-1.5 font-sans">
+              <i class="fa-solid fa-chart-line"></i> Điểm Kỹ thuật &amp; Dòng tiền (TA Score)
+            </div>
+            <div class="text-[11px] text-slate-300 space-y-1.5 font-sans">
+              <p><strong class="text-white">Ý nghĩa:</strong> Đo lường độ mạnh xung lực nến, hỗ trợ/kháng cự và
+                dòng tiền T+ (Thang 0 - 100 điểm).</p>
+              <p><strong class="text-white">Các tiêu chí chấm điểm:</strong></p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
+                <li>Giá nằm trên <span class="text-emerald-400 font-semibold">MA20 (+25đ)</span>, trên <span
+                    class="text-emerald-400 font-semibold">MA50 (+10đ)</span>.</li>
+                <li>RSI vùng tích lũy <span class="text-emerald-400 font-semibold">50 - 65 (+15đ)</span>, quá mua
+                  &gt;70 bị trừ 15đ.</li>
+                <li>Volume bùng nổ <span class="text-emerald-400 font-semibold">&gt; 1.2x - 1.5x lần TB20
+                    (+15đ)</span>.</li>
+                <li>Lực cầu mua chủ động chiếm <span class="text-emerald-400 font-semibold">&gt; 55%
+                    (+10đ)</span>.</li>
+              </ul>
+              <div
+                class="pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex justify-between font-mono">
+                <span class="text-emerald-400 font-bold">&ge;75: T+ Rất Mạnh</span>
+                <span class="text-blue-400">60-74: Đạt chuẩn</span>
+                <span class="text-rose-400">&lt;50: Yếu/Gãy nền</span>
+              </div>
+            </div>
+          </div>
+        </span>
+      </div>
+      <div id="taScoreVal" class="text-lg font-black text-amber-400 mt-0.5">--<span
+          class="text-xs font-normal text-slate-500">/100</span></div>
+    </div>
+
+    <!-- 2. Điểm Cơ bản (FA Score) -->
+    <div class="p-2 bg-slate-900 border border-slate-800 rounded-lg text-center min-w-[105px]">
+      <div class="text-[10px] text-slate-400 font-sans flex items-center justify-center gap-1">
+        <span>Điểm Cơ bản</span>
+        <span class="tooltip-trigger tooltip-right">
+          <i
+            class="fa-solid fa-circle-question text-emerald-400 hover:text-emerald-300 transition text-[11px]"></i>
+          <div class="tooltip-box text-left">
+            <div
+              class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1.5 flex items-center gap-1.5 font-sans">
+              <i class="fa-solid fa-building-columns"></i> Điểm Cơ bản &amp; Sức khỏe DN (FA Score)
+            </div>
+            <div class="text-[11px] text-slate-300 space-y-1.5 font-sans">
+              <p><strong class="text-white">Ý nghĩa:</strong> Đánh giá sức khỏe tài chính, năng lực sinh lời và
+                định giá từ BCTC thật (Thang 0 - 100 điểm).</p>
+              <p><strong class="text-white">Các tiêu chí chấm điểm:</strong></p>
+              <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
+                <li>Hiệu quả vốn: <span class="text-emerald-400 font-semibold">ROE &gt; 20% (+20đ)</span>, ROE
+                  &gt; 14% (+12đ).</li>
+                <li>Định giá: <span class="text-emerald-400 font-semibold">P/E &le; 12x (+15đ)</span>, P/E &gt;
+                  25x bị trừ 10đ.</li>
+                <li>Tăng trưởng: <span class="text-emerald-400 font-semibold">LNST tăng &gt; 20% (+15đ)</span>.
+                </li>
+                <li>Đòn bẩy nợ D/E thấp, dòng tiền kinh doanh (CFO) dồi dào.</li>
+              </ul>
+              <div
+                class="pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex justify-between font-mono">
+                <span class="text-emerald-400 font-bold">&ge;80: Xuất sắc</span>
+                <span class="text-blue-400">60-79: Tốt/Ổn định</span>
+                <span class="text-rose-400">&lt;50: Yếu/Rủi ro</span>
+              </div>
+            </div>
+          </div>
+        </span>
+      </div>
+      <div id="faScoreVal" class="text-lg font-black text-emerald-400 mt-0.5">--<span
+          class="text-xs font-normal text-slate-500">/100</span></div>
+    </div>
+  </div>
+</div>

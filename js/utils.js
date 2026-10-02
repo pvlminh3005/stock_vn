@@ -4,6 +4,23 @@ export function formatVND(num) {
   return Math.round(num).toLocaleString('vi-VN');
 }
 
+// Định dạng giá VNĐ kèm ký hiệu đ cho biểu đồ và bảng giá
+export function formatPriceVND(price) {
+  if (price === null || price === undefined || isNaN(price)) return "--";
+  return Math.round(Number(price)).toLocaleString('vi-VN') + " đ";
+}
+
+// Định dạng giá cổ phiếu chuẩn bảng điện tử (chia 1000, 2 chữ số thập phân, ví dụ: 62,70)
+export function formatStockPrice(price) {
+  if (price === null || price === undefined || isNaN(price)) return "--";
+  const num = Number(price);
+  const val = num >= 1000 ? num / 1000 : num;
+  return val.toLocaleString('vi-VN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 // Định dạng khối lượng hoặc vốn hóa gọn gàng (K, M, Tỷ)
 export function formatCompactNumber(num) {
   if (num === null || num === undefined || isNaN(num)) return "--";

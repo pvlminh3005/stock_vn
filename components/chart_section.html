@@ -1,0 +1,44 @@
+<!-- KHU VỰC BIỂU ĐỒ NẾN TRỰC QUAN (TRADINGVIEW LIGHTWEIGHT CHARTS) -->
+<div class="px-5 md:px-6 pt-5 pb-2 border-b border-slate-800 bg-slate-950/60">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+    <div class="flex flex-wrap items-center gap-3">
+      <span class="text-sm font-bold text-white flex items-center gap-1.5">
+        <i class="fa-solid fa-chart-candlestick text-blue-400"></i> Biểu Đồ Nến Kỹ Thuật &amp; Khối Lượng
+      </span>
+      <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 shadow-inner">
+        <i class="fa-solid fa-clock text-[10px] text-blue-400"></i>
+        <span class="text-[11px] text-slate-400 font-medium">Khung:</span>
+        <select id="chartTimeframeSelect" class="bg-transparent text-xs text-white font-mono font-bold focus:outline-none cursor-pointer">
+          <option value="1D" class="bg-slate-900 text-white" selected>D1 (Ngày - Mặc định)</option>
+          <option value="1W" class="bg-slate-900 text-white">W1 (Tuần)</option>
+          <option value="1H" class="bg-slate-900 text-white">1H (1 Giờ)</option>
+          <option value="15" class="bg-slate-900 text-white">15m (15 Phút)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Legend info hover -->
+    <div id="chartLegend" class="text-xs font-mono text-slate-300 flex flex-wrap items-center gap-3">
+      <span>O: <span id="legOpen" class="text-white font-semibold">--</span></span>
+      <span>H: <span id="legHigh" class="text-emerald-400 font-semibold">--</span></span>
+      <span>L: <span id="legLow" class="text-rose-400 font-semibold">--</span></span>
+      <span>C: <span id="legClose" class="text-blue-400 font-semibold">--</span></span>
+      <span>Vol: <span id="legVol" class="text-amber-300 font-semibold">--</span></span>
+    </div>
+  </div>
+
+  <!-- Container vẽ biểu đồ -->
+  <div id="chartContainer"
+    class="w-full h-[520px] rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative"></div>
+  <div class="flex items-center justify-between text-[11px] text-slate-500 pt-2 pb-1">
+    <div class="flex items-center gap-4">
+      <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-blue-500 inline-block"></span> Đường
+        MA20</span>
+      <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-amber-400 inline-block"></span> Đường
+        MA50</span>
+      <span class="flex items-center gap-1"><span class="w-2.5 h-2 bg-emerald-500/60 inline-block"></span> Cột
+        Volume</span>
+    </div>
+    <span class="italic">Dùng con lăn chuột để zoom, giữ chuột trái kéo để xem lịch sử nến</span>
+  </div>
+</div>
