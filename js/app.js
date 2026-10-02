@@ -1,4 +1,4 @@
-import { formatVND, formatPriceVND, formatStockPrice, formatCompactNumber } from './utils.js?v=2.6';
+import { formatVND, formatPriceVND, formatStockPrice, formatCompactNumber, initTooltipBoundaryProtection } from './utils.js?v=2.7';
 import { getStockDetail, getChartData } from './api.js?v=2.6';
 import { initChart, updateChartData } from './modules/chart.js?v=2.6';
 import { renderFutureOutlook, renderNewsReferences, copyRiskReportMarkdown } from './modules/riskEngine.js?v=2.6';
@@ -549,6 +549,7 @@ function initApp() {
   initChart();
   setupAutocomplete();
   initEvents();
+  initTooltipBoundaryProtection();
   loadTop10((t) => {
     if (DOM.input) DOM.input.value = t;
     loadStock(t);

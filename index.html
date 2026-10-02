@@ -9,15 +9,15 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- TradingView Lightweight Charts Library -->
   <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="./css/styles.css">
+  <link rel="stylesheet" href="./css/styles.css?v=3.1">
 </head>
 
-<body class="bg-slate-950 text-slate-100 min-h-screen p-2 md:p-6 font-sans">
-  <div class="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden relative">
+<body class="bg-slate-950 text-slate-100 min-h-screen p-2 md:p-6 font-sans overflow-x-hidden">
+  <div class="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl relative">
 
     <!-- include: components/loading_overlay.html -->
 
-    <div class="p-5 md:p-6 border-b border-slate-800 bg-slate-900/90">
+    <div class="p-5 md:p-6 border-b border-slate-800 bg-slate-900/90 rounded-t-2xl">
       <!-- include: components/navbar.html -->
       <!-- include: components/stock_header.html -->
       <!-- include: components/quick_metrics.html -->
@@ -69,7 +69,7 @@
   </script>
 
   <!-- Nạp file script module chính -->
-  <script type="module" src="./js/app.js?v=3.0"></script>
+  <script type="module" src="./js/app.js?v=3.1"></script>
 </body>
 
 </html>

@@ -60,3 +60,64 @@ export function calculateSMA(series, period = 20) {
   const slice = series.slice(-period);
   return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length);
 }
+
+/**
+ * Tự động kiểm tra và căn chỉnh vị trí tooltip để chống tràn mép màn hình (viewport) và khung chứa
+ */
+export function initTooltipBoundaryProtection() {
+  function handleTooltipPosition(trigger) {
+    const box = trigger.querySelector('.tooltip-box');
+    if (!box) return;
+
+    // Reset style dịch chuyển inline để đo đạc chính xác
+    box.style.translate = '';
+    box.style.marginLeft = '';
+
+    const rect = box.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const container = trigger.closest('.max-w-6xl') || document.body;
+    const containerRect = container.getBoundingClientRect();
+
+    const padding = 12;
+    // Ngưỡng mép phải và mép trái an toàn
+    const maxAllowedRight = Math.min(viewportWidth - padding, containerRect.right - padding);
+    const minAllowedLeft = Math.max(padding, containerRect.left + padding);
+
+    if (rect.right > maxAllowedRight) {
+      const overflow = rect.right - maxAllowedRight;
+      if ('translate' in document.documentElement.style) {
+        box.style.translate = `-${overflow + 6}px 0`;
+      } else {
+        box.style.marginLeft = `-${overflow + 6}px`;
+      }
+    } else if (rect.left < minAllowedLeft) {
+      const underflow = minAllowedLeft - rect.left;
+      if ('translate' in document.documentElement.style) {
+        box.style.translate = `${underflow + 6}px 0`;
+      } else {
+        box.style.marginLeft = `${underflow + 6}px`;
+      }
+    }
+  }
+
+  function handleLeave(trigger) {
+    const box = trigger.querySelector('.tooltip-box');
+    if (box) {
+      box.style.translate = '';
+      box.style.marginLeft = '';
+    }
+  }
+
+  // Sử dụng event delegation để tự động bảo vệ tất cả tooltip hiện tại & tạo mới
+  document.addEventListener('mouseover', (e) => {
+    const trigger = e.target.closest('.tooltip-trigger');
+    if (trigger && !trigger._boundProtection) {
+      trigger._boundProtection = true;
+      trigger.addEventListener('mouseenter', () => handleTooltipPosition(trigger));
+      trigger.addEventListener('mouseleave', () => handleLeave(trigger));
+      trigger.addEventListener('focusin', () => handleTooltipPosition(trigger));
+      trigger.addEventListener('focusout', () => handleLeave(trigger));
+      handleTooltipPosition(trigger);
+    }
+  }, { passive: true });
+}
