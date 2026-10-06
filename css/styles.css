@@ -1,10 +1,15 @@
-/* Custom Styles for Stock RT Pro Analytics */
+/* Cố định layout viewport chống giật / co giãn text khi chuyển tab */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
 
-/* Tab active style */
-.tab-btn.tab-active {
-  border-bottom: 2px solid #3b82f6;
-  color: #60a5fa;
-  font-weight: 600;
+/* Tab button cố định kích thước và font */
+.tab-btn {
+  font-size: 0.875rem !important; /* 14px text-sm */
+  font-weight: 600 !important;
+  line-height: 1.25rem !important;
+  box-sizing: border-box;
 }
 
 /* Custom scrollbars */
@@ -83,34 +88,38 @@
   z-index: 100;
 }
 
-.tooltip-box {
-  visibility: hidden;
-  opacity: 0;
-  position: absolute;
-  z-index: 9999;
-  width: 290px;
-  max-width: min(290px, calc(100vw - 28px));
+/* Global Tooltip Overlay (Portal trên cùng toàn trang, không bao giờ bị che khuất) */
+#globalTooltipOverlay {
+  position: fixed;
+  z-index: 99999999;
+  width: 310px;
+  max-width: min(320px, calc(100vw - 24px));
   background: rgba(15, 23, 42, 0.98);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
   border: 1px solid #334155;
   border-radius: 12px;
   padding: 12px 14px;
   color: #e2e8f0;
   font-size: 11px;
   line-height: 1.5;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 8px 10px -6px rgba(0, 0, 0, 0.7);
-  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
   pointer-events: none;
-  white-space: normal;
-  word-break: break-word;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateY(4px);
+  display: block;
 }
 
-/* Hover trigger state */
-.tooltip-trigger:hover > .tooltip-box,
-.tooltip-trigger:focus-within > .tooltip-box {
-  visibility: visible;
+#globalTooltipOverlay.active {
   opacity: 1;
-  pointer-events: auto;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Ẩn các tooltip box con cục bộ để Portal Overlay hiển thị trên cùng */
+.tooltip-trigger > .tooltip-box {
+  display: none !important;
 }
 
 /* 1. Mặc định / Bottom position (căn giữa) */
@@ -274,4 +283,78 @@
   .grid-cols-2 > div:nth-child(2n+1) .tooltip-trigger:focus-within > .tooltip-box {
     transform: translateY(0) !important;
   }
+}
+
+/* ==================== LOADING OVERLAY FULLSCREEN ==================== */
+#loadingOverlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 99999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+}
+
+#loadingOverlay.hidden {
+  display: none !important;
+}
+
+/* ==================== CUSTOM SCROLLBAR FOR METRICS ==================== */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 rgba(15, 23, 42, 0.6);
+  -webkit-overflow-scrolling: touch;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6;
+}
+
+/* Tooltip alignment cho 2 card cuối (Card 7 và 8) trong grid 8 cột chỉ số */
+.grid-cols-8 > div:nth-child(8) .tooltip-trigger > .tooltip-box,
+.grid-cols-8 > div:nth-child(7) .tooltip-trigger > .tooltip-box {
+  left: auto !important;
+  right: 0 !important;
+  transform: translateY(-4px) !important;
+}
+
+.grid-cols-8 > div:nth-child(8) .tooltip-trigger:hover > .tooltip-box,
+.grid-cols-8 > div:nth-child(7) .tooltip-trigger:hover > .tooltip-box,
+.grid-cols-8 > div:nth-child(8) .tooltip-trigger:focus-within > .tooltip-box,
+.grid-cols-8 > div:nth-child(7) .tooltip-trigger:focus-within > .tooltip-box {
+  transform: translateY(0) !important;
+}
+
+/* ==================== KHUNG CHỈ SỐ TÀI CHÍNH (CHỈ SCROLL NGANG - CẤM SCROLL DỌC) ==================== */
+#financialMetricsScrollContainer {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-y: none !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+#financialMetricsScrollContainer::-webkit-scrollbar:vertical {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }

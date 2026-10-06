@@ -41,7 +41,7 @@ Hệ thống kết hợp mô hình phân tích định lượng 2 trụ cột:
 
 ## 2. Công Thức & Cách Tính Toán Các Thông Số Kỹ Thuật (TA)
 
-Tất cả các thông số kỹ thuật được tính toán trực tiếp trong hàm `analyze_technicals_and_scoring()` tại file [server.py](file:///Users/minhpvl/Desktop/stock_rt/server.py#L462):
+Tất cả các thông số kỹ thuật được tính toán trực tiếp trong hàm `analyze_technicals_and_scoring()` tại file [backend/server.py](file:///Users/minhpvl/Desktop/stock_rt/backend/server.py):
 
 ### 2.1. Chỉ số Sức mạnh Tương đối - RSI 14 phiên (Relative Strength Index)
 - **Công thức**:
@@ -245,7 +245,7 @@ Tổng hợp điểm số chung theo trọng số:
 
 ## 5. Bảng Chỉ Số Tài Chính Cơ Bản (Fundamental Metrics - FA)
 
-Dữ liệu cơ bản được tự động tải từ **BCTC thực tế thông qua thư viện `vnstock`** và lưu đệm vào SQLite tại [server.py](file:///Users/minhpvl/Desktop/stock_rt/server.py#L130-L330):
+Dữ liệu cơ bản được tự động tải từ **BCTC thực tế thông qua thư viện `vnstock`** và lưu đệm vào SQLite tại [backend/server.py](file:///Users/minhpvl/Desktop/stock_rt/backend/server.py):
 
 
 | Chỉ số | Ý nghĩa | Ngưỡng đánh giá tốt |

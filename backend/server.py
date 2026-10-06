@@ -11,9 +11,33 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+import numpy as np
+import pandas as pd
 from vnstock import Company, Finance
 
-PORT = 8000
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BACKEND_DIR)
+for p in [BACKEND_DIR, ROOT_DIR]:
+  if p not in sys.path:
+    sys.path.insert(0, p)
+
+def get_configured_port(default_port=8000):
+  """Lấy cổng mạng (PORT) từ tham số dòng lệnh hoặc biến môi trường PORT (mặc định: 8000)."""
+  if len(sys.argv) > 1 and sys.argv[1].isdigit():
+    return int(sys.argv[1])
+  if '--port' in sys.argv:
+    try:
+      idx = sys.argv.index('--port')
+      return int(sys.argv[idx + 1])
+    except (IndexError, ValueError):
+      pass
+  env_port = os.environ.get('PORT')
+  if env_port and env_port.isdigit():
+    return int(env_port)
+  return default_port
+
+
+PORT = get_configured_port(8000)
 
 HEADERS = {
     'User-Agent': (
@@ -57,7 +81,10 @@ def get_ssi_board_data():
     try:
       url = f'https://iboard-query.ssi.com.vn/stock/exchange/{ex}'
       res = fetch_json(url, headers=SSI_HEADERS, timeout=6)
-      return res.get('data', [])
+      items = res.get('data', [])
+      for item in items:
+        item['exchange'] = ex.upper()
+      return items
     except Exception as e:
       print(f'Lỗi fetch SSI board {ex}:', e)
       return []
@@ -134,7 +161,7 @@ def handle_chart_only(ticker, resolution='1D'):
 # ==================== CƠ SỞ DỮ LIỆU CƠ BẢN DOANH NGHIỆP QUA VNSTOCK ====================
 os.environ['VNSTOCK_TELEMETRY'] = 'off'
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'fundamentals.db')
+DB_PATH = os.path.join(ROOT_DIR, 'data', 'fundamentals.db')
 
 SECTOR_MAP = {
     'Technology': 'Công nghệ thông tin',
@@ -327,7 +354,17 @@ def fetch_from_vnstock(symbol):
     # 2. Chỉ số tài chính BCTC từ KBS
     f = Finance(source='KBS', symbol=symbol)
     r = f.ratio()
-    latest_col = r.columns[-1]
+    quarter_cols = [c for c in r.columns if c not in ['item', 'item_id']]
+    def parse_quarter_key(col_name):
+      try:
+        parts = str(col_name).split('-Q')
+        year = int(parts[0])
+        quarter = int(parts[1].split('_')[0])
+        return (year, quarter)
+      except:
+        return (0, 0)
+    sorted_cols = sorted(quarter_cols, key=parse_quarter_key)
+    latest_col = sorted_cols[-1] if sorted_cols else r.columns[-1]
     item_map = dict(zip(r['item'], r[latest_col]))
 
     def safe_num(val, default=0.0):
@@ -343,6 +380,9 @@ def fetch_from_vnstock(symbol):
     pe = safe_num(item_map.get('Chỉ số giá thị trường trên thu nhập (P/E)'), 0.0)
     pb = safe_num(
         item_map.get('Chỉ số giá thị trường trên giá trị sổ sách (P/B)'), 0.0
+    )
+    ps = safe_num(
+        item_map.get('Chỉ số giá thị trường trên doanh thu thuần (P/S)'), 0.0
     )
     roe = safe_num(item_map.get('ROE bình quân 4 quý gần nhất'), 0.0)
     eps = safe_num(
@@ -390,7 +430,9 @@ def fetch_from_vnstock(symbol):
         'name': name,
         'sector': sector,
         'pe': round(pe, 1) if pe > 0 else 0.0,
+        'peStatic': round(pe, 2) if pe > 0 else 0.0,
         'pb': round(pb, 2) if pb > 0 else 0.0,
+        'ps': round(ps, 2) if ps > 0 else 0.0,
         'roe': round(roe, 1) if roe != 0 else 0.0,
         'eps': round(eps) if eps > 0 else 0.0,
         'bvps': round(bvps) if bvps > 0 else 0.0,
@@ -459,13 +501,17 @@ def get_fundamental_profile(ticker, current_price):
         'isAudited': False,
     }
 
-  # Tính P/E và P/B động theo giá thị trường thời gian thực (chỉ khi có EPS/BVPS thực tế)
+  # Tính P/E, P/B và P/S động theo giá thị trường thời gian thực (chỉ khi có dữ liệu BCTC thực tế)
   eps = info.get('eps', 0.0)
   bvps = info.get('bvps', 0.0)
+  ps_static = info.get('ps', 0.0)
+  pe_static = info.get('peStatic', info.get('pe', 0.0))
   if eps > 0 and current_price > 0:
     info['pe'] = round(current_price / eps, 2)
   if bvps > 0 and current_price > 0:
     info['pb'] = round(current_price / bvps, 2)
+  if ps_static > 0 and pe_static > 0 and info.get('pe', 0.0) > 0:
+    info['ps'] = round(ps_static * (info['pe'] / pe_static), 2)
 
   # Chấm điểm FA Score (0 - 100) theo số liệu thực tế (Nếu chưa có BCTC, thông báo rõ ràng)
   is_audited = info.get('isAudited', False)
@@ -565,13 +611,12 @@ def calculate_relative_strength(stock_closes, vnindex_closes):
     >= 80: Siêu cổ phiếu Leader (Dẫn dắt)
     65 - 79: Kênh trên (Mạnh hơn VN-Index)
     45 - 64: Trung tính (Vận động cùng thị trường)
-    30 - 44: Kênh dưới (Yếu hơn VN-Index)
-    < 30: Cổ phiếu tụt hậu (Laggard)
+    40 - 44: Kênh dưới (Bắt đầu suy yếu hơn VN-Index)
+    < 40: Cổ phiếu tụt hậu (Laggard)
   """
   if not stock_closes or not vnindex_closes or len(stock_closes) < 15 or len(vnindex_closes) < 15:
     return {
         'rsScore': 50,
-        'rsRating': 'Trung tính (Đang cập nhật nến đối chiếu)',
         'rsStatus': 'neutral',
         'rsColor': 'amber',
         'stockAlpha1M': 0.0,
@@ -608,29 +653,23 @@ def calculate_relative_strength(stock_closes, vnindex_closes):
   rs_score = max(5, min(99, rs_score))
 
   if rs_score >= 80:
-    rs_rating = 'Siêu cổ phiếu Leader (Dẫn dắt)'
     rs_status = 'leader'
     rs_color = 'emerald'
   elif rs_score >= 65:
-    rs_rating = 'Kênh trên (Mạnh hơn VN-Index)'
     rs_status = 'outperforming'
     rs_color = 'blue'
   elif rs_score >= 45:
-    rs_rating = 'Trung tính (Vận động cùng thị trường)'
     rs_status = 'neutral'
-    rs_color = 'slate'
-  elif rs_score >= 30:
-    rs_rating = 'Kênh dưới (Yếu hơn VN-Index)'
+    rs_color = 'slate'    
+  elif rs_score >= 40:
     rs_status = 'underperforming'
     rs_color = 'amber'
   else:
-    rs_rating = 'Cổ phiếu tụt hậu (Laggard)'
     rs_status = 'laggard'
     rs_color = 'rose'
 
   return {
       'rsScore': rs_score,
-      'rsRating': rs_rating,
       'rsStatus': rs_status,
       'rsColor': rs_color,
       'stockAlpha1M': round(alpha_1m, 1),
@@ -707,20 +746,40 @@ def calculate_multi_timeframe_confluence(ticker, current_price, d1_ma20):
 
 
 def calculate_rsi(closes, period=14):
+  """Tính toán RSI 14 phiên chuẩn kỹ thuật Wilder trên chuỗi giá đóng cửa gần nhất."""
   if not closes or len(closes) < 3:
     return 50.0
-  p = min(period, len(closes) - 1)
-  gains, losses = 0.0, 0.0
-  for i in range(1, p + 1):
-    diff = closes[i] - closes[i - 1]
-    if diff >= 0:
-      gains += diff
-    else:
-      losses -= diff
-  if losses == 0:
-    return 80.0
-  rs = (gains / p) / (losses / p)
-  return round(100.0 - (100.0 / (1.0 + rs)), 1)
+  if len(closes) < period + 1:
+    p = len(closes) - 1
+    recent = closes[-p - 1:]
+    diffs = [recent[i] - recent[i - 1] for i in range(1, len(recent))]
+    g = sum(d for d in diffs if d > 0) / p
+    l = sum(-d for d in diffs if d < 0) / p
+    if l == 0:
+      return 80.0
+    return round(100.0 - (100.0 / (1.0 + g / l)), 1)
+
+  s = pd.Series(closes, dtype=float)
+  delta = s.diff()
+  gain = delta.where(delta > 0, 0.0)
+  loss = -delta.where(delta < 0, 0.0)
+  avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+  avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+  rs = avg_gain / avg_loss
+  rsi = 100.0 - (100.0 / (1.0 + rs))
+  val = rsi.iloc[-1]
+  return round(float(val), 1) if not pd.isna(val) else 50.0
+
+
+def calculate_ema(series, period=20):
+  """Tính toán Exponential Moving Average (EMA) chu kỳ N phiên."""
+  if not series:
+    return 0.0
+  if len(series) < period:
+    return calculate_sma(series, len(series))
+  s = pd.Series(series, dtype=float)
+  ema = s.ewm(span=period, adjust=False).mean()
+  return round(float(ema.iloc[-1]), 1)
 
 
 def calculate_sma(series, period=20):
@@ -730,12 +789,321 @@ def calculate_sma(series, period=20):
   return round(sum(slice_data) / len(slice_data), 1)
 
 
-def analyze_technicals_and_scoring(
-    candles_data, ssi_item, current_price, fundamental_info, ticker=None
-):
-  """Phân tích toàn diện kỹ thuật, xung lực dòng tiền, hỗ trợ/kháng cự động,
+def calculate_atr(highs, lows, closes, period=14):
+  """Tính toán ATR 14 phiên chuẩn kỹ thuật Wilder (Average True Range)."""
+  if not closes or len(closes) < 2:
+    return 0.0
+  tr_list = []
+  for i in range(1, len(closes)):
+    h = highs[i]
+    l = lows[i]
+    prev_c = closes[i - 1]
+    tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+    tr_list.append(tr)
+  if not tr_list:
+    return 0.0
+  if len(tr_list) < period:
+    return round(float(sum(tr_list) / len(tr_list)), 1)
+  atr = sum(tr_list[:period]) / period
+  for tr in tr_list[period:]:
+    atr = (atr * (period - 1) + tr) / period
+  return round(float(atr), 1)
 
-  sức mạnh giá tương đối RS O'Neil, đa khung thời gian và chấm điểm.
+
+def identify_structural_levels(highs, lows, closes, current_price, atr14):
+  """
+  Xác định hỗ trợ S1, S2 và kháng cự R1, R2 dựa trên cấu trúc Fractal Pivots (Swing High/Low).
+  TUYỆT ĐỐI KHÔNG GÁN CỨNG PHẦN TRĂM MẶC ĐỊNH (+8.5% hay -4.5%) mà tính từ nến OHLCV thực tế.
+  """
+  n = len(closes)
+  lookback = min(60, n)
+  sub_h = highs[-lookback:]
+  sub_l = lows[-lookback:]
+  sub_c = closes[-lookback:]
+  m = len(sub_c)
+
+  swing_highs = []
+  swing_lows = []
+
+  # Tìm các đỉnh / đáy Fractal pivot (3-bar fractal)
+  for i in range(1, m - 1):
+    if sub_h[i] >= sub_h[i - 1] and sub_h[i] >= sub_h[i + 1]:
+      swing_highs.append(sub_h[i])
+    if sub_l[i] <= sub_l[i - 1] and sub_l[i] <= sub_l[i + 1]:
+      swing_lows.append(sub_l[i])
+
+  # Hỗ trợ S1: Swing low cao nhất nằm dưới giá hiện tại (cách ít nhất 0.8% để tránh nhiễu)
+  valid_supports = [sl for sl in swing_lows if sl < current_price * 0.992]
+  if valid_supports:
+    s1 = max(valid_supports)
+  else:
+    min_recent_l = min(sub_l) if sub_l else (current_price - 1.5 * atr14)
+    s1 = min_recent_l if min_recent_l < current_price * 0.992 else (current_price - 1.5 * atr14)
+
+  # Hỗ trợ S2: Ngưỡng hỗ trợ sâu hơn nằm dưới S1
+  valid_s2 = [sl for sl in swing_lows if sl < s1 * 0.985]
+  if valid_s2:
+    s2 = max(valid_s2)
+  else:
+    s2 = s1 - max(atr14, s1 * 0.03)
+
+  # Kháng cự R1: Swing high thấp nhất nằm trên giá hiện tại (cách ít nhất 0.8%)
+  valid_resistances = [sh for sh in swing_highs if sh > current_price * 1.008]
+  if valid_resistances:
+    r1 = min(valid_resistances)
+  else:
+    # Vượt đỉnh 60 phiên / ATH: Đo mục tiêu theo Fibonacci Projection từ nhịp sóng gần nhất
+    rec_low = min(sub_l[-20:]) if len(sub_l) >= 20 else s1
+    rec_high = max(sub_h[-20:]) if len(sub_h) >= 20 else current_price
+    wave_range = rec_high - rec_low
+    if wave_range > atr14:
+      r1 = current_price + (0.618 * wave_range)
+    else:
+      r1 = current_price + (2.0 * atr14)
+
+  # Kháng cự R2: Ngưỡng cản tiếp theo trên R1
+  valid_r2 = [sh for sh in swing_highs if sh > r1 * 1.015]
+  if valid_r2:
+    r2 = min(valid_r2)
+  else:
+    r2 = r1 + max(atr14 * 1.5, r1 * 0.035)
+
+  # Chuẩn hóa làm tròn về đơn vị 50/100 VND
+  s1 = round(s1, -2) if s1 >= 1000 else round(s1, 1)
+  s2 = round(s2, -2) if s2 >= 1000 else round(s2, 1)
+  r1 = round(r1, -2) if r1 >= 1000 else round(r1, 1)
+  r2 = round(r2, -2) if r2 >= 1000 else round(r2, 1)
+
+  return s1, s2, r1, r2
+
+
+def calculate_weekly_levels(ticker, current_price):
+  """Trích xuất ngưỡng kỹ thuật nến tuần W1 (52-week High/Low, Weekly MA10, Weekly MA50)."""
+  global _WEEKLY_CHART_CACHE
+  now = time.time()
+  w_data = None
+  if ticker:
+    cached = _WEEKLY_CHART_CACHE.get(ticker)
+    if cached and (now - cached['time'] < 60):
+      w_data = cached['data']
+    else:
+      try:
+        w_data = fetch_chart_data(ticker, days=730, resolution='1W')
+        if w_data and w_data.get('c'):
+          _WEEKLY_CHART_CACHE[ticker] = {'time': now, 'data': w_data}
+      except Exception:
+        w_data = None
+
+  w_closes = w_data.get('c', []) if w_data else []
+  w_highs = w_data.get('h', []) if w_data else []
+  w_lows = w_data.get('l', []) if w_data else []
+
+  if not w_closes:
+    return {
+        'w52High': current_price,
+        'w52Low': current_price,
+        'wMa10': current_price,
+        'wMa50': current_price,
+        'wCloses': [],
+    }
+
+  scale = 1000 if w_closes[-1] < 1000 else 1
+  c_scaled = [c * scale for c in w_closes]
+  h_scaled = [h * scale for h in w_highs]
+  l_scaled = [l * scale for l in w_lows]
+
+  n52 = min(52, len(c_scaled))
+  w52_high = round(max(h_scaled[-n52:]), -2)
+  w52_low = round(min(l_scaled[-n52:]), -2)
+
+  n10 = min(10, len(c_scaled))
+  w_ma10 = round(sum(c_scaled[-n10:]) / n10, -2)
+
+  n50 = min(50, len(c_scaled))
+  w_ma50 = round(sum(c_scaled[-n50:]) / n50, -2)
+
+  return {
+      'w52High': w52_high,
+      'w52Low': w52_low,
+      'wMa10': w_ma10,
+      'wMa50': w_ma50,
+      'wCloses': c_scaled,
+  }
+
+
+SECTOR_PE_BENCHMARKS = {
+    'Công nghệ thông tin': 18.5,
+    'Bán lẻ': 17.0,
+    'Bán lẻ tiêu dùng': 17.0,
+    'Thép & Tài nguyên cơ bản': 9.5,
+    'Thép & VLXD': 9.5,
+    'Dầu khí': 12.0,
+    'Dầu khí & Năng lượng': 12.0,
+    'Năng lượng': 12.0,
+    'Bất động sản': 13.0,
+    'Hạ tầng & BĐS': 13.0,
+    'Xây dựng & Vật liệu': 11.0,
+    'Xây lắp': 11.0,
+    'Chứng khoán': 12.5,
+    'Dịch vụ Tài chính / Chứng khoán': 12.5,
+    'Thực phẩm': 15.0,
+    'Tiêu dùng': 15.5,
+    'Dược phẩm': 15.0,
+    'Ngân hàng': 9.5,
+}
+
+
+def calculate_fundamental_valuation(fundamental_info, current_price, sector, w_levels, s2_support):
+  """
+  Định giá và kế hoạch đầu tư trung/dài hạn toán học từ BCTC thực tế (EPS, BVPS, ROE, P/E).
+  TUYỆT ĐỐI KHÔNG BỊA SỐ +/- % hay gán cứng '+18% ~ +25%'.
+  """
+  if not fundamental_info:
+    return {
+        'decision': 'CHỜ BỔ SUNG BCTC',
+        'type': 'warning',
+        'reason': 'Dữ liệu BCTC chưa ghi nhận đầy đủ để định giá nội tại.',
+        'target': 'Chưa ghi nhận (Thiếu BCTC)',
+        'targetVal': None,
+        'upsidePct': None,
+        'entry': '--',
+        'stop': '--',
+        'dcaZone': '--',
+        'invalidation': '--',
+        'benchmarkPe': 12.5,
+        'valuationMethod': 'Chưa xác định',
+    }
+
+  eps = fundamental_info.get('eps', 0.0)
+  bvps = fundamental_info.get('bvps', 0.0)
+  roe = fundamental_info.get('roe', 0.0)
+  pe = fundamental_info.get('pe', 0.0)
+  pb = fundamental_info.get('pb', 0.0)
+  is_audited = fundamental_info.get('isAudited', False)
+  profit_growth = fundamental_info.get('profitGrowth', 0.0)
+  debt = fundamental_info.get('debtToEquity', 0.0)
+  ocf = fundamental_info.get('ocf', 0.0)
+
+  w_ma50 = w_levels.get('wMa50', current_price)
+  w52_low = w_levels.get('w52Low', current_price * 0.8)
+
+  benchmark_pe = SECTOR_PE_BENCHMARKS.get(sector, 12.5)
+
+  target_val = None
+  method = ''
+
+  # Phân loại rủi ro tài chính nghiêm trọng
+  is_financial_distress = (debt > 2.2 and ocf < 0 and (roe <= 0 or profit_growth <= 0))
+
+  # 1. Định giá cho Ngân hàng
+  if sector == 'Ngân hàng':
+    if roe >= 20.0:
+      target_pb = 1.55
+    elif roe >= 15.0:
+      target_pb = 1.30
+    elif roe > 0:
+      target_pb = 1.05
+    else:
+      target_pb = 0.90
+
+    if bvps > 0 and roe > 0:
+      target_val = round(bvps * target_pb, -2)
+      method = f'P/B mục tiêu {target_pb}x theo ROE {roe:.1f}%'
+    elif eps > 0:
+      target_val = round(eps * 9.5, -2)
+      method = f'P/E mục tiêu 9.5x theo EPS {eps:,.0f} đ'
+
+  # 2. Định giá cho Doanh nghiệp Phi tài chính
+  elif not is_financial_distress and eps > 0:
+    target_val = round(eps * benchmark_pe, -2)
+    method = f'P/E tham chiếu ngành {benchmark_pe}x theo EPS {eps:,.0f} đ'
+  elif not is_financial_distress and bvps > 0 and roe >= 8.0 and sector in ['Bất động sản', 'Hạ tầng & BĐS', 'Thép & VLXD']:
+    target_pb = 1.25 if roe >= 12.0 else 0.95
+    target_val = round(bvps * target_pb, -2)
+    method = f'P/B tham chiếu {target_pb}x theo BVPS {bvps:,.0f} đ'
+
+  # Vùng gom tích sản DCA: Quanh hỗ trợ MA50 tuần hoặc Swing Support S2
+  dca_base = min(current_price * 0.99, max(w_ma50, s2_support))
+  dca_min = round(min(dca_base * 0.96, s2_support), -2)
+  dca_max = round(dca_base, -2)
+  dca_zone = f"{dca_min:,.0f} - {dca_max:,.0f} đ"
+
+  # Ngưỡng Invalidation / Cắt lỗ trung hạn: vỡ gãy MA50 tuần > 4% hoặc thủng đáy 52 tuần
+  inval_price = round(min(w_ma50 * 0.95, w52_low), -2)
+  inval_pct = round(((current_price - inval_price) / current_price) * 100, 1) if current_price > 0 else 10.0
+  inval_str = f"{inval_price:,.0f} đ (-{inval_pct}%)"
+
+  # Xử lý kết luận và tính Upside
+  if is_financial_distress:
+    decision = 'CẢNH BÁO RỦI RO TÀI CHÍNH (TRÁNH ĐẦU TƯ)'
+    dec_type = 'danger'
+    reason = (
+        f"Doanh nghiệp mất cân đối tài chính nghiêm trọng: D/E {debt:.2f}x (>2.2x), dòng tiền HĐKD âm "
+        f"({ocf:+,.1f} tỷ đ), ROE ({roe:.1f}%). Rủi ro thanh khoản cao, không đạt tiêu chuẩn đầu tư trung dài hạn."
+    )
+    target_str = "Không áp dụng định giá (Lỗ ròng / Căng thẳng nợ)"
+    target_val = None
+    upside_pct = None
+    dca_zone = "Không khuyến nghị gom"
+    inval_str = f"Thủng đáy 52W: {w52_low:,.0f} đ"
+    method = "Cảnh báo đòn bẩy quá cao"
+  elif not is_audited or (eps <= 0 and roe <= 0):
+    decision = 'CHỜ BỔ SUNG BCTC'
+    dec_type = 'warning'
+    reason = f'Dữ liệu BCTC chưa đầy đủ hoặc kết quả kinh doanh âm (ROE {roe:.1f}%, EPS {eps:,.0f} đ). Chưa đủ điều kiện giải ngân tích sản trung dài hạn.'
+    target_str = "Chưa ghi nhận (LNST âm / Chưa kiểm toán)"
+    target_val = None
+    upside_pct = None
+    dca_zone = "--"
+    inval_str = "--"
+  else:
+    if target_val and current_price > 0:
+      upside_pct = round(((target_val - current_price) / current_price) * 100, 1)
+      target_str = f"{target_val:,.0f} đ ({'+' if upside_pct > 0 else ''}{upside_pct}%)"
+    else:
+      target_str = "Chưa ghi nhận (Thiếu tham số định giá)"
+      upside_pct = None
+
+    if upside_pct is not None and upside_pct >= 15.0 and roe >= 15.0 and debt <= 2.2:
+      decision = 'GOM TÍCH SẢN (VÙNG GIÁ HẤP DẪN)'
+      dec_type = 'success'
+      reason = f'Nội tại xuất sắc: ROE {roe:.1f}%, tăng trưởng LN {profit_growth:+.1f}%. Định giá {method} mở ra biên an toàn +{upside_pct}%. Phù hợp chiến lược DCA gom quanh vùng {dca_zone}.'
+    elif upside_pct is not None and upside_pct >= 5.0:
+      decision = 'NẮM GIỮ THEO DÕI NỀN'
+      dec_type = 'warning'
+      reason = f'Định giá P/E ({pe:.1f}x) tiệm cận vùng hợp lý ({method}). Biên lợi nhuận kỳ vọng đạt +{upside_pct}%, duy trì vị thế và theo dõi BCTC các quý kế tiếp.'
+    elif upside_pct is not None and upside_pct < 5.0:
+      decision = 'ĐỊNH GIÁ CAO - CHỜ CHIẾT KHẤU'
+      dec_type = 'warning'
+      reason = f'Thị giá ({current_price:,.0f} đ) đã phản ánh phần lớn kỳ vọng (P/E {pe:.1f}x so với ngành {benchmark_pe}x). Biên an toàn hẹp ({upside_pct:+.1f}%), kiên nhẫn chờ nhịp chiết khấu sâu hơn về {dca_zone}.'
+    else:
+      decision = 'THEO DÕI NỘI TẠI'
+      dec_type = 'warning'
+      reason = f'Doanh nghiệp đang vận động ổn định. Theo dõi thêm chu kỳ dòng tiền HĐKD ({ocf:+,.1f} tỷ đ).'
+
+  return {
+      'decision': decision,
+      'type': dec_type,
+      'reason': reason,
+      'target': target_str,
+      'targetVal': target_val,
+      'upsidePct': upside_pct,
+      'entry': dca_zone,
+      'stop': inval_str,
+      'dcaZone': dca_zone,
+      'invalidation': inval_str,
+      'benchmarkPe': benchmark_pe,
+      'valuationMethod': method,
+  }
+
+
+def analyze_technicals_and_scoring(
+    candles_data, ssi_item, current_price, fundamental_info, ticker=None, exchange='HOSE'
+):
+  """
+  Phân tích toàn diện kỹ thuật, xung lực dòng tiền, hỗ trợ/kháng cự động cấu trúc Fractal,
+  ATR(14) chuẩn Wilder, Trade Plan T+ sau phí thuế và Đầu tư Trung/Dài hạn chuẩn BCTC.
+  TUYỆT ĐỐI KHÔNG HARDCODE SỐ LIỆU HAY BỊA +/- %.
   """
   c_list = candles_data.get('c', [])
   h_list = candles_data.get('h', [])
@@ -773,198 +1141,190 @@ def analyze_technicals_and_scoring(
     vol_signal = f'Thanh khoản bình quân (x{vol_ratio})'
     vol_color = 'slate'
 
-  # Tỷ lệ Mua / Bán chủ động từ SSI
+  # Tỷ lệ Mua / Bán chủ động từ SSI & Dòng vốn khối ngoại
   buy_active = ssi_item.get('stockBUVol', 0) if ssi_item else 0
   sell_active = ssi_item.get('stockSDVol', 0) if ssi_item else 0
   total_active = buy_active + sell_active
   buy_ratio = round((buy_active / total_active) * 100, 1) if total_active else 50.0
 
-  # Hỗ trợ & Kháng cự ĐỘNG từ 25 phiên gần nhất
-  lookback = min(25, len(lows))
-  support_level = round(min(lows[-lookback:]), -2) if lookback > 0 else ma20
-  resistance_level = round(max(highs[-lookback:]), -2) if lookback > 0 else ma20
+  buy_foreign = ssi_item.get('buyForeignQtty', 0) if ssi_item else 0
+  sell_foreign = ssi_item.get('sellForeignQtty', 0) if ssi_item else 0
+  foreign_net = buy_foreign - sell_foreign
 
-  # Đảm bảo logic hỗ trợ/kháng cự so với giá hiện tại
-  if support_level >= current_price:
-    support_level = round(current_price * 0.96, -2)
-  if resistance_level <= current_price:
-    resistance_level = round(current_price * 1.08, -2)
+  # 1. Tính toán ATR 14 phiên Wilder
+  atr14 = calculate_atr(highs, lows, closes, period=14)
+  if atr14 <= 0:
+    atr14 = round(current_price * 0.02, 1)
 
-  # Entry, Target, Stop Loss bám theo hỗ trợ / kháng cự thật
-  entry_min = round(max(support_level * 1.01, current_price * 0.985), -2)
-  entry_max = round(current_price * 0.995, -2)
+  # 2. Xác định các ngưỡng cấu trúc S1, S2, R1, R2 từ Fractal Pivots
+  support_level, s2_support, resistance_level, r2_target = identify_structural_levels(
+      highs, lows, closes, current_price, atr14
+  )
+
+  # Cắt lỗ T+2.5: Đặt dưới ngưỡng hỗ trợ cấu trúc S1 một khoảng đệm 0.5 ATR
+  # Nếu thủng mốc này -> vi phạm cấu trúc sóng tăng
+  stop_price = round(support_level - (0.5 * atr14), -2)
+  if stop_price >= current_price:
+    stop_price = round(current_price - atr14, -2)
+
+  downside_val = max(1.0, current_price - stop_price)
+  downside = round((downside_val / current_price) * 100, 1) if current_price > 0 else 4.0
+
+  # Mục tiêu chốt lời T+: Target 1 tại Kháng cự R1, Target 2 tại R2
   target_price = resistance_level
-  stop_price = round(support_level * 0.97, -2)  # Cắt lỗ khi thủng hỗ trợ 3%
+  upside_val = max(0.0, target_price - current_price)
+  upside = round((upside_val / current_price) * 100, 1) if current_price > 0 else 8.0
 
-  upside = (
-      round((target_price - current_price) / current_price * 100, 1)
-      if current_price > 0
-      else 8.0
-  )
-  downside = (
-      round((current_price - stop_price) / current_price * 100, 1)
-      if current_price > 0
-      else 4.0
-  )
-  rr_ratio = round(upside / downside, 1) if downside > 0 else 2.0
+  upside2_val = max(0.0, r2_target - current_price)
+  upside2 = round((upside2_val / current_price) * 100, 1) if current_price > 0 else 12.0
 
-  # Tính toán Sức mạnh giá tương đối RS O'Neil so với VN-Index
+  # Net R:R sau thuế phí giao dịch thị trường Việt Nam (0.4% vòng đời lệnh: phí CTCK + thuế bán 0.1%)
+  net_upside = max(0.0, (target_price - current_price) - (0.004 * current_price))
+  net_downside = (current_price - stop_price) + (0.004 * current_price)
+  rr_ratio = round(net_upside / net_downside, 2) if net_downside > 0 else 1.0
+
+  dist_to_support = round(((current_price - support_level) / support_level) * 100, 1) if support_level > 0 else 0.0
+
+  # Vùng Mua T+ (Entry Zone)
+  if dist_to_support <= 3.8:
+    entry_min = support_level
+    entry_max = round(min(support_level * 1.025, current_price * 1.005), -2)
+    tplus_entry = f"{entry_min:,.0f} - {entry_max:,.0f} đ"
+  else:
+    entry_min = support_level
+    entry_max = round(support_level + 0.5 * atr14, -2)
+    tplus_entry = f"Chờ test lại {entry_min:,.0f} - {entry_max:,.0f} đ"
+
+  # Sức mạnh giá tương đối RS O'Neil so với VN-Index
   vnindex_c = get_vnindex_candles()
   rs_info = calculate_relative_strength(closes, vnindex_c)
 
-  # Tính toán Đồng thuận đa khung thời gian D1 + W1
+  # Đồng thuận đa khung thời gian D1 + W1
   multi_tf = calculate_multi_timeframe_confluence(ticker, current_price, ma20)
+  w_levels = calculate_weekly_levels(ticker, current_price)
 
-  # Quản trị Vị thế & Quy mô Giải ngân (Risk-Based Position Sizing: Max Risk 1.5% NAV)
-  downside_risk = max(2.5, downside)
-  max_nav_pct = min(35.0, round((1.5 / downside_risk) * 100.0, 1))
+  # Quản trị Vị thế & Quy mô Giải ngân:
+  # Căn cứ theo rủi ro kẹt sàn (Worst Floor Gap): HOSE = 15% NAV, HNX = 10.5% NAV, UPCoM = 7.2% NAV
+  ex_clean = (exchange or 'HOSE').upper()
+  floor_cap = 15.0 if 'HOSE' in ex_clean else (10.5 if 'HNX' in ex_clean else 7.2)
+  downside_risk = max(2.0, downside)
+  nominal_nav_pct = round((1.5 / downside_risk) * 100.0, 1)
+  max_nav_pct = min(floor_cap, nominal_nav_pct)
   pilot_nav_pct = round(max_nav_pct * 0.35, 1)
   pyramid_nav_pct = round(max_nav_pct * 0.65, 1)
+
   position_sizing = {
       'maxNavPct': max_nav_pct,
       'pilotNavPct': pilot_nav_pct,
       'pyramidNavPct': pyramid_nav_pct,
       'riskBudgetPct': 1.5,
       'downsideRiskPct': downside,
+      'floorCap': floor_cap,
+      'exchange': ex_clean,
       'guide': (
-          f'Giải ngân tối đa {max_nav_pct}% NAV danh mục (Vị thế thăm dò: {pilot_nav_pct}% NAV, '
-          f'Gia tăng: {pyramid_nav_pct}% NAV khi break cản). Khống chế mức lỗ tối đa không quá 1.5% tổng NAV.'
+          f"Giải ngân tối đa {max_nav_pct}% NAV (Sàn {ex_clean} trần an toàn {floor_cap}% NAV). "
+          f"Thăm dò: {pilot_nav_pct}% NAV quanh nền, Gia tăng: {pyramid_nav_pct}% NAV khi break cản {resistance_level:,.0f} đ. "
+          f"Cắt lỗ nghiêm ngặt tại {stop_price:,.0f} đ (-{downside}% deal, khống chế tổn thất <= 1.5% tổng NAV)."
       ),
   }
 
   # CHẤM ĐIỂM KỸ THUẬT (TA SCORE / 100)
   ta_score = 40
-  if current_price >= ma20:
-    ta_score += 20
-  if current_price >= ma50:
-    ta_score += 10
-  if 50 <= rsi <= 65:
-    ta_score += 15
-  elif 40 <= rsi < 50:
-    ta_score += 8
-  elif rsi > 70:
-    ta_score -= 15  # Quá mua rủi ro
-  elif rsi < 35:
-    ta_score += 5  # Quá bán bắt đáy
+  if current_price >= ma20: ta_score += 20
+  if current_price >= ma50: ta_score += 10
+  if 50 <= rsi <= 65: ta_score += 15
+  elif 40 <= rsi < 50: ta_score += 8
+  elif rsi > 70: ta_score -= 15
+  elif rsi < 35: ta_score += 5
 
-  if vol_ratio >= 1.5:
-    ta_score += 15
-  elif vol_ratio >= 1.1:
-    ta_score += 8
+  if vol_ratio >= 1.5: ta_score += 15
+  elif vol_ratio >= 1.1: ta_score += 8
 
-  if buy_ratio >= 55:
-    ta_score += 10
-  elif buy_ratio < 45:
-    ta_score -= 5
+  if buy_ratio >= 55: ta_score += 10
+  elif buy_ratio < 45: ta_score -= 5
 
-  # Tác động của RS Rating O'Neil (CANSLIM)
   rs_score = rs_info.get('rsScore', 50)
-  if rs_score >= 80:
-    ta_score += 15  # Siêu cổ phiếu dẫn dắt
-  elif rs_score >= 65:
-    ta_score += 8   # Kênh trên mạnh hơn thị trường
-  elif rs_score < 40:
-    ta_score -= 10  # Cổ phiếu yếu tụt hậu
+  if rs_score >= 80: ta_score += 15
+  elif rs_score >= 65: ta_score += 8
+  elif rs_score < 40: ta_score -= 10
 
-  # Tác động của Đa khung thời gian D1 + W1
-  if multi_tf.get('isAlignedBullish'):
-    ta_score += 8
-  elif multi_tf.get('isSevereDowntrend'):
-    ta_score -= 10
+  if multi_tf.get('isAlignedBullish'): ta_score += 8
+  elif multi_tf.get('isSevereDowntrend'): ta_score -= 10
 
   ta_score = max(10, min(98, ta_score))
 
-  # Quyết định T+
-  if rsi > 72:
-    tplus_decision = 'QUÁ MUA - HẠN CHẾ ĐUA GIÁ'
+  # QUYẾT ĐỊNH VỊ THẾ T+ TOÁN HỌC KHẮT KHE (LƯỚT SÓNG 2-10 PHIÊN)
+  if rsi > 70 or (rsi > 68 and foreign_net < -50000):
+    tplus_decision = 'QUÁ MUA - CHỜ RUNG LẮC'
     tplus_type = 'danger'
     tplus_reason = (
-        f'RSI chạm {rsi} (vùng quá mua), giá đang tiệm cận kháng cự đỉnh cũ'
-        f' ({resistance_level:,.0f} đ). Nguy cơ điều chỉnh T+ cao.'
+        f"RSI chạm {rsi} (vùng quá mua), giá đang ở vùng rủi ro điều chỉnh T+ cao. "
+        f"Khối ngoại {'bán ròng ' + f'{abs(foreign_net):,.0f} cp' if foreign_net < 0 else 'đã đẩy giá cao'}. Tuyệt đối không mua đuổi."
     )
-  elif ta_score >= 75 and vol_ratio >= 1.2 and rs_score >= 60:
-    tplus_decision = 'MUA MẠNH - BÙNG NỔ DÒNG TIỀN'
+  elif current_price < ma20 or multi_tf.get('isSevereDowntrend'):
+    tplus_decision = 'DƯỚI MA20 - CHỜ TẠO NỀN'
+    tplus_type = 'danger'
+    tplus_reason = (
+        f"Giá đóng cửa ({current_price:,.0f} đ) nằm dưới MA20 ({ma20:,.0f} đ), phe bán chiếm {100-buy_ratio:.1f}%. "
+        f"Cần chờ dòng tiền lớn tạo nền tích lũy trước khi mở vị thế."
+    )
+  elif dist_to_support > 3.8:
+    tplus_decision = 'XA NỀN - CHỜ RETEST'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"Giá hiện tại đã tăng cách ngưỡng hỗ trợ S1 {dist_to_support:.1f}% (>3.5%). "
+        f"Vị thế treo leo bất lợi, ưu tiên chờ nhịp rung lắc test lại nền {support_level:,.0f} đ."
+    )
+  elif rr_ratio < 2.0:
+    tplus_decision = f'R:R KÉM (1:{rr_ratio}) - KHÔNG ĐẠT CHUẨN'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"Tỷ lệ Lợi nhuận/Rủi ro ròng chỉ đạt 1:{rr_ratio} (< 2.0 sau thuế phí 0.4%). "
+        f"Biên lãi kỳ vọng (+{upside}%) không đủ bù đắp rủi ro cắt lỗ (-{downside}%). Không mở vị thế mua T+."
+    )
+  elif ta_score >= 75 and vol_ratio >= 1.25 and buy_ratio >= 50 and rs_score >= 60 and rr_ratio >= 2.0:
+    tplus_decision = 'MUA MẠNH T+ (BÙNG NỔ DÒNG TIỀN)'
     tplus_type = 'success'
     tplus_reason = (
-        f'Giá giữ vững trên MA20 ({ma20:,.0f} đ), Volume bùng nổ gấp'
-        f' {vol_ratio}x lần bình quân, RS Rating {rs_score}/99 ({rs_info.get("rsRating")}). '
-        f'Lực cầu chủ động chiếm {buy_ratio}%.'
+        f"Giá giữ vững trên MA20 ({ma20:,.0f} đ), Vol bùng nổ gấp {vol_ratio}x SMA20, RS Rating {rs_score}/99. "
+        f"Lực mua chủ động chiếm {buy_ratio}%, Net R:R đạt chuẩn 1:{rr_ratio}. Đủ điều kiện giải ngân quyết đoán."
     )
-  elif current_price >= ma20 and 46 <= rsi <= 68:
+  elif current_price >= ma20 and 42 <= rsi <= 68 and dist_to_support <= 3.8 and rr_ratio >= 2.0:
     tplus_decision = 'MUA TÍCH LŨY T+ (ĐẠT CHUẨN)'
     tplus_type = 'success'
     tplus_reason = (
-        f'Nến duy trì trên MA20 ({ma20:,.0f} đ), RSI lành mạnh ({rsi}), RS {rs_score}/99, '
-        f'R/R đạt 1:{rr_ratio}. Gom trong các nhịp rung lắc.'
+        f"Nến duy trì sát nền MA20 ({ma20:,.0f} đ), cách hỗ trợ {dist_to_support:.1f}%, RSI lành mạnh ({rsi}), "
+        f"Net R:R đạt chuẩn 1:{rr_ratio}. Gom trong các nhịp rung lắc quanh nền."
     )
-  elif rsi < 36:
+  elif rsi < 35:
     tplus_decision = 'BẮT ĐÁY NẢY KỸ THUẬT (RỦI RO CAO)'
     tplus_type = 'warning'
     tplus_reason = (
-        f'RSI vùng quá bán ({rsi}), sát hỗ trợ cứng ({support_level:,.0f} đ).'
-        ' Đánh nhanh nhịp hồi phục T+3 kiểm định lại MA20.'
+        f"RSI vùng quá bán ({rsi}), sát hỗ trợ ({support_level:,.0f} đ). "
+        f"Chỉ dành cho nhà đầu tư chấp nhận rủi ro cao đánh nhịp hồi phục T+2.5 kiểm định MA20."
     )
   else:
-    tplus_decision = 'QUAN SÁT / CHƯA CÓ ĐIỂM VÀO'
-    tplus_type = 'danger'
+    tplus_decision = 'QUAN SÁT THEO DÕI'
+    tplus_type = 'warning'
     tplus_reason = (
-        f'Giá đang vận động dưới MA20 ({ma20:,.0f} đ), áp lực bán chủ động'
-        f' ({100-buy_ratio:.1f}%). Cần chờ dòng tiền lớn xác nhận lại xu hướng.'
+        f"Cổ phiếu đang giằng co chưa hình thành setup T+ đạt chuẩn (RSI {rsi}, Net R:R 1:{rr_ratio}). "
+        f"Kiên nhẫn chờ tín hiệu dòng tiền rõ nét hơn."
     )
 
-  # Quyết định Trung hạn
-  is_audited = fundamental_info.get('isAudited', False) if fundamental_info else False
-  roe = fundamental_info.get('roe', 0.0) if fundamental_info else 0.0
-  pe = fundamental_info.get('pe', 0.0) if fundamental_info else 0.0
+  # 3. Kế hoạch Đầu tư Trung / Dài hạn Toán Học (Chuẩn BCTC, không bịa số)
+  sector = fundamental_info.get('sector', '') if fundamental_info else ''
+  mid_term_plan = calculate_fundamental_valuation(
+      fundamental_info, current_price, sector, w_levels, s2_support
+  )
+
   fa_score = fundamental_info.get('faScore', 0) if fundamental_info else 0
-
-  if not is_audited or (roe == 0.0 and pe == 0.0):
-    mid_decision = 'CHỜ BỔ SUNG DỮ LIỆU BCTC'
-    mid_type = 'warning'
-    mid_reason = (
-        'Dữ liệu chỉ số BCTC kiểm toán (P/E, ROE) chưa ghi nhận đầy đủ từ cổng công bố'
-        ' thông tin. Tạm thời chỉ ưu tiên giao dịch theo dòng tiền kỹ thuật T+.'
-    )
-    mid_entry = '--'
-    mid_target = '--'
-    mid_stop = '--'
-    total_score = ta_score  # Chỉ chấm điểm theo kỹ thuật và dòng tiền thực tế
-  elif fa_score >= 70 and current_price <= ma50 * 1.08:
-    mid_decision = 'GOM MUA TÍCH SẢN (VÙNG GIÁ TỐT)'
-    mid_type = 'success'
-    mid_reason = (
-        f"Doanh nghiệp FA loại A ({fundamental_info.get('name')}), ROE đạt"
-        f" {roe:.1f}%. Giá chiết khấu hấp dẫn gom theo"
-        ' phương pháp DCA.'
-    )
-    mid_entry = f'{round(current_price * 0.93, -2):,.0f} - {round(current_price * 0.97, -2):,.0f}'
-    mid_target = f'{round(current_price * 1.18, -2):,.0f} - {round(current_price * 1.25, -2):,.0f} (+18% ~ +25%)'
-    mid_stop = f'{round(current_price * 0.92, -2):,.0f} (-8%)'
-    total_score = round(ta_score * 0.6 + fa_score * 0.4)
-  elif pe > 22.0:
-    mid_decision = 'CHỜ CHIẾT KHẤU THÊM (P/E CAO)'
-    mid_type = 'warning'
-    mid_reason = (
-        f"P/E hiện tại ({pe:.1f}x) phản ánh phần lớn kỳ"
-        ' vọng, biên an toàn trung hạn chưa đủ hấp dẫn để giải ngân vốn lớn.'
-    )
-    mid_entry = f'{round(current_price * 0.90, -2):,.0f} - {round(current_price * 0.94, -2):,.0f}'
-    mid_target = f'{round(current_price * 1.15, -2):,.0f} (+15%)'
-    mid_stop = f'{round(current_price * 0.90, -2):,.0f} (-10%)'
-    total_score = round(ta_score * 0.6 + fa_score * 0.4)
+  is_audited = fundamental_info.get('isAudited', False) if fundamental_info else False
+  if is_audited and fa_score > 0:
+    total_score = round(ta_score * 0.55 + fa_score * 0.45)
   else:
-    mid_decision = 'NẮM GIỮ THEO DÕI NỀN'
-    mid_type = 'warning'
-    mid_reason = (
-        f"Định giá P/E ({pe:.1f}x) ở mức hợp lý, tiếp tục theo dõi tiến độ công bố BCTC quý tiếp"
-        ' theo.'
-    )
-    mid_entry = f'{round(current_price * 0.93, -2):,.0f} - {round(current_price * 0.97, -2):,.0f}'
-    mid_target = f'{round(current_price * 1.18, -2):,.0f} - {round(current_price * 1.25, -2):,.0f} (+18% ~ +25%)'
-    mid_stop = f'{round(current_price * 0.92, -2):,.0f} (-8%)'
-    total_score = round(ta_score * 0.6 + fa_score * 0.4)
+    total_score = ta_score
 
-  # Đánh giá tổng hợp 1 câu kết luận (OVERALL VERDICT)
+  # Đánh giá tổng quan (Overall Status)
   if ta_score >= 75 and fa_score >= 70:
     overall_status = '🌟 CỔ PHIẾU HOÀN HẢO: FA xuất sắc & Dòng tiền T+ bùng nổ'
     overall_color = 'emerald'
@@ -985,6 +1345,7 @@ def analyze_technicals_and_scoring(
       'rsi': rsi,
       'ma20': ma20,
       'ma50': ma50,
+      'atr14': atr14,
       'volMa20': vol_ma20,
       'volRatio': vol_ratio,
       'volSignal': vol_signal,
@@ -993,8 +1354,11 @@ def analyze_technicals_and_scoring(
       'buyActive': buy_active,
       'sellActive': sell_active,
       'support': support_level,
+      'support2': s2_support,
       'resistance': resistance_level,
+      'resistance2': r2_target,
       'upside': upside,
+      'upside2': upside2,
       'downside': downside,
       'rrRatio': rr_ratio,
       'taScore': ta_score,
@@ -1003,23 +1367,25 @@ def analyze_technicals_and_scoring(
       'overallColor': overall_color,
       'rs': rs_info,
       'multiTimeframe': multi_tf,
+      'weeklyLevels': w_levels,
       'positionSizing': position_sizing,
       'tPlus': {
           'decision': tplus_decision,
           'type': tplus_type,
           'reason': tplus_reason,
-          'entry': f'{entry_min:,.0f} - {entry_max:,.0f}',
-          'target': f'{target_price:,.0f} (+{upside}%)',
-          'stop': f'{stop_price:,.0f} (-{downside}%)',
+          'entry': tplus_entry,
+          'entryMin': entry_min,
+          'entryMax': entry_max,
+          'target': f"{target_price:,.0f} (+{upside}%)",
+          'target2': f"{r2_target:,.0f} (+{upside2}%)",
+          'stop': f"{stop_price:,.0f} (-{downside}%)",
+          'stopPrice': stop_price,
+          'targetPrice': target_price,
+          'rrRatio': rr_ratio,
+          'distSupportPct': dist_to_support,
+          'isEligible': tplus_type == 'success',
       },
-      'midTerm': {
-          'decision': mid_decision,
-          'type': mid_type,
-          'reason': mid_reason,
-          'entry': mid_entry,
-          'target': mid_target,
-          'stop': mid_stop,
-      },
+      'midTerm': mid_term_plan,
   }
 
 
@@ -1294,7 +1660,6 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
 
   rs_info = technical_info.get('rs', {}) if technical_info else {}
   rs_score = rs_info.get('rsScore', 50)
-  rs_rating = rs_info.get('rsRating', 'Trung tính')
   alpha_1m = rs_info.get('stockAlpha1M', 0.0)
   alpha_3m = rs_info.get('stockAlpha3M', 0.0)
 
@@ -1302,7 +1667,7 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
       f"Chỉ số Tâm lý thị trường ghi nhận {fear_greed_score}/100 ({fear_greed_label}). "
       f"Thanh khoản đạt {vol_ratio}x mức bình quân 20 phiên với tỷ lệ mua chủ động {buy_ratio}%, "
       f"cho thấy mức độ hấp thụ cung-cầu {'tích cực, phe mua kiểm soát thế trận' if buy_ratio >= 52 else 'thận trọng, phe bán vẫn còn gây sức ép'}. "
-      f"Sức mạnh giá tương đối RS Rating O'Neil (CANSLIM) đạt {rs_score}/99 ({rs_rating}) "
+      f"Sức mạnh giá tương đối RS Rating O'Neil (CANSLIM) đạt {rs_score}/99 "
       f"với Alpha 1 tháng {alpha_1m:+.1f}% và Alpha 3 tháng {alpha_3m:+.1f}% so với VN-Index."
   )
 
@@ -1389,25 +1754,53 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
       f"Áp lực bán ròng gia tăng, xuất hiện phiên phân phối thanh khoản đột biến, "
       f"hoặc giá đóng cửa xuyên thủng ngưỡng hỗ trợ {support_level:,.0f} đ."
   )
-  bear_support = f"{support_level:,.0f} đ (Cắt lỗ tại {stop_loss_price} [-{downside}%])"
+  bear_support = f"{support_level:,.0f} đ (Cắt lỗ tại {stop_loss_price})"
 
   # 5. Hệ thống Guardrail & Quyết định Hành động (Action Conclusion)
   guardrails_triggered = []
   action_status = "Theo dõi"
   status_color = "slate"
 
-  # Guardrail 2: Cảnh báo Rủi ro Pháp lý / Tranh chấp hoặc Pha loãng sâu
-  if has_legal or has_dilution:
+  # Kiểm tra Rủi ro Đuôi Kẹt Sàn (TAIL LOCK RISK)
+  is_fin_sector = sector in ['Ngân hàng', 'Chứng khoán', 'Dịch vụ Tài chính / Chứng khoán']
+  rev_growth = fundamental_info.get('revGrowth', 0.0) if fundamental_info else 0.0
+  tail_lock_financial = (not is_fin_sector) and (debt > 2.2 and ocf < 0 and (growth <= 0 or rev_growth < 0 or roe < 0))
+  tail_lock_risk = has_legal or tail_lock_financial
+  tail_lock_reasons = []
+  if has_legal:
+    tail_lock_reasons.append(f"Rủi ro pháp lý/khởi tố/đình chỉ: {legal_findings[0] if legal_findings else 'Vướng thông tin pháp lý'}")
+  if tail_lock_financial:
+    tail_lock_reasons.append(f"Căng thẳng tài chính & nợ vay: D/E {debt:.2f}x > 2.2x, OCF âm ({ocf:+,.1f} tỷ đ), ROE âm ({roe:.1f}%) hoặc tăng trưởng suy giảm")
+
+  # Guardrail Cực Hạn: Kẹt thanh khoản Tail Lock Risk
+  if tail_lock_risk:
     guardrail_msg = (
-        "GUARDRAIL PHÁP LÝ & QUẢN TRỊ: Phát hiện cờ cảnh báo về pháp lý/tranh chấp hoặc kế hoạch phát hành pha loãng -> "
+        f"🚨 GUARDRAIL KẸT THANH KHOẢN (TAIL LOCK RISK): Phát hiện nguy cơ kẹt sàn nghiêm trọng ({'; '.join(tail_lock_reasons)}). "
+        f"Kích hoạt ngắt mạch: Cưỡng chế HARD_NO_TRADE. Stress test kẹt sàn ~10 phiên (-51.6% vốn HOSE). Tuyệt đối cấm mua mới."
+    )
+    guardrails_triggered.append(guardrail_msg)
+    action_status = "Hạn chế giao dịch / HARD NO TRADE"
+    status_color = "rose"
+    core_warning = (
+        f"RỦI RO KẸT THANH KHOẢN CAO: {'; '.join(tail_lock_reasons)}. "
+        f"Tuyệt đối không mua mới. Nếu đang có hàng, ưu tiên đặt lệnh bán MP/giá sàn ngay đầu phiên để bảo toàn vốn."
+    )
+    if 'tPlus' in technical_info:
+      technical_info['tPlus']['decision'] = 'HARD_NO_TRADE (RỦI RO KẸT SÀN)'
+      technical_info['tPlus']['type'] = 'danger'
+      technical_info['tPlus']['reason'] = core_warning
+
+  # Guardrail 2: Cảnh báo Rủi ro Pha loãng sâu
+  elif has_dilution:
+    guardrail_msg = (
+        "GUARDRAIL PHA LOÃNG: Phát hiện kế hoạch phát hành pha loãng chiết khấu sâu -> "
         "Buộc chuyển trạng thái sang 'Thận trọng / Hạn chế giao dịch' bất chấp tín hiệu kỹ thuật ngắn hạn."
     )
     guardrails_triggered.append(guardrail_msg)
     action_status = "Thận trọng / Hạn chế giao dịch"
     status_color = "rose"
     core_warning = (
-        "Ưu tiên tuyệt đối bảo toàn vốn; tạm ngừng mở vị thế mua mới cho đến khi có thông cáo chính thức "
-        "làm rõ các vấn đề pháp lý và kế hoạch pha loãng từ doanh nghiệp."
+        "Ưu tiên bảo toàn vốn; tạm ngừng mở vị thế mua mới cho đến khi có thông cáo chính thức làm rõ phương án phát hành."
     )
 
   # Guardrail 1: Thị trường hưng phấn cực độ (Fear & Greed > 80) kết hợp Khối ngoại xả hàng
@@ -1479,6 +1872,48 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
           f"Duy trì tỷ trọng an toàn và theo dõi phản ứng cung cầu của cổ phiếu quanh ngưỡng hỗ trợ {support_level:,.0f} đ."
       )
 
+  # Tính toán Data Confidence (DC) Score
+  dc_score = 0
+  if is_audited and pe > 0 and roe != 0:
+    dc_score += 40
+  elif is_audited:
+    dc_score += 25
+  else:
+    dc_score += 10
+
+  if technical_info.get('atr14', 0) > 0:
+    dc_score += 30
+  else:
+    dc_score += 15
+
+  if ssi_item and (buy_f > 0 or sell_f > 0 or buy_ratio != 50):
+    dc_score += 20
+  elif ssi_item:
+    dc_score += 10
+
+  if news_list and len(news_list) > 0:
+    dc_score += 10
+  else:
+    dc_score += 5
+
+  dc_score = min(100, dc_score)
+  dc_rating = "CAO" if dc_score >= 80 else ("KHÁ" if dc_score >= 60 else "TRUNG BÌNH")
+
+  # Bottom Line
+  t_dec = technical_info.get('tPlus', {}).get('decision', 'Quan sát')
+  t_ent = technical_info.get('tPlus', {}).get('entry', '--')
+  t_stp = technical_info.get('tPlus', {}).get('stop', '--')
+  t_tgt = technical_info.get('tPlus', {}).get('target', '--')
+  t_rr = technical_info.get('tPlus', {}).get('rrRatio', 1.0)
+  m_dec = technical_info.get('midTerm', {}).get('decision', 'Theo dõi')
+  m_tgt = technical_info.get('midTerm', {}).get('target', '--')
+  m_dca = technical_info.get('midTerm', {}).get('dcaZone', '--')
+
+  bottom_line = (
+      f"• Lướt sóng T+: {t_dec} (Vùng vào: {t_ent}, Mục tiêu: {t_tgt}, Cắt lỗ: {t_stp}, Net R:R 1:{t_rr}).\n"
+      f"• Đầu tư Trung/Dài hạn: {m_dec} (Định giá hợp lý: {m_tgt}, Vùng gom DCA: {m_dca})."
+  )
+
   # 6. Biên soạn Báo Cáo Markdown Chuẩn theo Prompt Yêu Cầu
   markdown_report = f"""# BÁO CÁO ĐỊNH LƯỢNG & ĐÁNH GIÁ RỦI RO: {ticker}
 
@@ -1507,7 +1942,11 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
 ## 5. KẾT LUẬN HÀNH ĐỘNG
 - **Trạng thái**: [{action_status}]
 - **Xu hướng đa khung (Multi-Timeframe)**: {confluence_text}
+- **Độ tin cậy dữ liệu**: {dc_score}/100 ({dc_rating})
 - **Lưu ý cốt lõi**: {core_warning}
+
+## 6. ĐÚC KẾT (BOTTOM LINE)
+{bottom_line}
 """
 
   return {
@@ -1542,7 +1981,6 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
           'buyRatio': buy_ratio,
           'volRatio': vol_ratio,
           'rsScore': rs_score,
-          'rsRating': rs_rating,
       },
       'scenarioMatrix': {
           'bullCase': {
@@ -1568,6 +2006,11 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
           'coreWarning': core_warning,
           'multiTimeframe': mtf,
       },
+      'tailLockRisk': tail_lock_risk,
+      'tailLockReasons': tail_lock_reasons,
+      'dcScore': dc_score,
+      'dcRating': dc_rating,
+      'bottomLine': bottom_line,
       'rawMarkdown': markdown_report,
   }
 
@@ -1598,6 +2041,11 @@ def generate_multi_source_future_outlook(ticker, sector, current_price, fundamen
       'flowSummary': f"{fg['foreignFlow']} {fg['sentimentLiquidity']}",
       'bullScenario': f"Mục tiêu {scen['bullCase']['targetDisplay']}. Kích hoạt: {scen['bullCase']['trigger']}",
       'bearScenario': f"{scen['bearCase']['supportDisplay']}. Rủi ro kích hoạt: {scen['bearCase']['trigger']}",
+      'tailLockRisk': risk_rep.get('tailLockRisk', False),
+      'tailLockReasons': risk_rep.get('tailLockReasons', []),
+      'dcScore': risk_rep.get('dcScore', 80),
+      'dcRating': risk_rep.get('dcRating', 'CAO'),
+      'bottomLine': risk_rep.get('bottomLine', ''),
       'riskEngine': risk_rep,
   }
 
@@ -1971,7 +2419,7 @@ def handle_stock_detail(ticker, resolution='1D'):
 
   # Phân tích kỹ thuật & Chấm điểm
   analysis = analyze_technicals_and_scoring(
-      chart_data, ssi_item, current_price, fundamental_info, ticker=ticker
+      chart_data, ssi_item, current_price, fundamental_info, ticker=ticker, exchange=exchange
   )
 
   # 1. Danh sách Cổng thông tin sự kiện & Báo cáo BCTC tham chiếu (Mỗi record 1 nguồn uy tín khác nhau, trace động)
@@ -2035,136 +2483,10 @@ def handle_stock_detail(ticker, resolution='1D'):
   }
 
 
-_TOP_TPLUS_CACHE = {'timestamp': 0, 'data': None}
 
-def handle_top_tplus():
-  """Lọc danh sách Top 10 Cổ Phiếu T+ tiềm năng nhất tự động từ toàn thị trường SSI iBoard."""
-  global _TOP_TPLUS_CACHE
-  now = time.time()
-  if now - _TOP_TPLUS_CACHE['timestamp'] < 60 and _TOP_TPLUS_CACHE['data']:
-    return _TOP_TPLUS_CACHE['data']
-
-  ssi_board = get_ssi_board_data()
-  if not ssi_board:
-    return {'date': time.strftime('%d/%m/%Y'), 'count': 0, 'data': []}
-
-  # 1. Quét toàn bộ cổ phiếu trên 3 sàn, loại bỏ chứng quyền/trái phiếu/ETF và penny rác
-  candidates_raw = [
-      item for item in ssi_board.values()
-      if len(item.get('stockSymbol', '')) == 3
-      and item.get('stockSymbol', '').isalpha()
-      and item.get('stockVol', 0) >= 150000
-      and (item.get('matchedPrice', 0) >= 6000 or item.get('refPrice', 0) >= 6000)
-  ]
-
-  # 2. Xếp hạng ưu tiên theo thanh khoản và lực mua chủ động SSI
-  candidates_raw.sort(key=lambda x: (
-      (x.get('stockBUVol', 0) / (x.get('stockBUVol', 0) + x.get('stockSDVol', 0) + 1)) * 0.4 +
-      min(x.get('stockVol', 0) / 1000000, 5) * 0.6
-  ), reverse=True)
-
-  test_symbols = [x['stockSymbol'] for x in candidates_raw[:35]]
-
-  def evaluate_candidate(sym):
-    try:
-      ssi_item = ssi_board.get(sym, {})
-      chart = fetch_chart_data(sym, days=60)
-      c_list = chart.get('c', [])
-      v_list = chart.get('v', [])
-      if len(c_list) < 20:
-        return None
-
-      scale = 1000 if c_list[-1] < 1000 else 1
-      closes = [p * scale for p in c_list]
-      latest_p = ssi_item.get('matchedPrice') or closes[-1]
-      prev_p = closes[-2]
-      pct_change = round(((latest_p - prev_p) / prev_p) * 100, 2)
-
-      rsi = calculate_rsi(closes, 14)
-      ma20 = calculate_sma(closes, 20)
-      vol_ma20 = calculate_sma(v_list, 20)
-      latest_vol = ssi_item.get('stockVol', v_list[-1])
-      vol_ratio = round(latest_vol / vol_ma20, 2) if vol_ma20 > 0 else 1.0
-
-      bu = ssi_item.get('stockBUVol', 0)
-      sd = ssi_item.get('stockSDVol', 0)
-      tot = bu + sd
-      buy_ratio = round(bu / tot * 100, 1) if tot > 0 else 50.0
-
-      score = 0
-      if latest_p >= ma20: score += 35
-      if vol_ratio >= 1.5: score += 30
-      elif vol_ratio >= 1.1: score += 18
-      if 48 <= rsi <= 68: score += 20
-      if pct_change > 0: score += 15
-      if buy_ratio >= 55: score += 10
-
-      support = round(min(closes[-15:]), -2)
-      target = round(max(closes[-20:]) * 1.02, -2)
-      if target <= latest_p:
-        target = round(latest_p * 1.08, -2)
-
-      f_net = ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)
-      guardrail_flag = 'An toàn'
-      # Guardrail 1: Nếu RSI > 70 và Khối ngoại bán ròng mạnh -> trừ điểm rủi ro
-      if rsi > 70 and f_net < -50000:
-        score -= 30
-        guardrail_flag = 'Cảnh báo xả ngoại (Quá mua)'
-      elif f_net > 50000:
-        score += 10
-        guardrail_flag = 'Ngoại gom ròng'
-
-      sign = '+' if pct_change >= 0 else ''
-      return {
-          'ticker': sym,
-          'name': ssi_item.get('companyNameVi', f'Cổ phiếu {sym}'),
-          'price': latest_p,
-          'change': f'{sign}{pct_change}%',
-          'pctChange': pct_change,
-          'rsi': rsi,
-          'volRatio': vol_ratio,
-          'volSignal': f'Nổ Vol x{vol_ratio}' if vol_ratio >= 1.4 else f'Vol x{vol_ratio}',
-          'trend': f'Trên MA20 ({ma20:,.0f})' if latest_p >= ma20 else f'Dưới MA20 ({ma20:,.0f})',
-          'entry': f'{round(latest_p * 0.985, -2):,.0f} - {round(latest_p * 0.995, -2):,.0f}',
-          'target': f'{target:,.0f}',
-          'stop': f'{round(support * 0.97, -2):,.0f}',
-          'foreignNet': f_net,
-          'guardrail': guardrail_flag,
-          'score': score,
-      }
-    except Exception:
-      return None
-
-  with ThreadPoolExecutor(max_workers=8) as pool:
-    evaluated = [r for r in pool.map(evaluate_candidate, test_symbols) if r]
-
-  evaluated.sort(key=lambda x: x.get('score', 0), reverse=True)
-  result = {
-      'date': time.strftime('%d/%m/%Y'),
-      'count': len(evaluated[:10]),
-      'data': evaluated[:10],
-  }
-  _TOP_TPLUS_CACHE['timestamp'] = now
-  _TOP_TPLUS_CACHE['data'] = result
-  return result
 
 # ==================== WEB SERVER ROUTING ====================
 
-
-class ModularStockServer(http.server.SimpleHTTPRequestHandler):
-  extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map.copy()
-  extensions_map.update({
-      '.js': 'application/javascript; charset=utf-8',
-      '.mjs': 'application/javascript; charset=utf-8',
-      '.css': 'text/css; charset=utf-8',
-      '.html': 'text/html; charset=utf-8',
-  })
-
-  def end_headers(self):
-    self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-    self.send_header('Pragma', 'no-cache')
-    self.send_header('Expires', '0')
-    super().end_headers()
 
 def render_template_html(file_path):
   """Nạp tự động các component HTML phân tách qua cú pháp <!-- include: components/... -->"""
@@ -2183,6 +2505,9 @@ def render_template_html(file_path):
       return f"<!-- Missing component: {rel_path} -->"
 
     rendered = re.sub(r'<!--\s*include:\s*([^\s]+)\s*-->', replace_include, content)
+    # Tự động cache-bust các script/css bằng timestamp mỗi khi người dùng tải lại trang
+    cache_ts = int(time.time())
+    rendered = re.sub(r'\?v=[\w\.]+', f'?v={cache_ts}', rendered)
     return rendered
   except Exception as e:
     print('Lỗi render template HTML:', e)
@@ -2191,6 +2516,22 @@ def render_template_html(file_path):
 
 
 class ModularStockServer(http.server.SimpleHTTPRequestHandler):
+  extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map.copy()
+  extensions_map.update({
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.html': 'text/html; charset=utf-8',
+  })
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, directory=ROOT_DIR, **kwargs)
+
+  def end_headers(self):
+    self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    self.send_header('Pragma', 'no-cache')
+    self.send_header('Expires', '0')
+    super().end_headers()
 
   def send_json(self, status, payload):
     try:
@@ -2206,18 +2547,13 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     parsed = urllib.parse.urlparse(self.path)
     path = parsed.path
 
-    if path == '/api/top-tplus':
-      try:
-        self.send_json(200, handle_top_tplus())
-      except Exception as e:
-        self.send_json(
-            200, {'date': time.strftime('%d/%m/%Y'), 'count': 0, 'data': []}
-        )
-      return
-
     if path == '/api/chart':
       params = urllib.parse.parse_qs(parsed.query)
-      ticker = params.get('ticker', ['FPT'])[0].upper()
+      ticker_list = params.get('ticker', [''])
+      ticker = ticker_list[0].strip().upper() if ticker_list else ''
+      if not ticker:
+        self.send_json(400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'})
+        return
       resolution = params.get('resolution', ['1D'])[0]
       try:
         self.send_json(200, handle_chart_only(ticker, resolution=resolution))
@@ -2227,7 +2563,11 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
     if path == '/api/stock' or self.path.startswith('/api/stock?'):
       params = urllib.parse.parse_qs(parsed.query)
-      ticker = params.get('ticker', ['FPT'])[0].upper()
+      ticker_list = params.get('ticker', [''])
+      ticker = ticker_list[0].strip().upper() if ticker_list else ''
+      if not ticker:
+        self.send_json(400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'})
+        return
       resolution = params.get('resolution', ['1D'])[0]
       try:
         self.send_json(
@@ -2238,7 +2578,7 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
       return
 
     if path in ['/', '', '/index.html']:
-      index_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
+      index_file = os.path.join(ROOT_DIR, 'index.html')
       html_content = render_template_html(index_file)
       encoded = html_content.encode('utf-8')
       self.send_response(200)
@@ -2257,8 +2597,9 @@ class ReusableTCPServer(socketserver.TCPServer):
 
 
 if __name__ == '__main__':
+  PORT = get_configured_port(8000)
   print(
-      f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT}'
+      f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT} (PORT={PORT})'
   )
   try:
     with ReusableTCPServer(('', PORT), ModularStockServer) as httpd:
@@ -2267,5 +2608,5 @@ if __name__ == '__main__':
     if e.errno == 48:
       print(f'\n❌ Cổng {PORT} đang bị tiến trình khác chiếm dụng!')
       print(f'👉 Bạn có thể giải phóng cổng bằng lệnh: lsof -ti :{PORT} | xargs kill -9')
-      print(f'👉 Sau đó chạy lại: python3 server.py\n')
+      print(f'👉 Hoặc chỉ định cổng khác: ./start.sh 8080  (hoặc PORT=8080 python3 backend/server.py)\n')
     raise

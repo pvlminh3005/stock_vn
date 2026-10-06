@@ -1,7 +1,20 @@
-<!-- Loading Overlay -->
+<!-- Loading Overlay: Cố định toàn màn hình (fixed viewport), căn chính giữa tuyệt đối -->
 <div id="loadingOverlay"
-  class="hidden absolute inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex flex-col items-center justify-center gap-3 rounded-2xl">
-  <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-  <div class="text-sm font-semibold text-slate-200">Đang đồng bộ nến kỹ thuật &amp; bảng giá trực tuyến...</div>
-  <div id="loadingTicker" class="text-xs font-mono text-blue-400 font-bold tracking-wider">---</div>
+  class="hidden fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center p-4">
+  <div class="bg-slate-900/95 border border-slate-700/80 shadow-2xl rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center gap-4 max-w-sm w-full mx-auto text-center transform transition-all">
+    <div class="relative flex items-center justify-center">
+      <div class="w-14 h-14 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+      <div class="absolute inset-0 flex items-center justify-center">
+        <i class="fa-solid fa-chart-line text-blue-400 text-sm animate-pulse"></i>
+      </div>
+    </div>
+    <div class="space-y-1">
+      <div class="text-sm md:text-base font-bold text-white">Đang phân tích dữ liệu trực tuyến</div>
+      <div class="text-xs text-slate-400">Đồng bộ nến kỹ thuật &amp; báo cáo tài chính...</div>
+    </div>
+    <div id="loadingTicker"
+      class="text-xs font-mono text-blue-400 bg-blue-950/80 border border-blue-800/80 px-3 py-1 rounded-lg font-bold tracking-wider">
+      ---
+    </div>
+  </div>
 </div>

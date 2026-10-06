@@ -1,4 +1,4 @@
-import { formatVND, formatCompactNumber } from '../utils.js?v=2.6';
+import { formatVND, formatCompactNumber } from '../utils.js?v=4.0';
 
 let currentRiskReportMarkdown = "";
 

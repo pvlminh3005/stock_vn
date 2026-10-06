@@ -128,7 +128,8 @@
                 <li><strong class="text-emerald-400">&ge; 80 (Leader):</strong> Siêu cổ phiếu dẫn dắt thị trường, xung lực mạnh nhất sàn.</li>
                 <li><strong class="text-blue-400">65 - 79 (Kênh trên):</strong> Mạnh hơn VN-Index, giữ giá tốt khi thị trường chỉnh.</li>
                 <li><strong class="text-slate-300">45 - 64 (Trung tính):</strong> Biến động cùng pha với chỉ số chung.</li>
-                <li><strong class="text-rose-400">&lt; 40 (Laggard):</strong> Cổ phiếu kênh dưới tụt hậu, dễ gãy sâu.</li>
+                <li><strong class="text-amber-400">40 - 44 (Kênh dưới):</strong> Hiệu suất sinh lời bắt đầu suy yếu so với VN-Index, phe bán chiếm ưu thế.</li>
+                <li><strong class="text-rose-400">&lt; 40 (Tụt hậu / Laggard):</strong> Cổ phiếu tụt hậu rõ rệt so với thị trường, rủi ro gãy sâu.</li>
               </ul>
             </div>
           </div>
@@ -149,65 +150,92 @@
   </div>
 </div>
 
-<!-- KHÔI PHÂN CHIA RÕ RÀNG: LƯỚT SÓNG T+ VS TRUNG / DÀI HẠN -->
-<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-  <!-- Cột 1: Lướt sóng T+ -->
+<!-- KHỐI PHÂN CHIA CHIẾN LƯỢC: LƯỚT SÓNG T+ VS ĐẦU TƯ TRUNG / DÀI HẠN -->
+<div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <!-- Cột 1: Kế hoạch Lướt sóng T+ (2-10 phiên) -->
   <div id="cardTPlus" class="p-4 rounded-xl border bg-slate-900 border-slate-800 transition space-y-2.5">
-    <div class="flex items-center justify-between">
-      <span class="text-xs uppercase font-extrabold text-amber-400 flex items-center gap-1.5">
-        <i class="fa-solid fa-bolt"></i> Vị thế Lướt sóng (T+)
-      </span>
-      <span id="badgeTPlus"
-        class="text-xs font-extrabold px-2.5 py-0.5 rounded border border-slate-700 bg-slate-800">--</span>
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <span class="text-xs uppercase font-black text-amber-400 flex items-center gap-1.5">
+          <i class="fa-solid fa-bolt"></i> Chiến lược T+ (2 - 10 Phiên)
+        </span>
+        <span id="tNavBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+          Size: <strong id="tNavVal" class="text-emerald-400">--%</strong>
+        </span>
+      </div>
+      <span id="badgeTPlus" class="text-xs font-black px-2.5 py-0.5 rounded border border-slate-700 bg-slate-800">--</span>
     </div>
-    <div id="reasonTPlus" class="text-xs text-slate-300 leading-relaxed min-h-[38px]">
-      Đang phân tích tín hiệu xung lực nến, hỗ trợ và kháng cự động...
+    <div id="reasonTPlus" class="text-xs text-slate-400 leading-relaxed min-h-[38px] italic">
+      Vui lòng nhập mã chứng khoán phía trên để hệ thống phân tích tín hiệu xung lực T+...
     </div>
-    <div class="pt-2 border-t border-slate-800/80 grid grid-cols-4 text-[11px] font-mono text-center gap-1">
-      <div>
-        <span class="text-slate-500 block text-[10px]">Vùng vào T+</span>
+    <div class="pt-2 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-5 text-[11px] font-mono text-center gap-2">
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Vùng vào T+</span>
         <span id="tEntryVal" class="text-emerald-400 font-bold">--</span>
       </div>
-      <div>
-        <span class="text-slate-500 block text-[10px]">Mục tiêu (TP)</span>
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Mục tiêu 1 (R1)</span>
         <span id="tTargetVal" class="text-blue-400 font-bold">--</span>
       </div>
-      <div>
-        <span class="text-slate-500 block text-[10px]">Cắt lỗ (SL)</span>
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Mục tiêu 2 (R2)</span>
+        <span id="tTarget2Val" class="text-cyan-400 font-bold">--</span>
+      </div>
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Cắt lỗ (Stop)</span>
         <span id="tStopVal" class="text-rose-400 font-bold">--</span>
       </div>
-      <div>
-        <span class="text-slate-500 block text-[10px]">Tỷ lệ R:R</span>
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60 col-span-2 sm:col-span-1">
+        <span class="text-slate-400 block text-[10px] font-sans">Net R:R ròng</span>
         <span id="tRRVal" class="text-amber-400 font-bold">--</span>
       </div>
     </div>
   </div>
 
-  <!-- Cột 2: Đầu tư Trung / Dài hạn -->
+  <!-- Cột 2: Đầu tư Trung / Dài hạn (2-12 tháng & 1-3 năm) -->
   <div id="cardMidTerm" class="p-4 rounded-xl border bg-slate-900 border-slate-800 transition space-y-2.5">
-    <div class="flex items-center justify-between">
-      <span class="text-xs uppercase font-extrabold text-blue-400 flex items-center gap-1.5">
-        <i class="fa-solid fa-building-columns"></i> Vị thế Trung &amp; Dài Hạn
-      </span>
-      <span id="badgeMidTerm"
-        class="text-xs font-extrabold px-2.5 py-0.5 rounded border border-slate-700 bg-slate-800">--</span>
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <span class="text-xs uppercase font-black text-blue-400 flex items-center gap-1.5">
+          <i class="fa-solid fa-building-columns"></i> Đầu tư Trung / Dài Hạn (2 - 12T)
+        </span>
+        <span id="mBenchmarkBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+          P/E Ngành: <strong id="mBenchmarkPeVal" class="text-blue-300">--</strong>
+        </span>
+      </div>
+      <span id="badgeMidTerm" class="text-xs font-black px-2.5 py-0.5 rounded border border-slate-700 bg-slate-800">--</span>
     </div>
-    <div id="reasonMidTerm" class="text-xs text-slate-300 leading-relaxed min-h-[38px]">
-      Đang đánh giá định giá P/E, P/B và vùng chiết khấu cơ bản...
+    <div id="reasonMidTerm" class="text-xs text-slate-400 leading-relaxed min-h-[38px] italic">
+      Vui lòng nhập mã chứng khoán phía trên để định giá nội tại BCTC &amp; kế hoạch gom trung/dài hạn...
     </div>
-    <div class="pt-2 border-t border-slate-800/80 grid grid-cols-3 text-[11px] font-mono text-center">
-      <div>
-        <span class="text-slate-500 block text-[10px]">Vùng gom DCA</span>
+    <div class="pt-2 border-t border-slate-800/80 grid grid-cols-3 text-[11px] font-mono text-center gap-2">
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Vùng gom DCA</span>
         <span id="mEntryVal" class="text-emerald-400 font-bold">--</span>
       </div>
-      <div>
-        <span class="text-slate-500 block text-[10px]">Mục tiêu trung hạn</span>
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Định giá BCTC (Mục tiêu)</span>
         <span id="mTargetVal" class="text-blue-400 font-bold">--</span>
       </div>
-      <div>
-        <span class="text-slate-500 block text-[10px]">Cắt lỗ bảo toàn</span>
+      <div class="p-1 rounded bg-slate-950/60 border border-slate-800/60">
+        <span class="text-slate-400 block text-[10px] font-sans">Ngưỡng thủng (Cắt lỗ)</span>
         <span id="mStopVal" class="text-rose-400 font-bold">--</span>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- DÒNG ĐÚC KẾT CHIẾN LƯỢC HÀNH ĐỘNG (BOTTOM LINE) & DATA CONFIDENCE -->
+<div id="bottomLineBanner" class="mt-4 p-4 rounded-xl border border-blue-900/60 bg-gradient-to-r from-blue-950/40 via-slate-950 to-indigo-950/40 shadow-xl space-y-2">
+  <div class="flex items-center justify-between gap-2 flex-wrap">
+    <span class="text-xs font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+      <i class="fa-solid fa-compass text-sm"></i> ĐÚC KẾT CHIẾN LƯỢC TỔNG THỂ (BOTTOM LINE)
+    </span>
+    <span id="dcBadge" class="text-[11px] font-mono px-2.5 py-0.5 rounded border font-bold bg-slate-800 text-slate-300 border-slate-700">
+      Độ tin cậy: --
+    </span>
+  </div>
+  <div id="bottomLineText" class="text-xs text-slate-400 leading-relaxed font-medium whitespace-pre-line italic">
+    Vui lòng nhập mã cổ phiếu để xem đúc kết chiến lược hành động.
   </div>
 </div>

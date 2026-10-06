@@ -5,6 +5,13 @@ export async function getTop10Stocks() {
   return await res.json();
 }
 
+// API lấy kết quả Stock Screener định lượng chuẩn 5 tiêu chí lướt sóng
+export async function getScreenerStocks() {
+  const res = await fetch('/api/screener');
+  if (!res.ok) throw new Error(`Lỗi tải dữ liệu Screener: ${res.status}`);
+  return await res.json();
+}
+
 // API lấy chi tiết dữ liệu kỹ thuật, cơ bản & tin tức của 1 mã
 export async function getStockDetail(ticker, resolution = '1D') {
   const symbol = ticker.trim().toUpperCase();

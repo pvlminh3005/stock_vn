@@ -1,20 +1,22 @@
 <!-- Tab 1: Cơ bản & Doanh nghiệp (FA) -->
 <div id="tab1Content" class="p-5 md:p-6 space-y-6">
   <div>
-    <div class="flex items-center justify-between mb-3">
-      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-        <i class="fa-solid fa-file-invoice-dollar text-blue-400"></i> Chỉ số tài chính &amp; Sức khỏe doanh nghiệp
-        (BCTC thực tế)
-      </h3>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div class="flex items-center gap-2">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <i class="fa-solid fa-file-invoice-dollar text-blue-400"></i> Chỉ số tài chính &amp; Sức khỏe doanh nghiệp (BCTC thực tế)
+        </h3>
+      </div>
       <span id="auditBadge"
         class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
         ✓ BCTC Kiểm Toán Thực Tế
       </span>
     </div>
 
-    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+    <!-- Vùng hiển thị chỉ số tài chính: Dàn 8 cột responsive (2 cột mobile, 4 cột tablet, 8 cột desktop), không cần cuộn dọc/ngang -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 items-stretch">
       <!-- P/E -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>P/E (Định giá)</span>
           <span class="tooltip-trigger tooltip-bottom tooltip-left">
@@ -31,7 +33,7 @@
       </div>
 
       <!-- P/B -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>P/B (Sổ sách)</span>
           <span class="tooltip-trigger tooltip-bottom tooltip-left">
@@ -48,7 +50,7 @@
       </div>
 
       <!-- ROE -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>ROE (Hiệu quả vốn)</span>
           <span class="tooltip-trigger tooltip-bottom">
@@ -65,7 +67,7 @@
       </div>
 
       <!-- EPS -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>EPS (Lợi nhuận/CP)</span>
           <span class="tooltip-trigger tooltip-bottom">
@@ -82,7 +84,7 @@
       </div>
 
       <!-- Tăng trưởng LNST -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>Tăng trưởng LNST</span>
           <span class="tooltip-trigger tooltip-bottom">
@@ -99,7 +101,7 @@
       </div>
 
       <!-- Đòn bẩy Nợ (D/E) -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>Đòn bẩy Nợ (D/E)</span>
           <span class="tooltip-trigger tooltip-bottom">
@@ -116,7 +118,7 @@
       </div>
 
       <!-- Dòng tiền thuần HĐKD (OCF) -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span>Dòng tiền OCF</span>
           <span class="tooltip-trigger tooltip-bottom tooltip-right">
@@ -129,11 +131,11 @@
           </span>
         </div>
         <div id="ocfValue" class="text-base md:text-lg font-bold font-mono text-emerald-400 mt-1">--</div>
-        <div id="ocfSubTxt" class="text-[10px] text-slate-500 mt-0.5 truncate">Dòng tiền thật</div>
+        <div id="ocfSubTxt" class="text-[10px] text-slate-400 mt-0.5 leading-snug break-words">Dòng tiền thật</div>
       </div>
 
       <!-- Biên Lợi Nhuận Gộp / Ròng (hoặc NIM cho Bank) -->
-      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+      <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col justify-between h-full">
         <div class="text-[11px] text-slate-400 flex items-center justify-between">
           <span id="marginLabel">Biên Lợi Nhuận</span>
           <span class="tooltip-trigger tooltip-bottom tooltip-right">
@@ -146,7 +148,7 @@
           </span>
         </div>
         <div id="marginValue" class="text-base md:text-lg font-bold font-mono text-blue-400 mt-1">--</div>
-        <div id="marginSub" class="text-[10px] text-slate-500 mt-0.5">Gộp / Ròng</div>
+        <div id="marginSub" class="text-[10px] text-slate-400 mt-0.5 leading-snug break-words">Gộp / Ròng</div>
       </div>
     </div>
 

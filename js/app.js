@@ -1,11 +1,10 @@
-import { formatVND, formatPriceVND, formatStockPrice, formatCompactNumber, initTooltipBoundaryProtection } from './utils.js?v=2.7';
-import { getStockDetail, getChartData } from './api.js?v=2.6';
-import { initChart, updateChartData } from './modules/chart.js?v=2.6';
-import { renderFutureOutlook, renderNewsReferences, copyRiskReportMarkdown } from './modules/riskEngine.js?v=2.6';
-import { loadTop10 } from './modules/topScanner.js?v=2.6';
+import { formatVND, formatCompactNumber, initTooltipBoundaryProtection } from './utils.js?v=4.0';
+import { getStockDetail, getChartData } from './api.js?v=4.0';
+import { initChart, updateChartData } from './modules/chart.js?v=4.0';
+import { renderFutureOutlook, renderNewsReferences, copyRiskReportMarkdown } from './modules/riskEngine.js?v=4.0';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
-let currentTicker = 'FPT';
+let currentTicker = '';
 let currentResolution = '1D';
 
 const POPULAR_STOCKS = [
@@ -36,13 +35,11 @@ const DOM = {
   searchSuggestions: document.getElementById("searchSuggestions"),
   tabBtns: [
     document.getElementById("tab1Btn"),
-    document.getElementById("tab2Btn"),
-    document.getElementById("tab3Btn")
+    document.getElementById("tab2Btn")
   ],
   tabContents: [
     document.getElementById("tab1Content"),
-    document.getElementById("tab2Content"),
-    document.getElementById("tab3Content")
+    document.getElementById("tab2Content")
   ]
 };
 
@@ -55,12 +52,14 @@ function showLoading(ticker) {
   if (DOM.alert) DOM.alert.classList.add("hidden");
   if (DOM.overlayTicker) DOM.overlayTicker.innerText = `ĐANG PHÂN TÍCH: ${ticker.toUpperCase()}...`;
   if (DOM.overlay) DOM.overlay.classList.remove("hidden");
+  document.body.classList.add("overflow-hidden");
   const icon = document.getElementById("searchIcon");
   if (icon) icon.classList.add("animate-spin");
 }
 
 function hideLoading() {
   if (DOM.overlay) DOM.overlay.classList.add("hidden");
+  document.body.classList.remove("overflow-hidden");
   const icon = document.getElementById("searchIcon");
   if (icon) icon.classList.remove("animate-spin");
 }
@@ -70,10 +69,10 @@ export function switchTab(index) {
   DOM.tabBtns.forEach((btn, i) => {
     if (!btn || !DOM.tabContents[i]) return;
     if (i === index) {
-      btn.className = "tab-btn py-3 px-4 md:px-5 text-sm tab-active transition flex items-center gap-2 whitespace-nowrap text-blue-400 font-semibold border-b-2 border-blue-600";
+      btn.className = "tab-btn py-3 px-4 md:px-5 text-sm font-semibold transition-colors flex items-center gap-2 whitespace-nowrap text-blue-400 border-b-2 border-blue-500";
       DOM.tabContents[i].classList.remove("hidden");
     } else {
-      btn.className = "tab-btn py-3 px-4 md:px-5 text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-2 whitespace-nowrap";
+      btn.className = "tab-btn py-3 px-4 md:px-5 text-sm font-semibold transition-colors flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent";
       DOM.tabContents[i].classList.add("hidden");
     }
   });
@@ -109,13 +108,53 @@ function renderQuickHeader(data) {
   }
 }
 
+function getScoreColorClass(score, type = 'ta') {
+  if (typeof score !== 'number' || isNaN(score)) return 'text-slate-400';
+  if (type === 'fa') {
+    if (score >= 80) return 'text-emerald-400';
+    if (score >= 60) return 'text-blue-400';
+    if (score >= 45) return 'text-amber-400';
+    return 'text-rose-400';
+  } else {
+    // TA Score: >=75 Rất Mạnh (Xanh lá), 60-74 Tích cực (Xanh dương), 45-59 Trung tính (Vàng cam), <45 Yếu (Đỏ)
+    if (score >= 75) return 'text-emerald-400';
+    if (score >= 60) return 'text-blue-400';
+    if (score >= 45) return 'text-amber-400';
+    return 'text-rose-400';
+  }
+}
+
 function renderVerdictAndScores(data) {
   const tech = data.technicals || {};
   const fa = data.fundamentals || {};
 
   safeSetText("verdictText", tech.overallStatus || "Đã phân tích xong dữ liệu.");
-  safeSetText("taScoreVal", tech.taScore !== undefined ? `${tech.taScore}/100` : "--");
-  safeSetText("faScoreVal", fa.faScore ? `${fa.faScore}/100` : "Dữ liệu chưa ghi nhận");
+
+  // 1. Điểm Kỹ thuật (TA Score) biến thiên màu theo khoảng clamp (nút ? giữ nguyên màu theo title)
+  const taEl = document.getElementById("taScoreVal");
+  if (taEl) {
+    if (typeof tech.taScore === 'number') {
+      const color = getScoreColorClass(tech.taScore, 'ta');
+      taEl.innerHTML = `<span class="${color}">${tech.taScore}</span><span class="text-xs font-normal text-slate-500">/100</span>`;
+      taEl.className = `text-lg font-black mt-0.5 ${color}`;
+    } else {
+      taEl.innerHTML = `--<span class="text-xs font-normal text-slate-500">/100</span>`;
+      taEl.className = "text-lg font-black text-slate-400 mt-0.5";
+    }
+  }
+
+  // 2. Điểm Cơ bản (FA Score) biến thiên màu theo khoảng clamp (nút ? giữ nguyên màu theo title)
+  const faEl = document.getElementById("faScoreVal");
+  if (faEl) {
+    if (typeof fa.faScore === 'number' && fa.faScore > 0) {
+      const color = getScoreColorClass(fa.faScore, 'fa');
+      faEl.innerHTML = `<span class="${color}">${fa.faScore}</span><span class="text-xs font-normal text-slate-500">/100</span>`;
+      faEl.className = `text-lg font-black mt-0.5 ${color}`;
+    } else {
+      faEl.innerHTML = `Chưa có<span class="text-xs font-normal text-slate-500"></span>`;
+      faEl.className = "text-sm font-bold text-slate-500 mt-0.5";
+    }
+  }
 
   const banner = document.getElementById("verdictBanner");
   const icon = document.getElementById("verdictIcon");
@@ -175,9 +214,8 @@ function renderVisualMeters(data) {
 
   // 4. Thước đo Sức mạnh giá RS O'Neil so với VN-Index
   const rsData = tech.rs || {};
-  const rsScore = (rsData.rsScore !== undefined) ? rsData.rsScore : (rsData.rs_rating !== undefined ? rsData.rs_rating : 50);
-  const rsTier = rsData.rsRating || rsData.rating_tier || "Trung bình";
-  safeSetText("rsMeterVal", `${rsScore} (${rsTier})`);
+  const rsScore = (rsData.rsScore !== undefined) ? rsData.rsScore : 50;
+  safeSetText("rsMeterVal", `${rsScore}/99`);
 
   const rsPointer = document.getElementById("rsPointer");
   if (rsPointer) {
@@ -207,21 +245,56 @@ function renderVisualMeters(data) {
   }
 }
 
-function renderActionCards(tech) {
+function renderActionCards(tech, allData) {
   const techObj = tech || {};
+  const data = allData || {};
+  const pos = techObj.positionSizing || {};
+
   // A. Card T+
   const tPlus = techObj.tPlus || {};
   const cardT = document.getElementById("cardTPlus");
   const badgeT = document.getElementById("badgeTPlus");
+  const tEntryEl = document.getElementById("tEntryVal");
+  const tRREl = document.getElementById("tRRVal");
+
   safeSetText("badgeTPlus", tPlus.decision);
   safeSetText("reasonTPlus", tPlus.reason);
-  safeSetText("tEntryVal", tPlus.entry);
-  safeSetText("tTargetVal", tPlus.target);
-  safeSetText("tStopVal", tPlus.stop);
-  safeSetText("tRRVal", `1 : ${tech.rrRatio || 2.0}`);
+  safeSetText("tEntryVal", tPlus.entry || "--");
+  safeSetText("tTargetVal", tPlus.target || "--");
+  safeSetText("tTarget2Val", tPlus.target2 || "--");
+  safeSetText("tStopVal", tPlus.stop || "--");
+  safeSetText("tNavVal", pos.maxNavPct ? `${pos.maxNavPct}%` : "--");
 
-  if (cardT && badgeT) {
+  const rr = techObj.rrRatio !== undefined ? techObj.rrRatio : (tPlus.rrRatio || 2.0);
+  if (tRREl) {
+    if (rr >= 2.0) {
+      tRREl.innerHTML = `1 : ${rr} <span class="text-[9px] font-sans px-1 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/80">✓ Đạt</span>`;
+      tRREl.className = "text-emerald-400 font-bold font-mono text-[11px] block";
+    } else if (rr >= 1.5) {
+      tRREl.innerHTML = `1 : ${rr} <span class="text-[9px] font-sans px-1 rounded bg-amber-950 text-amber-400 border border-amber-800/80">Tạm</span>`;
+      tRREl.className = "text-amber-400 font-bold font-mono text-[11px] block";
+    } else {
+      tRREl.innerHTML = `1 : ${rr} <span class="text-[9px] font-sans px-1 rounded bg-rose-950 text-rose-400 border border-rose-800/80">⚠️ Kém</span>`;
+      tRREl.className = "text-rose-400 font-bold font-mono text-[11px] block";
+    }
+  }
+
+  if (tEntryEl) {
     if (tPlus.type === "success") {
+      tEntryEl.className = "text-emerald-400 font-bold";
+    } else if (tPlus.type === "danger") {
+      tEntryEl.className = "text-rose-400 font-semibold text-[10px] leading-tight block";
+    } else {
+      tEntryEl.className = "text-amber-400 font-semibold text-[10px] leading-tight block";
+    }
+  }
+
+  const isTailLock = (data.riskEngine && data.riskEngine.tailLockRisk) || (data.futureOutlook && data.futureOutlook.tailLockRisk);
+  if (cardT && badgeT) {
+    if (isTailLock) {
+      cardT.className = "p-4 rounded-xl border space-y-2.5 bg-rose-950/40 border-rose-600 shadow-xl shadow-rose-950/50 animate-pulse";
+      badgeT.className = "text-xs font-black px-2.5 py-0.5 rounded border text-rose-200 bg-rose-900 border-rose-500 uppercase";
+    } else if (tPlus.type === "success") {
       cardT.className = "p-4 rounded-xl border space-y-2.5 bg-emerald-950/25 border-emerald-800/80 shadow-lg shadow-emerald-950/30";
       badgeT.className = "text-xs font-black px-2.5 py-0.5 rounded border text-emerald-300 bg-emerald-950 border-emerald-700";
     } else if (tPlus.type === "danger") {
@@ -239,9 +312,10 @@ function renderActionCards(tech) {
   const badgeM = document.getElementById("badgeMidTerm");
   safeSetText("badgeMidTerm", midTerm.decision);
   safeSetText("reasonMidTerm", midTerm.reason);
-  safeSetText("mEntryVal", midTerm.entry);
-  safeSetText("mTargetVal", midTerm.target);
-  safeSetText("mStopVal", midTerm.stop);
+  safeSetText("mEntryVal", midTerm.entry || "--");
+  safeSetText("mTargetVal", midTerm.target || "--");
+  safeSetText("mStopVal", midTerm.stop || "--");
+  safeSetText("mBenchmarkPeVal", midTerm.benchmarkPe ? `${midTerm.benchmarkPe}x` : "--");
 
   if (cardM && badgeM) {
     if (midTerm.type === "success") {
@@ -254,6 +328,20 @@ function renderActionCards(tech) {
       cardM.className = "p-4 rounded-xl border space-y-2.5 bg-blue-950/25 border-blue-800/80";
       badgeM.className = "text-xs font-black px-2.5 py-0.5 rounded border text-blue-300 bg-blue-950 border-blue-700";
     }
+  }
+
+  // C. Bottom Line Banner & Data Confidence Score
+  const bottomLine = (data.riskEngine && data.riskEngine.bottomLine) || (data.futureOutlook && data.futureOutlook.bottomLine) || "--";
+  safeSetText("bottomLineText", bottomLine);
+
+  const dcScore = (data.riskEngine && data.riskEngine.dcScore) || (data.futureOutlook && data.futureOutlook.dcScore) || 80;
+  const dcRating = (data.riskEngine && data.riskEngine.dcRating) || (data.futureOutlook && data.futureOutlook.dcRating) || "CAO";
+  const dcBadge = document.getElementById("dcBadge");
+  if (dcBadge) {
+    dcBadge.innerText = `Độ tin cậy: ${dcScore}/100 (${dcRating})`;
+    dcBadge.className = `text-[11px] font-mono px-2.5 py-0.5 rounded border font-bold ${dcScore >= 80 ? 'bg-emerald-950 text-emerald-300 border-emerald-700' :
+      (dcScore >= 60 ? 'bg-blue-950 text-blue-300 border-blue-700' : 'bg-amber-950 text-amber-300 border-amber-700')
+      }`;
   }
 }
 
@@ -283,7 +371,7 @@ function renderFundamentalsTab(data) {
   }
   if (elOcfSub) {
     elOcfSub.innerText = fa.ocfStatus || (ocfVal > 0 ? "Dòng tiền kinh doanh thặng dư" : "Theo dõi dòng tiền");
-    elOcfSub.className = `text-[10px] mt-0.5 truncate block ${ocfVal < 0 ? 'text-rose-400 font-bold' : 'text-slate-400'}`;
+    elOcfSub.className = `text-[10px] mt-0.5 leading-snug break-words block ${ocfVal < 0 ? 'text-rose-400 font-bold' : 'text-slate-400'}`;
   }
 
   // Card 8: Biên Lợi Nhuận Gộp / Ròng hoặc NIM / LDR
@@ -300,6 +388,7 @@ function renderFundamentalsTab(data) {
     }
     if (elMarginSub) {
       elMarginSub.innerText = `LDR: ${fa.ldr ? fa.ldr.toFixed(1) + '%' : 'Chuẩn SBV'}`;
+      elMarginSub.className = "text-[10px] text-slate-400 mt-0.5 leading-snug break-words block";
     }
   } else {
     if (elMarginLabel) elMarginLabel.innerText = "Biên LN Gộp (Gross Margin)";
@@ -318,6 +407,7 @@ function renderFundamentalsTab(data) {
       } else {
         elMarginSub.innerText = "Biên LN ròng sau thuế";
       }
+      elMarginSub.className = "text-[10px] text-slate-400 mt-0.5 leading-snug break-words block";
     }
   }
 
@@ -416,7 +506,7 @@ export async function loadStock(ticker) {
     renderQuickHeader(data);
     renderVerdictAndScores(data);
     renderVisualMeters(data);
-    renderActionCards(data.technicals);
+    renderActionCards(data.technicals, data);
     renderFundamentalsTab(data);
     renderTechnicalsTab(data);
     updateChartData(data.candles, currentResolution);
@@ -532,6 +622,7 @@ function initEvents() {
   if (tfSelect) {
     tfSelect.addEventListener("change", async (e) => {
       currentResolution = e.target.value;
+      if (!currentTicker) return;
       try {
         const chartRes = await getChartData(currentTicker, currentResolution);
         if (chartRes && chartRes.candles) {
@@ -546,17 +637,12 @@ function initEvents() {
 
 // ==================== 7. KHỞI CHẠY ỨNG DỤNG ====================
 function initApp() {
+  if (DOM.input) DOM.input.value = '';
+  if (DOM.select) DOM.select.value = '';
   initChart();
   setupAutocomplete();
   initEvents();
   initTooltipBoundaryProtection();
-  loadTop10((t) => {
-    if (DOM.input) DOM.input.value = t;
-    loadStock(t);
-    switchTab(0);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
-  loadStock("FPT");
 }
 
 if (document.readyState === "loading") {

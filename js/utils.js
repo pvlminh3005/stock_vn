@@ -62,62 +62,96 @@ export function calculateSMA(series, period = 20) {
 }
 
 /**
- * Tự động kiểm tra và căn chỉnh vị trí tooltip để chống tràn mép màn hình (viewport) và khung chứa
+/**
+ * GLOBAL TOOLTIP PORTAL OVERLAY
+ * Render nội dung tooltip trực tiếp vào cấp cao nhất của document.body.
+ * Đảm bảo 100% overlay trên cùng, không bao giờ bị cắt xén (overflow / containment) hay che khuất.
  */
 export function initTooltipBoundaryProtection() {
-  function handleTooltipPosition(trigger) {
+  let overlay = document.getElementById('globalTooltipOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'globalTooltipOverlay';
+    document.body.appendChild(overlay);
+  }
+
+  let activeTrigger = null;
+
+  function showTooltip(trigger) {
     const box = trigger.querySelector('.tooltip-box');
     if (!box) return;
 
-    // Reset style dịch chuyển inline để đo đạc chính xác
-    box.style.translate = '';
-    box.style.marginLeft = '';
+    activeTrigger = trigger;
+    overlay.innerHTML = box.innerHTML;
 
-    const rect = box.getBoundingClientRect();
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-    const container = trigger.closest('.max-w-6xl') || document.body;
-    const containerRect = container.getBoundingClientRect();
+    // Reset hiển thị để đo đạc chính xác
+    overlay.style.visibility = 'hidden';
+    overlay.style.display = 'block';
+    overlay.classList.remove('active');
 
+    const triggerRect = trigger.getBoundingClientRect();
+    const overlayWidth = overlay.offsetWidth || 310;
+    const overlayHeight = overlay.offsetHeight || 130;
     const padding = 12;
-    // Ngưỡng mép phải và mép trái an toàn
-    const maxAllowedRight = Math.min(viewportWidth - padding, containerRect.right - padding);
-    const minAllowedLeft = Math.max(padding, containerRect.left + padding);
 
-    if (rect.right > maxAllowedRight) {
-      const overflow = rect.right - maxAllowedRight;
-      if ('translate' in document.documentElement.style) {
-        box.style.translate = `-${overflow + 6}px 0`;
-      } else {
-        box.style.marginLeft = `-${overflow + 6}px`;
-      }
-    } else if (rect.left < minAllowedLeft) {
-      const underflow = minAllowedLeft - rect.left;
-      if ('translate' in document.documentElement.style) {
-        box.style.translate = `${underflow + 6}px 0`;
-      } else {
-        box.style.marginLeft = `${underflow + 6}px`;
-      }
+    // 1. Căn ngang (căn giữa trigger, kẹp trong màn hình an toàn)
+    let left = triggerRect.left + (triggerRect.width / 2) - (overlayWidth / 2);
+    left = Math.max(padding, Math.min(window.innerWidth - overlayWidth - padding, left));
+
+    // 2. Căn dọc (ưu tiên mở xuống dưới, lật lên trên nếu chạm đáy viewport)
+    const spaceBelow = window.innerHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+    let top = triggerRect.bottom + 8;
+
+    if (spaceBelow < overlayHeight + 16 && spaceAbove > overlayHeight + 16) {
+      top = triggerRect.top - overlayHeight - 8;
+    }
+
+    overlay.style.left = `${Math.round(left)}px`;
+    overlay.style.top = `${Math.round(top)}px`;
+    overlay.style.visibility = 'visible';
+    overlay.classList.add('active');
+  }
+
+  function hideTooltip(trigger) {
+    if (activeTrigger === trigger || !trigger) {
+      activeTrigger = null;
+      overlay.classList.remove('active');
+      overlay.style.visibility = 'hidden';
     }
   }
 
-  function handleLeave(trigger) {
-    const box = trigger.querySelector('.tooltip-box');
-    if (box) {
-      box.style.translate = '';
-      box.style.marginLeft = '';
+  // Sử dụng Event Delegation gắn trên document
+  document.addEventListener('mouseenter', (e) => {
+    const trigger = e.target.closest && e.target.closest('.tooltip-trigger');
+    if (trigger) {
+      showTooltip(trigger);
     }
-  }
+  }, true);
 
-  // Sử dụng event delegation để tự động bảo vệ tất cả tooltip hiện tại & tạo mới
-  document.addEventListener('mouseover', (e) => {
-    const trigger = e.target.closest('.tooltip-trigger');
-    if (trigger && !trigger._boundProtection) {
-      trigger._boundProtection = true;
-      trigger.addEventListener('mouseenter', () => handleTooltipPosition(trigger));
-      trigger.addEventListener('mouseleave', () => handleLeave(trigger));
-      trigger.addEventListener('focusin', () => handleTooltipPosition(trigger));
-      trigger.addEventListener('focusout', () => handleLeave(trigger));
-      handleTooltipPosition(trigger);
+  document.addEventListener('mouseleave', (e) => {
+    const trigger = e.target.closest && e.target.closest('.tooltip-trigger');
+    if (trigger) {
+      hideTooltip(trigger);
     }
+  }, true);
+
+  document.addEventListener('focusin', (e) => {
+    const trigger = e.target.closest && e.target.closest('.tooltip-trigger');
+    if (trigger) {
+      showTooltip(trigger);
+    }
+  }, true);
+
+  document.addEventListener('focusout', (e) => {
+    const trigger = e.target.closest && e.target.closest('.tooltip-trigger');
+    if (trigger) {
+      hideTooltip(trigger);
+    }
+  }, true);
+
+  // Tự động ẩn khi người dùng cuộn trang
+  window.addEventListener('scroll', () => {
+    hideTooltip();
   }, { passive: true });
 }

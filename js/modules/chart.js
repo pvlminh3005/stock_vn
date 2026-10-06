@@ -1,4 +1,4 @@
-import { formatStockPrice, formatCompactNumber } from '../utils.js?v=2.6';
+import { formatStockPrice, formatCompactNumber } from '../utils.js?v=4.0';
 
 let chart = null;
 let candleSeries = null;
