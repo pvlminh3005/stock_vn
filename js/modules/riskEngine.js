@@ -1,4 +1,4 @@
-import { formatVND, formatCompactNumber } from '../utils.js?v=4.0';
+import { formatVND, formatCompactNumber, formatDateVN } from '../utils.js?v=4.0';
 
 let currentRiskReportMarkdown = "";
 
@@ -150,7 +150,7 @@ export function renderNewsReferences(newsList) {
             ${item.badge}
           </span>
           <span class="text-xs font-semibold text-slate-400">${item.source}</span>
-          <span class="text-[11px] text-slate-500 font-mono">${item.date}</span>
+          <span class="text-[11px] text-slate-500 font-mono">${formatDateVN(item.date)}</span>
         </div>
         <div class="text-xs text-slate-200 leading-relaxed font-medium">
           ${item.url ? `<a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:text-blue-400 transition">${item.title}</a>` : item.title}

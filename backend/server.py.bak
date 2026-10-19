@@ -1,0 +1,3828 @@
+import http.server
+import io
+import json
+import os
+import re
+import socketserver
+import sqlite3
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
+import numpy as np
+import pandas as pd
+from vnstock import Company, Finance
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BACKEND_DIR)
+for p in [BACKEND_DIR, ROOT_DIR]:
+  if p not in sys.path:
+    sys.path.insert(0, p)
+
+def get_configured_port(default_port=8000):
+  """Lấy cổng mạng (PORT) từ tham số dòng lệnh hoặc biến môi trường PORT (mặc định: 8000)."""
+  if len(sys.argv) > 1 and sys.argv[1].isdigit():
+    return int(sys.argv[1])
+  if '--port' in sys.argv:
+    try:
+      idx = sys.argv.index('--port')
+      return int(sys.argv[idx + 1])
+    except (IndexError, ValueError):
+      pass
+  env_port = os.environ.get('PORT')
+  if env_port and env_port.isdigit():
+    return int(env_port)
+  return default_port
+
+
+PORT = get_configured_port(8000)
+
+HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        ' (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'application/json, text/plain, */*',
+}
+
+SSI_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        ' (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    ),
+    'Origin': 'https://iboard.ssi.com.vn',
+    'Referer': 'https://iboard.ssi.com.vn/',
+}
+
+# ==================== CACHE QUẢN LÝ THỊ TRƯỜNG ====================
+_SSI_CACHE = {'timestamp': 0, 'data': {}}
+
+
+def fetch_json(url, headers=HEADERS, timeout=5):
+  """Thực hiện HTTP GET và parse JSON an toàn."""
+  req = urllib.request.Request(url, headers=headers)
+  with urllib.request.urlopen(req, timeout=timeout) as res:
+    return json.loads(res.read().decode('utf-8'))
+
+
+from concurrent.futures import ThreadPoolExecutor
+
+def get_ssi_board_data():
+  """Lấy snapshot toàn bộ bảng giá 3 sàn HOSE, HNX, UPCoM từ SSI iBoard (cache 45 giây)."""
+  global _SSI_CACHE
+  now = time.time()
+  if now - _SSI_CACHE['timestamp'] < 45 and _SSI_CACHE['data']:
+    return _SSI_CACHE['data']
+
+  stock_map = {}
+  def _fetch_exchange(ex):
+    try:
+      url = f'https://iboard-query.ssi.com.vn/stock/exchange/{ex}'
+      res = fetch_json(url, headers=SSI_HEADERS, timeout=6)
+      items = res.get('data', [])
+      for item in items:
+        item['exchange'] = ex.upper()
+      return items
+    except Exception as e:
+      print(f'Lỗi fetch SSI board {ex}:', e)
+      return []
+
+  try:
+    with ThreadPoolExecutor(max_workers=3) as pool:
+      results = pool.map(_fetch_exchange, ['hose', 'hnx', 'upcom'])
+      for items in results:
+        for item in items:
+          sym = item.get('stockSymbol')
+          if sym:
+            stock_map[sym.upper()] = item
+    if stock_map:
+      _SSI_CACHE['timestamp'] = now
+      _SSI_CACHE['data'] = stock_map
+      return stock_map
+  except Exception as e:
+    print('Lỗi fetch SSI board:', e)
+
+  return _SSI_CACHE.get('data', {})
+
+
+def fetch_chart_data(ticker, days=120, resolution='1D'):
+  """Lấy nến kỹ thuật đầy đủ (t, o, h, l, c, v) từ Entrade API theo resolution."""
+  now_ts = int(time.time())
+  if resolution == '1W':
+    days = 365
+  elif resolution in ['1H', '30']:
+    days = 40
+  elif resolution in ['15', '5']:
+    days = 15
+  from_ts = now_ts - (days * 86400)
+  url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={from_ts}&to={now_ts}&symbol={ticker}&resolution={resolution}'
+  return fetch_json(url)
+
+
+def format_candles(chart_data, resolution='1D'):
+  """Chuẩn hóa dữ liệu nến cho TradingView Lightweight Charts."""
+  t_list = chart_data.get('t', [])
+  o_list = chart_data.get('o', [])
+  h_list = chart_data.get('h', [])
+  l_list = chart_data.get('l', [])
+  c_list = chart_data.get('c', [])
+  v_list = chart_data.get('v', [])
+  if not c_list:
+    return []
+  scale = 1000 if c_list[-1] < 1000 else 1
+  is_intraday = resolution in ['1H', '30', '15', '5']
+  candles = []
+  for i in range(len(t_list)):
+    ts = t_list[i]
+    time_val = ts if is_intraday else time.strftime('%Y-%m-%d', time.localtime(ts))
+    candles.append({
+        'time': time_val,
+        'open': o_list[i] * scale,
+        'high': h_list[i] * scale,
+        'low': l_list[i] * scale,
+        'close': c_list[i] * scale,
+        'volume': v_list[i] if i < len(v_list) else 0,
+    })
+  return candles
+
+
+def handle_chart_only(ticker, resolution='1D'):
+  """Trả về dữ liệu nến phục vụ chuyển nhanh khung thời gian trên biểu đồ."""
+  days = DAILY_HISTORY_DAYS if resolution == '1D' else 120
+  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution)
+  return {
+      'ticker': ticker,
+      'resolution': resolution,
+      'candles': format_candles(chart_data, resolution=resolution),
+  }
+
+
+# ==================== CƠ SỞ DỮ LIỆU CƠ BẢN DOANH NGHIỆP QUA VNSTOCK ====================
+os.environ['VNSTOCK_TELEMETRY'] = 'off'
+
+DB_PATH = os.path.join(ROOT_DIR, 'data', 'fundamentals.db')
+
+SECTOR_MAP = {
+    'Technology': 'Công nghệ thông tin',
+    'Construction & Materials': 'Xây dựng & Vật liệu',
+    'Financial Services': 'Dịch vụ Tài chính / Chứng khoán',
+    'Banks': 'Ngân hàng',
+    'Real Estate': 'Bất động sản',
+    'Food & Beverage': 'Thực phẩm & Đồ uống',
+    'Retail': 'Bán lẻ tiêu dùng',
+    'Basic Resources': 'Thép & Tài nguyên cơ bản',
+    'Oil & Gas': 'Dầu khí & Năng lượng',
+    'Utilities': 'Điện & Tiện ích',
+    'Industrial Goods & Services': 'Hàng hóa & Dịch vụ công nghiệp',
+    'Chemicals': 'Hóa chất & Phân bón',
+    'Automobiles & Parts': 'Ô tô & Phụ tùng',
+    'Personal & Household Goods': 'Hàng tiêu dùng cá nhân & Gia dụng',
+    'Health Care': 'Y tế & Dược phẩm',
+    'Telecommunications': 'Viễn thông',
+    'Travel & Leisure': 'Du lịch & Giải trí',
+    'Media': 'Truyền thông',
+    'Insurance': 'Bảo hiểm',
+}
+
+# Ngành tài chính: D/E cao, OCF và biên lãi gộp không mang ý nghĩa như doanh nghiệp sản xuất
+FINANCIAL_SECTORS = {
+    'Ngân hàng',
+    'Chứng khoán',
+    'Dịch vụ Tài chính / Chứng khoán',
+    'Bảo hiểm',
+}
+
+_MEM_FUNDAMENTALS_CACHE = {}
+
+
+def init_fundamentals_db():
+  try:
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    with sqlite3.connect(DB_PATH) as conn:
+      conn.execute("""
+        CREATE TABLE IF NOT EXISTS fundamentals (
+            symbol TEXT PRIMARY KEY,
+            name TEXT,
+            sector TEXT,
+            pe REAL,
+            pb REAL,
+            roe REAL,
+            eps REAL,
+            bvps REAL DEFAULT 0.0,
+            debt_to_equity REAL,
+            rev_growth REAL,
+            profit_growth REAL,
+            summary TEXT,
+            updated_at INTEGER
+        )
+      """)
+      for col, col_def in [
+          ('bvps', 'REAL DEFAULT 0.0'),
+          ('ocf', 'REAL DEFAULT 0.0'),
+          ('gross_margin', 'REAL DEFAULT 0.0'),
+          ('net_margin', 'REAL DEFAULT 0.0'),
+          ('interest_coverage', 'REAL DEFAULT 0.0'),
+          ('ocf_status', "TEXT DEFAULT ''"),
+          ('nim', 'REAL DEFAULT 0.0'),
+          ('ldr', 'REAL DEFAULT 0.0'),
+          ('report_period', "TEXT DEFAULT ''"),
+      ]:
+        try:
+          conn.execute(f"ALTER TABLE fundamentals ADD COLUMN {col} {col_def}")
+        except Exception:
+          pass
+  except Exception as e:
+    print('Lỗi khởi tạo DB fundamentals:', e)
+
+
+init_fundamentals_db()
+
+
+def get_cached_fundamental(symbol):
+  sym = symbol.upper()
+  if sym in _MEM_FUNDAMENTALS_CACHE:
+    item, ts = _MEM_FUNDAMENTALS_CACHE[sym]
+    if time.time() - ts < 604800:  # 7 ngày
+      return item
+
+  try:
+    with sqlite3.connect(DB_PATH) as conn:
+      cur = conn.cursor()
+      cur.execute(
+          'SELECT name, sector, pe, pb, roe, eps, debt_to_equity, rev_growth,'
+          ' profit_growth, summary, updated_at, bvps, ocf, gross_margin, net_margin,'
+          ' interest_coverage, ocf_status, nim, ldr, report_period FROM fundamentals WHERE symbol = ?',
+          (sym,),
+      )
+      row = cur.fetchone()
+      if row:
+        updated_at = row[10]
+        if time.time() - updated_at < 604800:
+          has_advanced = (len(row) > 13 and (row[12] or row[13] or (len(row) > 17 and row[17]))) or (len(row) > 16 and row[16])
+          if not has_advanced or not row[19]:
+            # Bản ghi cũ thiếu dữ liệu nâng cao hoặc chưa lưu kỳ BCTC, trả về None để fetch mới
+            return None
+          data = {
+              'name': row[0],
+              'sector': row[1],
+              'pe': row[2],
+              'pb': row[3],
+              'roe': row[4],
+              'eps': row[5],
+              'debtToEquity': row[6],
+              'revGrowth': row[7],
+              'profitGrowth': row[8],
+              'summary': row[9],
+              'bvps': row[11] if len(row) > 11 and row[11] else 0.0,
+              'ocf': row[12] if len(row) > 12 and row[12] else 0.0,
+              'grossMargin': row[13] if len(row) > 13 and row[13] else 0.0,
+              'netMargin': row[14] if len(row) > 14 and row[14] else 0.0,
+              'interestCoverage': row[15] if len(row) > 15 and row[15] else 0.0,
+              'ocfStatus': row[16] if len(row) > 16 and row[16] else '',
+              'nim': row[17] if len(row) > 17 and row[17] else 0.0,
+              'ldr': row[18] if len(row) > 18 and row[18] else 0.0,
+              'reportPeriod': row[19],
+              # isAudited: có số liệu BCTC thực tế (không có nghĩa là BCTC đã được kiểm toán)
+              'isAudited': bool(row[2] or row[3] or row[4] or row[5]),
+          }
+          _MEM_FUNDAMENTALS_CACHE[sym] = (data, updated_at)
+          return data
+  except Exception as e:
+    print(f'Lỗi đọc cache SQLite {sym}:', e)
+
+  return None
+
+
+def save_cached_fundamental(symbol, data):
+  sym = symbol.upper()
+  now = int(time.time())
+  _MEM_FUNDAMENTALS_CACHE[sym] = (data, now)
+  try:
+    with sqlite3.connect(DB_PATH) as conn:
+      conn.execute(
+          """
+            INSERT OR REPLACE INTO fundamentals (
+                symbol, name, sector, pe, pb, roe, eps,
+                bvps, debt_to_equity, rev_growth, profit_growth, summary, updated_at,
+                ocf, gross_margin, net_margin, interest_coverage, ocf_status, nim, ldr,
+                report_period
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          """,
+          (
+              sym,
+              data.get('name', ''),
+              data.get('sector', ''),
+              data.get('pe', 0.0),
+              data.get('pb', 0.0),
+              data.get('roe', 0.0),
+              data.get('eps', 0.0),
+              data.get('bvps', 0.0),
+              data.get('debtToEquity', 0.0),
+              data.get('revGrowth', 0.0),
+              data.get('profitGrowth', 0.0),
+              data.get('summary', ''),
+              now,
+              data.get('ocf', 0.0),
+              data.get('grossMargin', 0.0),
+              data.get('netMargin', 0.0),
+              data.get('interestCoverage', 0.0),
+              data.get('ocfStatus', ''),
+              data.get('nim', 0.0),
+              data.get('ldr', 0.0),
+              data.get('reportPeriod', ''),
+          ),
+      )
+  except Exception as e:
+    print(f'Lỗi ghi cache SQLite {sym}:', e)
+
+
+# Gói Guest của vnstock giới hạn 20 request/phút và gọi sys.exit() khi vượt -> tự giới hạn dưới ngưỡng
+VNSTOCK_CALLS_PER_MINUTE = 15
+_VNSTOCK_CALL_TIMES = []
+_VNSTOCK_LOCK = threading.Lock()
+
+
+def vnstock_call(fn, *args, **kwargs):
+  """
+  Gọi vnstock an toàn: tự giới hạn tần suất và chặn SystemExit (vnai gọi sys.exit khi vượt hạn mức).
+  Bị giới hạn hoặc lỗi -> trả về None để phía gọi hiển thị "Dữ liệu chưa ghi nhận" thay vì làm sập server.
+  """
+  with _VNSTOCK_LOCK:
+    now = time.time()
+    _VNSTOCK_CALL_TIMES[:] = [t for t in _VNSTOCK_CALL_TIMES if now - t < 60]
+    if len(_VNSTOCK_CALL_TIMES) >= VNSTOCK_CALLS_PER_MINUTE:
+      print(f'Bỏ qua lời gọi vnstock {getattr(fn, "__name__", fn)}: đạt giới hạn {VNSTOCK_CALLS_PER_MINUTE} request/phút')
+      return None
+    _VNSTOCK_CALL_TIMES.append(now)
+  try:
+    return fn(*args, **kwargs)
+  except SystemExit as e:
+    print('vnstock vượt hạn mức API (đã chặn SystemExit):', str(e)[:120])
+  except Exception as e:
+    print(f'Lỗi gọi vnstock {getattr(fn, "__name__", fn)}:', str(e)[:120])
+  return None
+
+
+def classify_ocf_status(sector, ocf, profit_growth):
+  """Đánh giá chất lượng dòng tiền HĐKD (Quality of Earnings)."""
+  # Ngân hàng/CTCK/Bảo hiểm: OCF dao động theo tiền gửi, margin, đầu tư -> không dùng làm thước đo lãi thật/ảo
+  if sector in FINANCIAL_SECTORS:
+    return "Không áp dụng cho ngành tài chính"
+  if ocf > 0:
+    return "Dương (tiền thật về doanh nghiệp)"
+  if ocf < 0 and profit_growth > 0:
+    return "⚠️ Cảnh báo Lợi nhuận giấy (OCF âm / Lãi ảo)"
+  if ocf < 0:
+    return "Âm (Thâm hụt dòng tiền lưu động)"
+  return "Dữ liệu chưa ghi nhận"
+
+
+def fetch_from_vnstock(symbol):
+  """Lấy dữ liệu BCTC và hồ sơ doanh nghiệp thực tế qua vnstock."""
+  old_stdout, old_stderr = sys.stdout, sys.stderr
+  sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
+  try:
+    from vnstock import Company, Finance
+
+    # 1. Thông tin doanh nghiệp từ VCI
+    ov = vnstock_call(lambda: Company(symbol=symbol, source='VCI').overview())
+    if ov is None:
+      ov = pd.DataFrame()
+    name = (
+        ov['organ_name'].values[0]
+        if 'organ_name' in ov.columns and len(ov) > 0
+        else f'Công ty Cổ phần {symbol}'
+    )
+    raw_sector = (
+        ov['sector'].values[0]
+        if 'sector' in ov.columns and len(ov) > 0
+        else 'Doanh nghiệp'
+    )
+    sector = SECTOR_MAP.get(raw_sector, raw_sector)
+    summary = (
+        ov['company_profile'].values[0]
+        if 'company_profile' in ov.columns and len(ov) > 0
+        else ''
+    )
+
+    # 2. Chỉ số tài chính BCTC từ KBS (tham khảo & dự phòng)
+    r = vnstock_call(lambda: Finance(source='KBS', symbol=symbol).ratio())
+    item_map = {}
+    latest_col = ''
+    if r is not None and not r.empty:
+      quarter_cols = [c for c in r.columns if c not in ['item', 'item_id']]
+      def parse_quarter_key(col_name):
+        try:
+          parts = str(col_name).split('-Q')
+          year = int(parts[0])
+          quarter = int(parts[1].split('_')[0])
+          return (year, quarter)
+        except:
+          return (0, 0)
+      sorted_cols = sorted(quarter_cols, key=parse_quarter_key)
+      latest_col = sorted_cols[-1] if sorted_cols else r.columns[-1]
+      item_map = dict(zip(r['item'], r[latest_col]))
+
+    def safe_num(val, default=0.0):
+      try:
+        v = float(val)
+        return default if (v != v or v is None) else v
+      except:
+        return default
+
+    bvps = safe_num(
+        item_map.get('Giá trị sổ sách của cổ phiếu (BVPS)'), 0.0
+    )
+    pe = safe_num(item_map.get('Chỉ số giá thị trường trên thu nhập (P/E)'), 0.0)
+    pb = safe_num(
+        item_map.get('Chỉ số giá thị trường trên giá trị sổ sách (P/B)'), 0.0
+    )
+    ps = safe_num(
+        item_map.get('Chỉ số giá thị trường trên doanh thu thuần (P/S)'), 0.0
+    )
+    roe = safe_num(item_map.get('ROE bình quân 4 quý gần nhất'), 0.0)
+    eps = safe_num(
+        item_map.get('Thu nhập trên mỗi cổ phần của 4 quý gần nhất (EPS)'), 0.0
+    )
+    debt = safe_num(item_map.get('Tỷ số Nợ trên Vốn chủ sở hữu'), 0.0) / 100.0
+    rev_growth = safe_num(item_map.get('Tăng trưởng  doanh thu thuần'), 0.0)
+    profit_growth = safe_num(
+        item_map.get('Tăng trưởng lợi nhuận sau thuế của CĐ công ty mẹ'), 0.0
+    )
+    gross_margin = safe_num(item_map.get('Tỷ suất lợi nhuận gộp biên'), 0.0)
+    net_margin = safe_num(item_map.get('Tỷ suất sinh lợi trên doanh thu thuần'), 0.0)
+    interest_cov = safe_num(item_map.get('Khả năng thanh toán lãi vay'), 0.0)
+    nim = safe_num(item_map.get('Tỷ lệ thu nhập lãi thuần (NIM)'), 0.0)
+    ldr = safe_num(item_map.get('Dư nợ cho vay khách hàng/Tổng vốn huy động (LDR)'), 0.0)
+
+    # Dòng tiền HĐKD lấy từ lịch sử VCI (apply_vci_overlay) để không gọi API trùng
+    ocf = 0.0
+    ocf_status = classify_ocf_status(sector, ocf, profit_growth)
+
+    has_audited_data = (pe > 0 or pb > 0 or roe != 0 or eps > 0)
+    return {
+        'name': name,
+        'sector': sector,
+        'pe': round(pe, 1) if pe > 0 else 0.0,
+        'peStatic': round(pe, 2) if pe > 0 else 0.0,
+        'pb': round(pb, 2) if pb > 0 else 0.0,
+        'ps': round(ps, 2) if ps > 0 else 0.0,
+        'roe': round(roe, 1) if roe != 0 else 0.0,
+        'eps': round(eps) if eps > 0 else 0.0,
+        'bvps': round(bvps) if bvps > 0 else 0.0,
+        'debtToEquity': round(debt, 2),
+        'revGrowth': round(rev_growth, 1),
+        'profitGrowth': round(profit_growth, 1),
+        'grossMargin': round(gross_margin, 1),
+        'netMargin': round(net_margin, 1),
+        'interestCoverage': round(interest_cov, 1),
+        'ocf': round(ocf / 1e9, 1),  # Quy đổi về tỷ đồng
+        'ocfStatus': ocf_status,
+        'nim': round(nim, 2),
+        'ldr': round(ldr, 1),
+        'reportPeriod': str(latest_col),
+        'summary': (
+            summary
+            or f'Doanh nghiệp {symbol} niêm yết trên thị trường chứng khoán'
+            ' Việt Nam.'
+        ),
+        'isAudited': has_audited_data,
+    }
+  except Exception as e:
+    return None
+  finally:
+    sys.stdout, sys.stderr = old_stdout, old_stderr
+
+
+# ==================== LỊCH SỬ ĐỊNH GIÁ, BẢNG CÂN ĐỐI & DÒNG TIỀN (VCI QUA VNSTOCK) ====================
+# Dải định giá dùng 12 quý gần nhất (3 năm), tối thiểu 8 quý hợp lệ
+VALUATION_WINDOW_QUARTERS = 12
+VALUATION_MIN_QUARTERS = 8
+VCI_HISTORY_KEEP_QUARTERS = 20
+# Ngành chu kỳ: EPS đỉnh/đáy chu kỳ làm P/E sai lệch -> định giá theo P/B, không nâng P/B khi ROE ở đỉnh chu kỳ
+CYCLICAL_SECTORS = {
+    'Thép & Tài nguyên cơ bản',
+    'Hóa chất & Phân bón',
+    'Dầu khí & Năng lượng',
+}
+# Ngành định giá chính theo P/B
+PB_PRIMARY_SECTORS = FINANCIAL_SECTORS | CYCLICAL_SECTORS | {'Bất động sản'}
+
+_VCI_RATIO_FIELDS = {
+    'pe_ratio': 'pe', 'pb_ratio': 'pb', 'ps_ratio': 'ps', 'roe': 'roe',
+    'gross_margin': 'grossMargin', 'net_margin': 'netMargin',
+    'debtPerEquity': 'borrowDE', 'market_cap': 'marketCap',
+    'outstanding_shares': 'shares', 'npl': 'npl',
+    'loan_loss_reserves_to_npls': 'nplCoverage', 'casa_ratio': 'casa', 'car': 'car',
+    'net_interest_margin': 'nim',
+}
+_VCI_BS_FIELDS = {
+    'cash_and_cash_equivalents': 'cash', 'short_term_investments': 'shortInvestments',
+    'short_term_borrowings': 'shortBorrowings', 'long_term_borrowings': 'longBorrowings',
+    'owners_equity': 'equity',
+}
+_VCI_CF_FIELDS = {'net_cash_inflows_outflows_from_operating_activities': 'cfo'}
+
+
+def init_vci_history_db():
+  try:
+    with sqlite3.connect(DB_PATH) as conn:
+      conn.execute("""
+        CREATE TABLE IF NOT EXISTS vci_history (
+            symbol TEXT PRIMARY KEY,
+            payload TEXT,
+            latest_period TEXT,
+            updated_at INTEGER
+        )
+      """)
+  except Exception as e:
+    print('Lỗi khởi tạo DB vci_history:', e)
+
+
+init_vci_history_db()
+
+
+def _vci_quarterly_report(symbol, report_type, fields):
+  """
+  Đọc báo cáo theo quý từ VCI (vnstock), trả về {tên_trường: {kỳ 'YYYY-Qn': giá trị}}.
+  Dùng API nội bộ _get_report(limit=200) vì Finance.ratio() công khai chỉ trả 4 kỳ đầu tiên (2018).
+  """
+  from vnstock.explorer.vci.financial import Finance as VCIFinance
+  df = vnstock_call(lambda: VCIFinance(symbol=symbol, period='quarter')._get_report(
+      report_type=report_type, lang='vi', mode='final', style='readable',
+      show_log=False, period='quarter', limit=200, get_all=False,
+  ))
+  if df is None or df.empty or 'item_id' not in df.columns:
+    return {}
+  period_cols = [c for c in df.columns if _period_key(c)]
+  out = {}
+  for _, row in df.iterrows():
+    key = fields.get(row['item_id'])
+    if not key:
+      continue
+    series = out.setdefault(key, {})
+    for col in period_cols:
+      try:
+        val = float(row[col])
+      except (TypeError, ValueError):
+        continue
+      if val != val:
+        continue
+      # Một số khoản mục bị lặp (dòng tổng và dòng chi tiết): giữ giá trị tuyệt đối lớn nhất
+      if col not in series or abs(val) > abs(series[col]):
+        series[col] = val
+  return out
+
+
+def fetch_vci_financial_history(symbol):
+  """Tải lịch sử chỉ số định giá, bảng cân đối và dòng tiền theo quý từ VCI."""
+  old_stdout, old_stderr = sys.stdout, sys.stderr
+  sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
+  try:
+    with ThreadPoolExecutor(max_workers=3) as pool:
+      f_ratio = pool.submit(_vci_quarterly_report, symbol, 'ratio', _VCI_RATIO_FIELDS)
+      f_bs = pool.submit(_vci_quarterly_report, symbol, 'balance_sheet', _VCI_BS_FIELDS)
+      f_cf = pool.submit(_vci_quarterly_report, symbol, 'cash_flow', _VCI_CF_FIELDS)
+      data = {}
+      partial = False
+      for fut in (f_ratio, f_bs, f_cf):
+        try:
+          part = fut.result()
+        except BaseException:
+          part = None
+        if part is None:
+          partial = True
+        data.update(part or {})
+    periods = sorted({p for series in data.values() for p in series}, key=_period_key)
+    if not periods or 'pe' not in data:
+      return None
+    periods = periods[-VCI_HISTORY_KEEP_QUARTERS:]
+    return {
+        'periods': periods,
+        'series': {k: {p: v[p] for p in periods if p in v} for k, v in data.items()},
+        'latestPeriod': periods[-1],
+        'partial': partial,
+    }
+  except Exception:
+    return None
+  finally:
+    sys.stdout, sys.stderr = old_stdout, old_stderr
+
+
+def get_vci_financial_history(symbol):
+  """
+  Lịch sử VCI có cache SQLite: dùng lại nếu tải trong 1 ngày, hoặc trong 7 ngày và đã có kỳ BCTC
+  quá hạn công bố gần nhất (mùa BCTC sẽ tự tải lại khi kỳ mới đến hạn).
+  """
+  sym = symbol.upper()
+  now = int(time.time())
+  expected = expected_latest_report_period()
+  try:
+    with sqlite3.connect(DB_PATH) as conn:
+      row = conn.execute(
+          'SELECT payload, latest_period, updated_at FROM vci_history WHERE symbol = ?', (sym,)
+      ).fetchone()
+    if row:
+      payload, latest_period, updated_at = row
+      age = now - updated_at
+      period_ok = expected is None or (_period_key(latest_period) or (0, 0)) >= expected
+      if age < 86400 or (age < 604800 and period_ok):
+        return json.loads(payload)
+  except Exception as e:
+    print(f'Lỗi đọc cache vci_history {sym}:', e)
+
+  hist = fetch_vci_financial_history(sym)
+  # Không cache bản thiếu (một phần báo cáo bị bỏ qua do giới hạn API) để lần sau tải lại đủ
+  if hist and not hist.get('partial'):
+    try:
+      with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            'INSERT OR REPLACE INTO vci_history (symbol, payload, latest_period, updated_at) VALUES (?, ?, ?, ?)',
+            (sym, json.dumps(hist), hist['latestPeriod'], now),
+        )
+    except Exception as e:
+      print(f'Lỗi ghi cache vci_history {sym}:', e)
+  return hist
+
+
+def _latest(series, periods):
+  """Giá trị của kỳ gần nhất có dữ liệu."""
+  for p in reversed(periods):
+    if p in series:
+      return series[p], p
+  return None, None
+
+
+def _percentile(values, q):
+  vals = sorted(values)
+  if not vals:
+    return None
+  pos = (len(vals) - 1) * q
+  lo, hi = int(pos), min(int(pos) + 1, len(vals) - 1)
+  return vals[lo] + (vals[hi] - vals[lo]) * (pos - lo)
+
+
+def summarize_vci_history(hist):
+  """Rút trích số liệu kỳ gần nhất từ lịch sử VCI: EPS/BVPS đã điều chỉnh số cổ phiếu, ROE TTM, nợ vay, thanh khoản."""
+  if not hist:
+    return None
+  periods = hist['periods']
+  s = hist['series']
+  pe, pe_period = _latest(s.get('pe', {}), periods)
+  pb, _ = _latest(s.get('pb', {}), periods)
+  ps, _ = _latest(s.get('ps', {}), periods)
+  gross_m, _ = _latest(s.get('grossMargin', {}), periods)
+  net_m, _ = _latest(s.get('netMargin', {}), periods)
+  cap, _ = _latest(s.get('marketCap', {}), periods)
+  shares, _ = _latest(s.get('shares', {}), periods)
+  roe, _ = _latest(s.get('roe', {}), periods)
+  # Giá tham chiếu kỳ = vốn hóa / số cổ phiếu lưu hành; EPS & BVPS suy ra cùng nguồn với P/E, P/B
+  ref_price = cap / shares if cap and shares else None
+  eps = ref_price / pe if ref_price and pe else None
+  bvps = ref_price / pb if ref_price and pb else None
+
+  def _bs(key):
+    val, _ = _latest(s.get(key, {}), periods)
+    return val or 0.0
+
+  cash, short_inv = _bs('cash'), _bs('shortInvestments')
+  short_debt, long_debt, equity = _bs('shortBorrowings'), _bs('longBorrowings'), _bs('equity')
+  cfo_series = s.get('cfo', {})
+  cfo_periods = [p for p in periods if p in cfo_series][-4:]
+  cfo_ttm = sum(cfo_series[p] for p in cfo_periods) if len(cfo_periods) == 4 else None
+  cfo_latest = cfo_series[cfo_periods[-1]] if cfo_periods else None
+
+  roe_series = s.get('roe', {})
+  roe_periods = [p for p in periods if p in roe_series]
+  roe_4q_ago = roe_series[roe_periods[-5]] if len(roe_periods) >= 5 else None
+
+  return {
+      'period': pe_period,
+      'pe': pe,
+      'pb': pb,
+      'ps': ps,
+      'grossMargin': gross_m,
+      'netMargin': net_m,
+      'eps': eps,
+      'bvps': bvps,
+      'roe': roe * 100 if roe is not None else None,
+      'roe4QAgo': roe_4q_ago * 100 if roe_4q_ago is not None else None,
+      'borrowDE': ((short_debt + long_debt) / equity) if equity > 0 else None,
+      'cash': cash,
+      'shortInvestments': short_inv,
+      'shortBorrowings': short_debt,
+      'cfoTtm': cfo_ttm,
+      'cfoLatest': cfo_latest,
+      'npl': _latest(s.get('npl', {}), periods)[0],
+      'nplCoverage': _latest(s.get('nplCoverage', {}), periods)[0],
+      'casa': _latest(s.get('casa', {}), periods)[0],
+  }
+
+
+def compute_valuation_band(hist, sector, eps, bvps, roe_now, current_price):
+  """
+  Dải định giá hợp lý theo lịch sử multiple 12 quý của chính doanh nghiệp.
+  - P/E cho doanh nghiệp thường; P/B cho ngân hàng/CTCK/bảo hiểm, bất động sản và ngành chu kỳ.
+  - Bị định giá lại (multiple hiện tại < 70% trung vị 2 năm trước đó): không giả định quay về trung vị,
+    dịch dải xuống (thấp = min(hiện tại, p25), giữa = p25, cao = trung vị).
+  - P/B điều chỉnh theo ROE hiện tại / ROE trung vị dải (0.7 - 1.2; ngành chu kỳ tối đa 1.0).
+  - Ngân hàng có chất lượng tài sản xấu (nợ xấu > 3%, tăng > 0.5 điểm % trong 4 quý, bao phủ < 100%): dùng nửa dưới của dải.
+  Trả về None nếu chưa đủ lịch sử.
+  """
+  if not hist:
+    return None
+  periods = hist['periods'][-VALUATION_WINDOW_QUARTERS:]
+  s = hist['series']
+  use_pb = sector in PB_PRIMARY_SECTORS or not eps or eps <= 0
+  if use_pb:
+    key, base, label, max_mult = 'pb', bvps, 'P/B', 15.0
+  else:
+    key, base, label, max_mult = 'pe', eps, 'P/E', 60.0
+  if not base or base <= 0:
+    return None
+  mult_series = [(p, s.get(key, {}).get(p)) for p in periods]
+  mults = [v for _, v in mult_series if v is not None and 0 < v <= max_mult]
+  if len(mults) < VALUATION_MIN_QUARTERS:
+    return None
+
+  p25, med, p75 = _percentile(mults, 0.25), _percentile(mults, 0.5), _percentile(mults, 0.75)
+  current_mult = current_price / base if current_price > 0 else None
+  older = [v for _, v in mult_series[:-4] if v is not None and 0 < v <= max_mult]
+  older_med = _percentile(older, 0.5) if len(older) >= 4 else None
+  de_rating = bool(current_mult and older_med and current_mult < 0.7 * older_med)
+  notes = []
+  recent = [v for _, v in mult_series[-4:] if v is not None and 0 < v <= max_mult]
+  if de_rating and recent:
+    # Neo vào mặt bằng định giá mới (4 quý gần nhất); p25 của 12 quý chỉ là trần trên
+    low, mid, high = min(recent), _percentile(recent, 0.5), max(_percentile(recent, 0.5), p25)
+    notes.append(
+        f'{label} hiện tại {current_mult:.1f}x thấp hơn 30% so với trung vị 2 năm trước đó ({older_med:.1f}x): '
+        f'thị trường đang định giá lại nên dải neo theo 4 quý gần nhất, không giả định multiple quay về mức cũ'
+    )
+  else:
+    low, mid, high = p25, med, p75
+
+  roe_factor = 1.0
+  if use_pb and roe_now and roe_now > 0:
+    roe_vals = [s['roe'][p] * 100 for p in periods if p in s.get('roe', {}) and s['roe'][p] > 0]
+    roe_med = _percentile(roe_vals, 0.5) if roe_vals else None
+    if roe_med:
+      cap_up = 1.0 if sector in CYCLICAL_SECTORS else 1.2
+      roe_factor = max(0.7, min(cap_up, roe_now / roe_med))
+      if abs(roe_factor - 1.0) >= 0.05:
+        notes.append(f'P/B điều chỉnh x{roe_factor:.2f} theo ROE hiện tại {roe_now:.1f}% so với trung vị {roe_med:.1f}%')
+
+  quality_flags = []
+  if sector == 'Ngân hàng':
+    npl_series = s.get('npl', {})
+    npl_periods = [p for p in periods if p in npl_series]
+    if npl_periods:
+      npl_now = npl_series[npl_periods[-1]] * 100
+      if npl_now > 3.0:
+        quality_flags.append(f'nợ xấu {npl_now:.2f}% > 3%')
+      if len(npl_periods) >= 5 and npl_now - npl_series[npl_periods[-5]] * 100 > 0.5:
+        quality_flags.append(f'nợ xấu tăng {npl_now - npl_series[npl_periods[-5]] * 100:+.2f} điểm % trong 4 quý')
+    cov, _ = _latest(s.get('nplCoverage', {}), periods)
+    cov = abs(cov) if cov is not None else None
+    if cov is not None and 0 < cov < 1.0:
+      quality_flags.append(f'bao phủ nợ xấu {cov * 100:.0f}% < 100%')
+    if quality_flags:
+      low, mid, high = low, low, mid
+      notes.append('Chất lượng tài sản suy yếu (' + ', '.join(quality_flags) + '): dùng nửa dưới của dải')
+
+  fair = [round(base * m * roe_factor, -2) for m in (low, mid, high)]
+  return {
+      'method': label,
+      'baseValue': round(base),
+      'quarters': len(mults),
+      'window': f'{periods[0]} → {periods[-1]}',
+      'p25': round(p25, 2), 'median': round(med, 2), 'p75': round(p75, 2),
+      'appliedMultiples': [round(low * roe_factor, 2), round(mid * roe_factor, 2), round(high * roe_factor, 2)],
+      'currentMultiple': round(current_mult, 2) if current_mult else None,
+      'deRating': de_rating,
+      'roeFactor': round(roe_factor, 2),
+      'qualityFlags': quality_flags,
+      'fairLow': fair[0], 'fairMid': fair[1], 'fairHigh': fair[2],
+      'notes': notes,
+  }
+
+
+def apply_vci_overlay(info, hist):
+  """
+  Bổ sung và chuẩn hóa số liệu tài chính theo nguồn VCI (Cách 1):
+  - EPS, BVPS, ROE: Chuẩn hóa theo VCI (đồng nhất với chuỗi định giá 12 quý, phản ánh đúng
+    số cổ phiếu sau chia thưởng/tăng vốn và kỳ BCTC mới nhất).
+  - ROE: Chuẩn hóa theo VCI ROE TTM (tính theo VCSH bình quân chuẩn phân tích).
+  - Cập nhật kỳ BCTC (reportPeriod), P/E, P/B tĩnh, biên lợi nhuận từ VCI.
+  - DATA_CONFLICT chỉ ghi nhận khi có mâu thuẫn trọng yếu thực sự về bản chất
+    (ví dụ khác dấu: một bên lãi lớn, một bên lỗ lớn). Không cắm cờ khi lệch do chia tách
+    hoặc do KBS chậm cập nhật kỳ BCTC.
+  """
+  info['dataConflicts'] = []
+  summary = summarize_vci_history(hist)
+  if not summary:
+    return
+  kbs_eps, kbs_roe = info.get('eps', 0.0), info.get('roe', 0.0)
+  vci_eps, vci_roe = summary['eps'], summary['roe']
+
+  # Chỉ cảnh báo xung đột nếu khác dấu nghiêm trọng (bản chất kết quả kinh doanh đối nghịch)
+  if vci_eps is not None and kbs_eps:
+    if (vci_eps > 0) != (kbs_eps > 0) and (abs(vci_eps) > 100 and abs(kbs_eps) > 100):
+      info['dataConflicts'].append(f'EPS lệch dấu: KBS {kbs_eps:,.0f} đ vs VCI {vci_eps:,.0f} đ')
+  if vci_roe is not None and kbs_roe:
+    if (vci_roe > 0) != (kbs_roe > 0) and (abs(vci_roe) > 3.0 and abs(kbs_roe) > 3.0):
+      info['dataConflicts'].append(f'ROE lệch dấu: KBS {kbs_roe:.1f}% vs VCI {vci_roe:.1f}%')
+
+  info['kbs'] = {'eps': kbs_eps, 'bvps': info.get('bvps', 0.0), 'roe': kbs_roe}
+
+  # Chuẩn hóa chỉ số cốt lõi theo VCI (nguồn chuẩn)
+  if vci_eps is not None and vci_eps > 0:
+    info['eps'] = round(vci_eps)
+  if summary['bvps'] and summary['bvps'] > 0:
+    info['bvps'] = round(summary['bvps'])
+  if vci_roe is not None:
+    info['roe'] = round(vci_roe, 1)
+    info['roeVci'] = round(vci_roe, 1)
+  if summary.get('pe') and summary['pe'] > 0:
+    info['peStatic'] = round(summary['pe'], 2)
+  if summary.get('pb') and summary['pb'] > 0:
+    info['pb'] = round(summary['pb'], 2)
+  if summary.get('grossMargin') is not None:
+    info['grossMargin'] = round(summary['grossMargin'] * 100, 1)
+  if summary.get('netMargin') is not None:
+    info['netMargin'] = round(summary['netMargin'] * 100, 1)
+  if summary.get('period'):
+    info['reportPeriod'] = summary['period']
+    info['valuationSource'] = f"VCI kỳ {summary['period']}"
+
+  info['roe4QAgo'] = round(summary['roe4QAgo'], 1) if summary['roe4QAgo'] is not None else None
+  info['borrowDE'] = round(summary['borrowDE'], 2) if summary['borrowDE'] is not None else None
+  info['cfoTtm'] = round(summary['cfoTtm'] / 1e9, 1) if summary['cfoTtm'] is not None else None
+  info['shortBorrowings'] = round(summary['shortBorrowings'] / 1e9, 1)
+  info['liquidAssets'] = round((summary['cash'] + summary['shortInvestments']) / 1e9, 1)
+  if summary['cfoLatest'] is not None:
+    info['ocf'] = round(summary['cfoLatest'] / 1e9, 1)
+  info['ocfStatus'] = classify_ocf_status(info.get('sector', ''), info.get('ocf', 0.0), info.get('profitGrowth', 0.0))
+  if info.get('sector') == 'Ngân hàng':
+    if summary['npl'] is not None:
+      info['npl'] = round(summary['npl'] * 100, 2)
+    if summary['nplCoverage'] is not None:
+      info['nplCoverage'] = round(abs(summary['nplCoverage']) * 100, 0)
+    if summary['casa'] is not None:
+      info['casa'] = round(summary['casa'] * 100, 1)
+  info['vciHistory'] = hist
+
+
+def assess_financial_distress(fundamental_info, sector):
+  """
+  Đánh giá căng thẳng tài chính (không áp dụng ngành tài chính). Trả về (is_distress, is_tail_lock, lý do).
+  - Tail lock theo spec: vay ngắn hạn (gồm nợ vay/trái phiếu đến hạn trong 12 tháng) > tiền + đầu tư ngắn hạn + CFO 4 quý dương.
+  - Căng thẳng: CFO âm + lợi nhuận suy giảm/âm + nợ vay/VCSH > 1.5 hoặc khả năng trả lãi < 1.
+  Dùng nợ VAY thay cho tổng nợ phải trả (tổng nợ gồm cả người mua trả tiền trước của BĐS).
+  """
+  fi = fundamental_info or {}
+  if sector in FINANCIAL_SECTORS:
+    return False, False, []
+  reasons = []
+  short_debt = fi.get('shortBorrowings')
+  liquid = fi.get('liquidAssets')
+  cfo_ttm = fi.get('cfoTtm')
+  cfo = cfo_ttm if cfo_ttm is not None else fi.get('ocf', 0.0)
+  borrow_de = fi.get('borrowDE')
+  interest_cov = fi.get('interestCoverage', 0.0)
+  tail_lock = False
+  if short_debt is not None and liquid is not None and short_debt > 0:
+    coverage = liquid + max(cfo_ttm or 0.0, 0.0)
+    # Doanh nghiệp sản xuất thường đảo nợ vay ngắn hạn tài trợ vốn lưu động: chỉ coi là hố đen thanh khoản
+    # khi thiếu hụt đi kèm dấu hiệu căng thẳng (CFO 4 quý âm hoặc khả năng trả lãi < 1.5)
+    # interest_cov âm nghĩa là EBIT âm (không đủ trả lãi); 0 là chưa có dữ liệu
+    stressed = cfo < 0 or (interest_cov != 0 and interest_cov < 1.5)
+    if short_debt > coverage and stressed:
+      tail_lock = True
+      reasons.append(
+          f'Vay ngắn hạn {short_debt:,.0f} tỷ đ vượt tiền & đầu tư ngắn hạn {liquid:,.0f} tỷ đ'
+          f' + CFO 4 quý {cfo_ttm if cfo_ttm is not None else 0:+,.0f} tỷ đ, kèm dòng tiền âm/khả năng trả lãi yếu ({interest_cov:.1f}x)'
+      )
+  weak_profit = fi.get('roe', 0.0) <= 0 or fi.get('profitGrowth', 0.0) <= 0
+  heavy_debt = (borrow_de is not None and borrow_de > 1.5) or (interest_cov != 0 and interest_cov < 1.0)
+  distress = tail_lock or (cfo < 0 and weak_profit and heavy_debt)
+  if cfo < 0 and weak_profit and heavy_debt:
+    de_txt = f'nợ vay/VCSH {borrow_de:.2f}x' if borrow_de is not None else 'nợ vay cao'
+    reasons.append(f'CFO âm ({cfo:+,.1f} tỷ đ), lợi nhuận suy giảm/âm, {de_txt}, khả năng trả lãi {interest_cov:.1f}x')
+  return distress, tail_lock, reasons
+
+
+def get_fundamental_profile(ticker, current_price):
+  """Trả về hồ sơ cơ bản chuẩn hóa và điểm FA lấy từ vnstock (Không tạo số liệu giả)."""
+  sym = ticker.upper()
+
+  # 1. Kiểm tra cache (sao chép để không ghi đè bản ghi cache khi tính chỉ số động)
+  cached = get_cached_fundamental(sym)
+  info = dict(cached) if cached else None
+
+  # 2. Nếu chưa có trong cache, gọi vnstock
+  if not info:
+    fetched = fetch_from_vnstock(sym)
+    if fetched:
+      save_cached_fundamental(sym, fetched)
+      info = dict(fetched)
+
+  # 3. Nếu vnstock không có dữ liệu, KHÔNG được tự bịa đặt chỉ số ước lượng
+  if not info:
+    info = {
+        'name': f'Công ty Cổ phần {sym}',
+        'sector': 'Chưa phân loại',
+        'pe': 0.0,
+        'pb': 0.0,
+        'roe': 0.0,
+        'eps': 0.0,
+        'bvps': 0.0,
+        'debtToEquity': 0.0,
+        'revGrowth': 0.0,
+        'profitGrowth': 0.0,
+        'grossMargin': 0.0,
+        'netMargin': 0.0,
+        'interestCoverage': 0.0,
+        'ocf': 0.0,
+        'ocfStatus': 'Dữ liệu chưa ghi nhận',
+        'nim': 0.0,
+        'ldr': 0.0,
+        'reportPeriod': '',
+        'summary': (
+            f'Mã {sym} đang được giao dịch trên sàn với thanh khoản ghi nhận'
+            ' thực tế theo phiên gần nhất. Dữ liệu BCTC chưa ghi nhận từ nguồn dữ liệu.'
+        ),
+        'isAudited': False,
+    }
+
+  # 4. Đối chiếu & bổ sung từ lịch sử VCI (EPS/BVPS đã điều chỉnh số cổ phiếu sau thưởng/chia, ROE TTM, nợ vay, CFO 4 quý)
+  apply_vci_overlay(info, get_vci_financial_history(sym))
+
+  # Tính P/E, P/B và P/S động theo giá thị trường thời gian thực (chỉ khi có dữ liệu BCTC thực tế)
+  eps = info.get('eps', 0.0)
+  bvps = info.get('bvps', 0.0)
+  ps_static = info.get('ps', 0.0)
+  pe_static = info.get('peStatic', info.get('pe', 0.0))
+  if eps > 0 and current_price > 0:
+    info['pe'] = round(current_price / eps, 2)
+  if bvps > 0 and current_price > 0:
+    info['pb'] = round(current_price / bvps, 2)
+  if ps_static > 0 and pe_static > 0 and info.get('pe', 0.0) > 0:
+    info['ps'] = round(ps_static * (info['pe'] / pe_static), 2)
+
+  # Chấm điểm FA Score (0 - 100) theo số liệu thực tế (Nếu chưa có BCTC, thông báo rõ ràng)
+  is_audited = info.get('isAudited', False)
+  roe = info.get('roe', 0.0)
+  pe = info.get('pe', 0.0)
+  growth = info.get('profitGrowth', 0.0)
+  # Ưu tiên CFO 4 quý (TTM): OCF một quý rất nhiễu theo mùa vụ thu chi
+  ocf = info['cfoTtm'] if info.get('cfoTtm') is not None else info.get('ocf', 0.0)
+  gross_margin = info.get('grossMargin', 0.0)
+
+  if not is_audited or (roe == 0.0 and pe == 0.0 and growth == 0.0):
+    info['faScore'] = 0
+    info['faVerdict'] = 'Dữ liệu chưa ghi nhận'
+    info['faColor'] = 'slate'
+    return info
+
+  score = 50
+  if roe >= 20:
+    score += 20
+  elif roe >= 14:
+    score += 12
+  elif roe < 8 and roe != 0:
+    score -= 15
+
+  if 0 < pe <= 12:
+    score += 15
+  elif 12 < pe <= 18:
+    score += 8
+  elif pe > 25:
+    score -= 10
+
+  if growth >= 20:
+    score += 15
+  elif growth > 0:
+    score += 8
+  elif growth < 0:
+    score -= 10
+
+  # Đánh giá chất lượng dòng tiền (Quality of Earnings) - không áp dụng cho ngành tài chính
+  is_financial = info.get('sector', '') in FINANCIAL_SECTORS
+  if not is_financial:
+    if ocf > 0:
+      score += 8   # Dòng tiền kinh doanh thật dương
+    elif ocf < 0 and growth > 0:
+      score -= 12  # Cảnh báo lợi nhuận giấy / lãi ảo
+
+    if gross_margin >= 30.0:
+      score += 5   # Biên lợi nhuận gộp dày
+
+  score = max(10, min(98, score))
+  info['faScore'] = score
+  if score >= 80:
+    info['faVerdict'] = 'Doanh Nghiệp Xuất Sắc (Top FA)'
+    info['faColor'] = 'emerald'
+  elif score >= 60:
+    info['faVerdict'] = 'Sức Khỏe Tài Chính Tốt'
+    info['faColor'] = 'blue'
+  elif score >= 45:
+    info['faVerdict'] = 'Trung Bình / Cân Bằng'
+    info['faColor'] = 'amber'
+  else:
+    info['faVerdict'] = 'Cơ Bản Kém / Cần Thận Trọng'
+    info['faColor'] = 'rose'
+
+  return info
+
+
+# ==================== PHÂN TÍCH KỸ THUẬT & DÒNG TIỀN NÂNG CAO ====================
+
+_VNINDEX_CACHE = {'timestamp': 0, 'data': None}
+_WEEKLY_CHART_CACHE = {}
+
+# Số ngày lịch lấy nến ngày (~280 phiên) để đủ tính MA200
+DAILY_HISTORY_DAYS = 420
+
+
+def get_vnindex_series(days=DAILY_HISTORY_DAYS):
+  """Nến ngày VN-Index kèm ngày giao dịch (YYYY-MM-DD theo giờ VN) và khối lượng."""
+  global _VNINDEX_CACHE
+  now = time.time()
+  cached = _VNINDEX_CACHE.get('data')
+  if cached and now - _VNINDEX_CACHE['timestamp'] < 60:
+    return cached
+  try:
+    now_ts = int(now)
+    from_ts = now_ts - (days * 86400)
+    url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/index?from={from_ts}&to={now_ts}&symbol=VNINDEX&resolution=1D'
+    data = fetch_json(url)
+    if data.get('c'):
+      series = {
+          'dates': [_vn_date(t) for t in data.get('t', [])],
+          'closes': data.get('c', []),
+          'volumes': data.get('v', []),
+      }
+      _VNINDEX_CACHE['timestamp'] = now
+      _VNINDEX_CACHE['data'] = series
+      return series
+  except Exception as e:
+    print('Lỗi fetch VNINDEX candles:', e)
+  return cached or {'dates': [], 'closes': [], 'volumes': []}
+
+
+def calculate_relative_strength(stock_dates, stock_closes, vnindex_series):
+  """Sức mạnh giá tương đối của cổ phiếu so với VN-Index (thang 5 - 99, 50 = đi cùng thị trường).
+
+  - Hai chuỗi được ghép theo NGÀY giao dịch chung (tránh lệch khi mã có phiên ngừng giao dịch).
+  - Đo Alpha so với VN-Index trong 1 tháng (20 phiên) và 3 tháng (60 phiên), trọng số 40/60.
+  - Đây là điểm alpha tương đối, KHÔNG phải RS Rating O'Neil (xếp hạng phần trăm trên toàn thị trường).
+    >= 80: Dẫn dắt mạnh | 65 - 79: Mạnh hơn VN-Index | 45 - 64: Trung tính
+    40 - 44: Bắt đầu yếu hơn VN-Index | < 40: Tụt hậu
+  """
+  vni_map = dict(zip(vnindex_series.get('dates', []), vnindex_series.get('closes', [])))
+  pairs = [(c, vni_map[d]) for d, c in zip(stock_dates, stock_closes) if d in vni_map]
+  stock_closes = [p[0] for p in pairs]
+  vnindex_closes = [p[1] for p in pairs]
+  if len(stock_closes) < 15:
+    return {
+        'rsScore': 50,
+        'rsStatus': 'neutral',
+        'rsColor': 'amber',
+        'stockAlpha1M': 0.0,
+        'stockAlpha3M': 0.0,
+        'stockPerf1M': 0.0,
+        'vniPerf1M': 0.0,
+        'stockPerf3M': 0.0,
+        'vniPerf3M': 0.0,
+    }
+
+  n_1m = min(20, len(stock_closes) - 1)
+  n_3m = min(60, len(stock_closes) - 1)
+
+  stk_now = stock_closes[-1]
+  stk_1m_ago = stock_closes[-1 - n_1m]
+  stk_3m_ago = stock_closes[-1 - n_3m]
+
+  vni_now = vnindex_closes[-1]
+  vni_1m_ago = vnindex_closes[-1 - n_1m]
+  vni_3m_ago = vnindex_closes[-1 - n_3m]
+
+  stk_perf_1m = ((stk_now - stk_1m_ago) / stk_1m_ago) * 100.0 if stk_1m_ago > 0 else 0.0
+  stk_perf_3m = ((stk_now - stk_3m_ago) / stk_3m_ago) * 100.0 if stk_3m_ago > 0 else 0.0
+
+  vni_perf_1m = ((vni_now - vni_1m_ago) / vni_1m_ago) * 100.0 if vni_1m_ago > 0 else 0.0
+  vni_perf_3m = ((vni_now - vni_3m_ago) / vni_3m_ago) * 100.0 if vni_3m_ago > 0 else 0.0
+
+  alpha_1m = stk_perf_1m - vni_perf_1m
+  alpha_3m = stk_perf_3m - vni_perf_3m
+
+  # Trọng số: 60% 3 tháng gần nhất, 40% 1 tháng gần nhất
+  raw_alpha = (alpha_3m * 0.6) + (alpha_1m * 0.4)
+  rs_score = int(round(50 + (raw_alpha * 2.0)))
+  rs_score = max(5, min(99, rs_score))
+
+  if rs_score >= 80:
+    rs_status = 'leader'
+    rs_color = 'emerald'
+  elif rs_score >= 65:
+    rs_status = 'outperforming'
+    rs_color = 'blue'
+  elif rs_score >= 45:
+    rs_status = 'neutral'
+    rs_color = 'slate'    
+  elif rs_score >= 40:
+    rs_status = 'underperforming'
+    rs_color = 'amber'
+  else:
+    rs_status = 'laggard'
+    rs_color = 'rose'
+
+  return {
+      'rsScore': rs_score,
+      'rsStatus': rs_status,
+      'rsColor': rs_color,
+      'stockAlpha1M': round(alpha_1m, 1),
+      'stockAlpha3M': round(alpha_3m, 1),
+      'stockPerf1M': round(stk_perf_1m, 1),
+      'vniPerf1M': round(vni_perf_1m, 1),
+      'stockPerf3M': round(stk_perf_3m, 1),
+      'vniPerf3M': round(vni_perf_3m, 1),
+  }
+
+
+def calculate_multi_timeframe_confluence(ticker, current_price, d1_ma20):
+  """Kiểm tra xu hướng đồng thuận đa khung thời gian Ngày (D1) vs Tuần (W1)."""
+  global _WEEKLY_CHART_CACHE
+  now = time.time()
+  w_data = None
+  if ticker:
+    cached = _WEEKLY_CHART_CACHE.get(ticker)
+    if cached and (now - cached['time'] < 60):
+      w_data = cached['data']
+    else:
+      try:
+        w_data = fetch_chart_data(ticker, days=365, resolution='1W')
+        _WEEKLY_CHART_CACHE[ticker] = {'time': now, 'data': w_data}
+      except Exception:
+        w_data = None
+
+  d1_bullish = current_price >= d1_ma20 if d1_ma20 > 0 else True
+  w1_bullish = False
+  w_ma10 = 0.0
+
+  if w_data and w_data.get('c'):
+    w_closes = w_data['c']
+    scale = 1000 if w_closes[-1] < 1000 else 1
+    if len(w_closes) >= 10:
+      w_ma10 = sum(w_closes[-10:]) / 10.0 * scale
+      w1_bullish = current_price >= w_ma10
+
+  if d1_bullish and w1_bullish:
+    confluence = 'Đồng thuận Uptrend Đa Khung (D1 + W1)'
+    color = 'emerald'
+    is_aligned_bull = True
+    is_severe_down = False
+    desc = f'Nến ngày nằm trên MA20 ({d1_ma20:,.0f} đ) và nến tuần vững trên MA10 Tuần ({w_ma10:,.0f} đ). Xu hướng tăng bền vững được bảo trợ.'
+  elif d1_bullish and not w1_bullish:
+    confluence = 'Sóng hồi T+ trong Downtrend Tuần'
+    color = 'amber'
+    is_aligned_bull = False
+    is_severe_down = False
+    desc = f'Nến ngày vượt MA20 ({d1_ma20:,.0f} đ) nhưng vẫn nằm dưới MA10 Tuần ({w_ma10:,.0f} đ). Chỉ ưu tiên lướt sóng nhanh T+, không ôm dài hạn.'
+  elif not d1_bullish and w1_bullish:
+    confluence = 'Điều chỉnh ngắn hạn trên nền Uptrend Tuần'
+    color = 'blue'
+    is_aligned_bull = False
+    is_severe_down = False
+    desc = f'Nến ngày dưới MA20 nhưng xu hướng tuần vẫn giữ được MA10 ({w_ma10:,.0f} đ). Canh mua gom khi giá kiểm định hỗ trợ tuần.'
+  else:
+    confluence = 'Downtrend Toàn Diện (Tránh Bắt Đáy)'
+    color = 'rose'
+    is_aligned_bull = False
+    is_severe_down = True
+    desc = f'Giá vận động dưới cả MA20 Ngày ({d1_ma20:,.0f} đ) và MA10 Tuần ({w_ma10:,.0f} đ). Rủi ro giảm sâu tiếp diễn, kiên nhẫn đứng ngoài.'
+
+  return {
+      'confluence': confluence,
+      'color': color,
+      'd1Bullish': d1_bullish,
+      'w1Bullish': w1_bullish,
+      'wMa10': round(w_ma10, 0),
+      'isAlignedBullish': is_aligned_bull,
+      'isSevereDowntrend': is_severe_down,
+      'description': desc,
+  }
+
+
+def calculate_rsi(closes, period=14):
+  """Tính toán RSI 14 phiên chuẩn kỹ thuật Wilder trên chuỗi giá đóng cửa gần nhất."""
+  if not closes or len(closes) < 3:
+    return 50.0
+  if len(closes) < period + 1:
+    p = len(closes) - 1
+    recent = closes[-p - 1:]
+    diffs = [recent[i] - recent[i - 1] for i in range(1, len(recent))]
+    g = sum(d for d in diffs if d > 0) / p
+    l = sum(-d for d in diffs if d < 0) / p
+    if l == 0:
+      return 80.0
+    return round(100.0 - (100.0 / (1.0 + g / l)), 1)
+
+  s = pd.Series(closes, dtype=float)
+  delta = s.diff()
+  gain = delta.where(delta > 0, 0.0)
+  loss = -delta.where(delta < 0, 0.0)
+  avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+  avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+  rs = avg_gain / avg_loss
+  rsi = 100.0 - (100.0 / (1.0 + rs))
+  val = rsi.iloc[-1]
+  return round(float(val), 1) if not pd.isna(val) else 50.0
+
+
+def calculate_ema(series, period=20):
+  """Tính toán Exponential Moving Average (EMA) chu kỳ N phiên."""
+  if not series:
+    return 0.0
+  if len(series) < period:
+    return calculate_sma(series, len(series))
+  s = pd.Series(series, dtype=float)
+  ema = s.ewm(span=period, adjust=False).mean()
+  return round(float(ema.iloc[-1]), 1)
+
+
+def calculate_sma(series, period=20):
+  if not series:
+    return 0.0
+  slice_data = series[-period:]
+  return round(sum(slice_data) / len(slice_data), 1)
+
+
+def calculate_atr(highs, lows, closes, period=14):
+  """Tính toán ATR 14 phiên chuẩn kỹ thuật Wilder (Average True Range)."""
+  if not closes or len(closes) < 2:
+    return 0.0
+  tr_list = []
+  for i in range(1, len(closes)):
+    h = highs[i]
+    l = lows[i]
+    prev_c = closes[i - 1]
+    tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+    tr_list.append(tr)
+  if not tr_list:
+    return 0.0
+  if len(tr_list) < period:
+    return round(float(sum(tr_list) / len(tr_list)), 1)
+  atr = sum(tr_list[:period]) / period
+  for tr in tr_list[period:]:
+    atr = (atr * (period - 1) + tr) / period
+  return round(float(atr), 1)
+
+
+def identify_structural_levels(highs, lows, closes, current_price, atr14):
+  """
+  Xác định hỗ trợ S1, S2 và kháng cự R1, R2 dựa trên cấu trúc Fractal Pivots (Swing High/Low).
+  TUYỆT ĐỐI KHÔNG GÁN CỨNG PHẦN TRĂM MẶC ĐỊNH (+8.5% hay -4.5%) mà tính từ nến OHLCV thực tế.
+  """
+  n = len(closes)
+  lookback = min(60, n)
+  sub_h = highs[-lookback:]
+  sub_l = lows[-lookback:]
+  sub_c = closes[-lookback:]
+  m = len(sub_c)
+
+  swing_highs = []
+  swing_lows = []
+
+  # Tìm các đỉnh / đáy Fractal pivot (3-bar fractal)
+  for i in range(1, m - 1):
+    if sub_h[i] >= sub_h[i - 1] and sub_h[i] >= sub_h[i + 1]:
+      swing_highs.append(sub_h[i])
+    if sub_l[i] <= sub_l[i - 1] and sub_l[i] <= sub_l[i + 1]:
+      swing_lows.append(sub_l[i])
+
+  # Hỗ trợ S1: Swing low cao nhất nằm dưới giá hiện tại (cách ít nhất 0.8% để tránh nhiễu)
+  valid_supports = [sl for sl in swing_lows if sl < current_price * 0.992]
+  if valid_supports:
+    s1 = max(valid_supports)
+  else:
+    min_recent_l = min(sub_l) if sub_l else (current_price - 1.5 * atr14)
+    s1 = min_recent_l if min_recent_l < current_price * 0.992 else (current_price - 1.5 * atr14)
+
+  # Hỗ trợ S2: Ngưỡng hỗ trợ sâu hơn nằm dưới S1
+  valid_s2 = [sl for sl in swing_lows if sl < s1 * 0.985]
+  if valid_s2:
+    s2 = max(valid_s2)
+  else:
+    s2 = s1 - max(atr14, s1 * 0.03)
+
+  # Kháng cự R1: Swing high thấp nhất nằm trên giá hiện tại (cách ít nhất 0.8%)
+  valid_resistances = [sh for sh in swing_highs if sh > current_price * 1.008]
+  if valid_resistances:
+    r1 = min(valid_resistances)
+  else:
+    # Vượt đỉnh 60 phiên / ATH: Đo mục tiêu theo Fibonacci Projection từ nhịp sóng gần nhất
+    rec_low = min(sub_l[-20:]) if len(sub_l) >= 20 else s1
+    rec_high = max(sub_h[-20:]) if len(sub_h) >= 20 else current_price
+    wave_range = rec_high - rec_low
+    if wave_range > atr14:
+      r1 = current_price + (0.618 * wave_range)
+    else:
+      r1 = current_price + (2.0 * atr14)
+
+  # Kháng cự R2: Ngưỡng cản tiếp theo trên R1
+  valid_r2 = [sh for sh in swing_highs if sh > r1 * 1.015]
+  if valid_r2:
+    r2 = min(valid_r2)
+  else:
+    r2 = r1 + max(atr14 * 1.5, r1 * 0.035)
+
+  # Chuẩn hóa làm tròn về đơn vị 50/100 VND
+  s1 = round(s1, -2) if s1 >= 1000 else round(s1, 1)
+  s2 = round(s2, -2) if s2 >= 1000 else round(s2, 1)
+  r1 = round(r1, -2) if r1 >= 1000 else round(r1, 1)
+  r2 = round(r2, -2) if r2 >= 1000 else round(r2, 1)
+
+  return s1, s2, r1, r2
+
+
+def detect_candlestick_exit_signals(
+    opens, highs, lows, closes, volumes, current_price, ma20, atr14,
+    support_level, resistance_level, rsi, vol_ma20, rs_info=None, is_partial=False
+):
+  """
+  Phân tích chi tiết hành vi nến (Candlestick / Price Action) và Volume (VSA) các phiên gần nhất
+  để phát hiện trạng thái 'NÊN CHỐT LỜI SỚM / BẢO TOÀN LỢI NHUẬN' khi cổ phiếu qua giai đoạn tốt.
+  Phục vụ trực tiếp cho nhà đầu tư ĐANG NẮM GIỮ CỔ PHIẾU (Holders Perspective).
+  """
+  n = len(closes)
+  if n < 5:
+    return {
+        'decision': 'QUAN SÁT THEO DÕI',
+        'type': 'neutral',
+        'action': 'Chưa đủ dữ liệu nến',
+        'candlePattern': 'Dữ liệu chưa ghi nhận',
+        'candleDescription': 'Cần tối thiểu 5 phiên giao dịch để đánh giá hình thái nến.',
+        'trailingStop': support_level,
+        'trailingStopDisplay': f"{support_level:,.0f} đ",
+        'distToTrailingStop': -4.0,
+        'distributionDays': 0,
+        'distDetails': [],
+        'guide': 'Dữ liệu chưa đủ phiên nến để nhận diện mẫu hình.',
+        'hasWarning': False,
+        'patterns': [],
+    }
+
+  # Lấy dữ liệu 5 phiên gần nhất
+  o0, h0, l0, c0, v0 = opens[-1], highs[-1], lows[-1], closes[-1], volumes[-1]
+  o1, h1, l1, c1, v1 = opens[-2], highs[-2], lows[-2], closes[-2], volumes[-2]
+  o2, h2, l2, c2, v2 = opens[-3], highs[-3], lows[-3], closes[-3], volumes[-3] if n >= 3 else (o1, h1, l1, c1, v1)
+
+  # Biên độ, thân nến, râu nến phiên gần nhất (-1)
+  rng0 = max(1.0, h0 - l0)
+  b0 = abs(c0 - o0)
+  uw0 = max(0.0, h0 - max(c0, o0))
+  lw0 = max(0.0, min(c0, o0) - l0)
+  uw_ratio0 = round(uw0 / rng0, 2)
+  b_ratio0 = round(b0 / rng0, 2)
+  is_bearish0 = c0 < o0
+  is_bullish0 = c0 >= o0
+
+  # Phiên trước (-2)
+  rng1 = max(1.0, h1 - l1)
+  b1 = abs(c1 - o1)
+  uw1 = max(0.0, h1 - max(c1, o1))
+  uw_ratio1 = round(uw1 / rng1, 2)
+  is_bullish1 = c1 > o1
+  is_bearish1 = c1 <= o1
+
+  v_ratio0 = round(v0 / vol_ma20, 2) if vol_ma20 > 0 else 1.0
+
+  # Đường MA10 ngắn hạn
+  ma10 = calculate_sma(closes, 10) if n >= 10 else ma20
+
+  # Bối cảnh tăng giá: mức tăng so với đáy 15 phiên
+  lookback_low = min(lows[-15:]) if n >= 15 else min(lows)
+  gain_from_low = ((current_price - lookback_low) / lookback_low) * 100.0 if lookback_low > 0 else 0.0
+  is_extended = (current_price >= ma20 * 1.03) or (gain_from_low >= 6.0) or (rsi >= 60.0)
+
+  # 1. Đếm ngày phân phối (Distribution Days) trong 5 phiên gần nhất
+  # Ngày phân phối: Giá giảm >= 0.2%, Khối lượng tăng so với phiên trước và >= 0.9x SMA20
+  dist_days = 0
+  dist_details = []
+  check_len = min(5, n - 1)
+  for idx in range(n - check_len, n):
+    c_curr = closes[idx]
+    c_prev = closes[idx - 1]
+    v_curr = volumes[idx]
+    v_prev = volumes[idx - 1]
+    pct_down = ((c_curr - c_prev) / c_prev) * 100.0 if c_prev > 0 else 0.0
+    if pct_down <= -0.2 and v_curr > v_prev and (vol_ma20 > 0 and v_curr >= 0.9 * vol_ma20):
+      dist_days += 1
+      dist_details.append(f"T-{n - 1 - idx} giảm {pct_down:.1f}% kèm Vol tăng")
+
+  # 2. Nhận diện các Mẫu hình Nến Price Action đảo chiều / suy yếu
+  detected_patterns = []
+
+  # A. Shooting Star / Pin-bar rụt đỉnh
+  if uw_ratio0 >= 0.48 and uw0 >= 1.7 * max(1.0, b0) and (min(c0, o0) - l0 <= 0.42 * rng0):
+    if is_extended or v_ratio0 >= 1.1:
+      detected_patterns.append({
+          'name': 'Nến Shooting Star / Búa ngược rụt đỉnh',
+          'severity': 'warning',
+          'desc': (
+              f"Giá tăng chạm {h0:,.0f} đ trong phiên nhưng bị phe bán ép dội ngược về {c0:,.0f} đ "
+              f"(Râu trên chiếm {uw_ratio0*100:.0f}% biên độ nến kèm Vol x{v_ratio0} TB20). "
+              f"Áp lực xả hàng quyết liệt ở vùng giá cao."
+          )
+      })
+
+  # B. Bearish Engulfing (Nến nhấn chìm giảm)
+  if is_bearish0 and is_bullish1 and (b1 >= 0.25 * atr14):
+    if (o0 >= c1 * 0.996) and (c0 <= o1 * 1.004) and (c0 < l1):
+      pat_sev = 'danger' if (v_ratio0 >= 1.1 or v0 > v1) else 'warning'
+      detected_patterns.append({
+          'name': 'Nến Bearish Engulfing (Nhấn chìm giảm)',
+          'severity': pat_sev,
+          'desc': (
+              f"Nến đỏ thân dài ({o0:,.0f} đ -> {c0:,.0f} đ) nuốt chửng hoàn toàn nến tăng hôm qua kèm Vol x{v_ratio0} TB20. "
+              f"Phe bán đảo ngược quyền kiểm soát hoàn toàn xu hướng ngắn hạn."
+          )
+      })
+
+  # C. Upthrust / Breakout xịt (Vượt đỉnh thất bại / Bull trap)
+  if n >= 20:
+    prev_20_high = max(highs[-21:-1])
+    if h0 > prev_20_high and c0 < prev_20_high and (v_ratio0 >= 1.2 or uw_ratio0 >= 0.40):
+      detected_patterns.append({
+          'name': 'Nến Upthrust (Bẫy vượt đỉnh thất bại)',
+          'severity': 'danger',
+          'desc': (
+              f"Giá bứt phá vượt đỉnh 20 phiên ({prev_20_high:,.0f} đ) lên {h0:,.0f} đ nhưng đóng cửa bị đạp ngược về {c0:,.0f} đ "
+              f"với thanh khoản lớn x{v_ratio0} TB20. Dấu hiệu phân phối rõ rệt (kéo xả)."
+          )
+      })
+
+  # D. Dark Cloud Cover (Mây đen bao phủ)
+  if is_bearish0 and is_bullish1 and (b1 >= 0.3 * atr14):
+    if o0 >= c1 and c0 < (o1 + c1) / 2.0 and c0 >= o1:
+      detected_patterns.append({
+          'name': 'Nến Dark Cloud Cover (Mây đen bao phủ)',
+          'severity': 'warning',
+          'desc': (
+              f"Mở gap tăng nhưng nến đỏ đâm sâu quá 50% thân nến xanh hôm trước ({c0:,.0f} đ). "
+              f"Lực cầu giá cao chững lại và bị hấp thụ ngược."
+          )
+      })
+
+  # E. Hai phiên liên tiếp rút râu trên (Double Rejection Wicks)
+  if len(detected_patterns) == 0 and uw_ratio0 >= 0.40 and uw_ratio1 >= 0.40 and is_extended:
+    detected_patterns.append({
+        'name': 'Cụm 2 nến rút râu trên liên tiếp',
+        'severity': 'warning',
+        'desc': (
+            f"Hai phiên liên tiếp xuất hiện râu nến trên dài (>40% biên độ). "
+            f"Vùng cản trên liên tục bị từ chối, động lượng tăng giá suy kiệt."
+        )
+    })
+
+  # F. Thủng hỗ trợ động MA10 sau chuỗi ngày tăng
+  if c0 < ma10 and c1 >= ma10 * 0.995 and is_bearish0:
+    if is_extended or v_ratio0 >= 1.0:
+      detected_patterns.append({
+          'name': 'Nến gãy hỗ trợ động ngắn hạn MA10',
+          'severity': 'danger',
+          'desc': (
+              f"Giá đóng cửa {c0:,.0f} đ xuyên thủng đường MA10 ({ma10:,.0f} đ). "
+              f"Đường ray tăng tốc ngắn hạn chính thức bị vi phạm."
+          )
+      })
+
+  # G. No Demand Bar (Cạn kiệt lực cầu đỉnh)
+  if len(detected_patterns) == 0 and is_extended and rng0 < 0.65 * atr14 and v_ratio0 <= 0.60:
+    detected_patterns.append({
+        'name': 'Nến cạn cầu (No Demand at Highs)',
+        'severity': 'info',
+        'desc': (
+            f"Giá neo vùng cao nhưng biên độ nến co hẹp ({rng0:,.0f} đ) kèm Vol kiệt quệ chỉ x{v_ratio0} TB20. "
+            f"Lực cầu giá cao không mặn mà mua lên, tiềm ẩn nhịp chỉnh kiểm định lại cầu."
+        )
+    })
+
+  # 3. Tính Mốc Chặn Lãi Động (Trailing Stop Price)
+  # Nếu cổ phiếu đang trên MA20 và có nhịp tăng:
+  # Trailing Stop = max(Đáy nến hôm qua L1, MA10, Current - 1.2 * ATR14)
+  # Giúp khóa lại phần lớn khoản lãi thay vì để Stop loss rơi tít về S1
+  if current_price >= ma20:
+    candidate_ts = max(l1, round(ma10, -2))
+    # Không để trailing stop quá sát (ít nhất cách 1% - 1.5%) và không thấp hơn support S1
+    if candidate_ts >= current_price * 0.995:
+      candidate_ts = round(current_price - (0.8 * atr14), -2)
+    trailing_stop = max(round(support_level, -2), round(candidate_ts, -2))
+  else:
+    trailing_stop = round(support_level, -2)
+
+  dist_to_ts = round(((trailing_stop - current_price) / current_price) * 100.0, 1) if current_price > 0 else 0.0
+
+  # 4. Tổng hợp Quyết định Cho Vị Thế Đang Có (Holders Action)
+  # Đếm 5 dấu hiệu phân phối theo spec vsr-engine; một mẫu nến hay RSI cao đơn lẻ không đủ để bán.
+  pattern_names = {p['name'] for p in detected_patterns}
+  reversal_names = {
+      'Nến Shooting Star / Búa ngược rụt đỉnh',
+      'Nến Bearish Engulfing (Nhấn chìm giảm)',
+      'Nến Dark Cloud Cover (Mây đen bao phủ)',
+      'Cụm 2 nến rút râu trên liên tiếp',
+  }
+  weak_close = (is_bearish0 and (c0 - l0) <= rng0 / 3.0) or bool(pattern_names & reversal_names)
+  alpha_1m = (rs_info or {}).get('stockAlpha1M', 0.0)
+  distribution_signals = [
+      ('Đóng cửa yếu / nến đảo chiều', weak_close),
+      (f'KL lớn ngày giảm ({dist_days} phiên/5)', dist_days >= 2),
+      ('Breakout thất bại (Upthrust)', 'Nến Upthrust (Bẫy vượt đỉnh thất bại)' in pattern_names),
+      ('Thủng hỗ trợ ngắn hạn (MA10/MA20)', ('Nến gãy hỗ trợ động ngắn hạn MA10' in pattern_names) or c0 < ma20),
+      (f'RS 1 tháng xấu đi (Alpha {alpha_1m:+.1f}%)', alpha_1m < 0),
+  ]
+  signal_count = sum(1 for _, hit in distribution_signals if hit)
+  signal_txt = ', '.join(name for name, hit in distribution_signals if hit) or 'không có'
+  top_p = detected_patterns[0] if detected_patterns else None
+  pattern_txt = f" Mẫu nến: {top_p['name']} - {top_p['desc']}" if top_p else ''
+  cost_basis_note = (
+      " Chưa biết giá vốn của bạn: nếu đang lãi >= 1.5R cân nhắc chốt 20-30%, >= 2.5R chốt thêm 25-35%, phần còn lại giữ theo trailing stop."
+  )
+
+  if signal_count >= 4:
+    holding_decision = 'THOÁT VỊ THẾ (EXIT)'
+    holding_type = 'danger'
+    holding_action = 'Bán phần lớn hoặc toàn bộ vị thế'
+    p_name = top_p['name'] if top_p else f'{signal_count}/5 dấu hiệu phân phối'
+    holding_guide = (
+        f"Ghi nhận {signal_count}/5 dấu hiệu phân phối ({signal_txt}).{pattern_txt} "
+        f"Cấu trúc tăng ngắn hạn đã hỏng; ưu tiên thoát vị thế, tối thiểu không để giá đóng cửa dưới Trailing Stop {trailing_stop:,.0f} đ ({dist_to_ts}%)."
+    )
+  elif signal_count == 3:
+    holding_decision = 'GIẢM TỶ TRỌNG 30% - 50%'
+    holding_type = 'warning'
+    holding_action = 'Bán bớt 1/3 - 1/2 vị thế'
+    p_name = top_p['name'] if top_p else f'{signal_count}/5 dấu hiệu phân phối'
+    holding_guide = (
+        f"Ghi nhận {signal_count}/5 dấu hiệu phân phối ({signal_txt}).{pattern_txt} "
+        f"Cân nhắc bán bớt 30% - 50% vị thế (chốt lời nếu đang lãi) và nâng Trailing Stop phần còn lại lên {trailing_stop:,.0f} đ ({dist_to_ts}%).{cost_basis_note}"
+    )
+  elif signal_count == 2 or (top_p and top_p['severity'] in ('danger', 'warning', 'info')):
+    holding_decision = 'THEO DÕI SÁT / NÂNG CHẶN LÃI'
+    holding_type = 'info'
+    holding_action = 'Nâng Trailing Stop & tạm dừng mua thêm'
+    p_name = top_p['name'] if top_p else f'{signal_count}/5 dấu hiệu phân phối'
+    holding_guide = (
+        f"Ghi nhận {signal_count}/5 dấu hiệu phân phối ({signal_txt}).{pattern_txt} "
+        f"Chưa đủ căn cứ bán; không mua thêm ở vùng giá này, nâng Trailing Stop lên {trailing_stop:,.0f} đ ({dist_to_ts}%).{cost_basis_note}"
+    )
+  elif current_price >= ma20 and not is_bearish0:
+    holding_decision = 'TIẾP TỤC GỒNG LÃI (TREND RIDING)'
+    holding_type = 'success'
+    holding_action = 'Nắm giữ theo xu hướng'
+    p_name = 'Nến giữ giá tích cực'
+    rsi_note = f" RSI {rsi:.1f} cao không phải lý do bán, chỉ cần nâng chặn lãi sát hơn." if rsi >= 70 else ''
+    holding_guide = (
+        f"Giá giữ trên MA20 ({ma20:,.0f} đ), {signal_count}/5 dấu hiệu phân phối. "
+        f"Tiếp tục nắm giữ, Trailing Stop đặt tại {trailing_stop:,.0f} đ ({dist_to_ts}%).{rsi_note}"
+    )
+  elif current_price < ma20:
+    holding_decision = 'DƯỚI MA20 - CANH CHẶN LỖ'
+    holding_type = 'warning'
+    holding_action = 'Giữ kỷ luật chặn lỗ, không mua thêm'
+    p_name = 'Vận động dưới MA20'
+    holding_guide = (
+        f"Giá nằm dưới MA20 ({ma20:,.0f} đ), xu hướng ngắn hạn nghiêng về giảm ({signal_count}/5 dấu hiệu phân phối). "
+        f"Không bình quân giá xuống; nếu đóng cửa thủng hỗ trợ {support_level:,.0f} đ thì hạ tỷ trọng."
+    )
+  else:
+    holding_decision = 'QUAN SÁT THEO DÕI'
+    holding_type = 'neutral'
+    holding_action = 'Nắm giữ tỷ trọng an toàn'
+    p_name = 'Nến đi ngang tích lũy'
+    holding_guide = (
+        f"Cổ phiếu đang vận động tích lũy đi ngang ({signal_count}/5 dấu hiệu phân phối). "
+        f"Duy trì tỷ trọng an toàn và theo dõi mốc hỗ trợ {support_level:,.0f} đ."
+    )
+
+  candle_note = (
+      'Nến phiên hôm nay chưa hoàn thành (trước 14:45): mẫu hình nến và ngày phân phối đánh giá trên phiên đã đóng cửa gần nhất.'
+      if is_partial else ''
+  )
+  if candle_note:
+    holding_guide = f"{holding_guide} ({candle_note})"
+
+  has_danger = holding_type == 'danger'
+  has_warning = holding_type == 'warning' and signal_count >= 3
+
+  return {
+      'decision': holding_decision,
+      'type': holding_type,
+      'action': holding_action,
+      'candlePattern': p_name,
+      'candleDescription': detected_patterns[0]['desc'] if detected_patterns else 'Chưa xuất hiện mẫu hình nến đảo chiều nguy hiểm.',
+      'trailingStop': trailing_stop,
+      'trailingStopDisplay': f"{trailing_stop:,.0f} đ",
+      'distToTrailingStop': dist_to_ts,
+      'distributionDays': dist_days,
+      'distDetails': dist_details,
+      'guide': holding_guide,
+      'hasWarning': has_danger or has_warning,
+      'patterns': [p['name'] for p in detected_patterns],
+      'distributionSignals': [{'name': name, 'hit': hit} for name, hit in distribution_signals],
+      'distributionSignalCount': signal_count,
+      'isPartialCandle': is_partial,
+      'candleNote': candle_note,
+  }
+
+
+def calculate_weekly_levels(ticker, current_price):
+  """Trích xuất ngưỡng kỹ thuật nến tuần W1 (52-week High/Low, Weekly MA10, Weekly MA50)."""
+  global _WEEKLY_CHART_CACHE
+  now = time.time()
+  w_data = None
+  if ticker:
+    cached = _WEEKLY_CHART_CACHE.get(ticker)
+    if cached and (now - cached['time'] < 60):
+      w_data = cached['data']
+    else:
+      try:
+        w_data = fetch_chart_data(ticker, days=730, resolution='1W')
+        if w_data and w_data.get('c'):
+          _WEEKLY_CHART_CACHE[ticker] = {'time': now, 'data': w_data}
+      except Exception:
+        w_data = None
+
+  w_closes = w_data.get('c', []) if w_data else []
+  w_highs = w_data.get('h', []) if w_data else []
+  w_lows = w_data.get('l', []) if w_data else []
+
+  if not w_closes:
+    return {
+        'w52High': current_price,
+        'w52Low': current_price,
+        'wMa10': current_price,
+        'wMa50': current_price,
+        'wCloses': [],
+    }
+
+  scale = 1000 if w_closes[-1] < 1000 else 1
+  c_scaled = [c * scale for c in w_closes]
+  h_scaled = [h * scale for h in w_highs]
+  l_scaled = [l * scale for l in w_lows]
+
+  n52 = min(52, len(c_scaled))
+  w52_high = round(max(h_scaled[-n52:]), -2)
+  w52_low = round(min(l_scaled[-n52:]), -2)
+
+  n10 = min(10, len(c_scaled))
+  w_ma10 = round(sum(c_scaled[-n10:]) / n10, -2)
+
+  n50 = min(50, len(c_scaled))
+  w_ma50 = round(sum(c_scaled[-n50:]) / n50, -2)
+
+  return {
+      'w52High': w52_high,
+      'w52Low': w52_low,
+      'wMa10': w_ma10,
+      'wMa50': w_ma50,
+      'wCloses': c_scaled,
+  }
+
+
+def calculate_fundamental_valuation(fundamental_info, current_price, sector, w_levels, s2_support, multi_tf=None):
+  """
+  Định giá trung/dài hạn theo DẢI MULTIPLE LỊCH SỬ 12 quý của chính doanh nghiệp (VCI), không dùng P/E ngành gán cứng.
+  Cổng "GOM TÍCH SẢN": giá dưới vùng hợp lý + ROE >= 12% + xu hướng tuần không giảm + lợi nhuận không suy giảm.
+  Luôn hỏi: rẻ vì thị trường định giá sai, hay vì lợi nhuận sắp giảm?
+  """
+  empty_plan = {
+      'decision': 'CHỜ BỔ SUNG BCTC',
+      'type': 'warning',
+      'reason': 'Dữ liệu BCTC chưa ghi nhận đầy đủ để định giá nội tại.',
+      'target': 'Chưa ghi nhận (Thiếu BCTC)',
+      'targetVal': None,
+      'upsidePct': None,
+      'fairRange': None,
+      'entry': '--',
+      'stop': '--',
+      'dcaZone': '--',
+      'invalidation': '--',
+      'bandLabel': '--',
+      'valuationMethod': 'Chưa xác định',
+      'valuationBand': None,
+  }
+  if not fundamental_info:
+    return empty_plan
+
+  eps = fundamental_info.get('eps', 0.0)
+  bvps = fundamental_info.get('bvps', 0.0)
+  roe = fundamental_info.get('roe', 0.0)
+  is_audited = fundamental_info.get('isAudited', False)
+  profit_growth = fundamental_info.get('profitGrowth', 0.0)
+  roe_4q_ago = fundamental_info.get('roe4QAgo')
+  # So sánh ROE với lịch sử phải cùng nguồn (VCI)
+  roe_vci = fundamental_info.get('roeVci', roe)
+
+  w_ma50 = w_levels.get('wMa50', current_price)
+  w52_low = w_levels.get('w52Low', current_price * 0.8)
+
+  is_distress, _, distress_reasons = assess_financial_distress(fundamental_info, sector)
+  band = compute_valuation_band(
+      fundamental_info.get('vciHistory'), sector, eps, bvps, roe_vci, current_price
+  )
+
+  # Vùng gom tích sản DCA: Quanh hỗ trợ MA50 tuần hoặc Swing Support S2
+  dca_base = min(current_price * 0.99, max(w_ma50, s2_support))
+  dca_min = round(min(dca_base * 0.96, s2_support), -2)
+  dca_max = round(dca_base, -2)
+  dca_zone = f"{dca_min:,.0f} - {dca_max:,.0f} đ"
+
+  # Ngưỡng Invalidation / Cắt lỗ trung hạn: vỡ gãy MA50 tuần > 5% hoặc thủng đáy 52 tuần
+  inval_price = round(min(w_ma50 * 0.95, w52_low), -2)
+  inval_pct = round(((current_price - inval_price) / current_price) * 100, 1) if current_price > 0 else 10.0
+  inval_str = f"{inval_price:,.0f} đ (-{inval_pct}%)"
+
+  plan = dict(empty_plan)
+  plan.update({'entry': dca_zone, 'dcaZone': dca_zone, 'stop': inval_str, 'invalidation': inval_str, 'valuationBand': band})
+
+  if is_distress:
+    plan.update({
+        'decision': 'CẢNH BÁO RỦI RO TÀI CHÍNH (TRÁNH ĐẦU TƯ)',
+        'type': 'danger',
+        'reason': f"Căng thẳng tài chính: {'; '.join(distress_reasons)}. Không đạt tiêu chuẩn đầu tư trung dài hạn.",
+        'target': 'Không áp dụng định giá (Căng thẳng nợ / thanh khoản)',
+        'dcaZone': 'Không khuyến nghị gom',
+        'entry': 'Không khuyến nghị gom',
+        'invalidation': f"Thủng đáy 52W: {w52_low:,.0f} đ",
+        'stop': f"Thủng đáy 52W: {w52_low:,.0f} đ",
+        'valuationMethod': 'Cảnh báo căng thẳng tài chính',
+    })
+    return plan
+
+  if not is_audited or (eps <= 0 and roe <= 0):
+    plan.update({
+        'reason': f'Dữ liệu BCTC chưa đầy đủ hoặc kết quả kinh doanh âm (ROE {roe:.1f}%, EPS {eps:,.0f} đ). Chưa đủ điều kiện giải ngân tích sản trung dài hạn.',
+        'target': 'Chưa ghi nhận (LNST âm / Thiếu BCTC)',
+        'entry': '--', 'dcaZone': '--', 'stop': '--', 'invalidation': '--',
+    })
+    return plan
+
+  if not band:
+    plan.update({
+        'decision': 'THEO DÕI NỘI TẠI',
+        'reason': f'Chưa đủ {VALUATION_MIN_QUARTERS} quý lịch sử P/E, P/B hợp lệ để dựng dải định giá; không đưa ra giá mục tiêu.',
+        'target': 'Chưa ghi nhận (Thiếu lịch sử định giá)',
+        'valuationMethod': 'Chưa đủ lịch sử định giá',
+    })
+    return plan
+
+  fair_low, fair_mid, fair_high = band['fairLow'], band['fairMid'], band['fairHigh']
+  upside_pct = round((fair_mid - current_price) / current_price * 100, 1) if current_price > 0 else None
+  applied = band['appliedMultiples']
+  method = (
+      f"Dải {band['method']} {band['quarters']} quý ({band['window']}): p25 {band['p25']}x · trung vị {band['median']}x · p75 {band['p75']}x; "
+      f"dải áp dụng {applied[0]}x - {applied[1]}x - {applied[2]}x"
+      f" × {'BVPS' if band['method'] == 'P/B' else 'EPS'} {band['baseValue']:,.0f} đ"
+  )
+  notes_txt = (' ' + '; '.join(band['notes']) + '.') if band['notes'] else ''
+  target_str = f"{fair_low:,.0f} - {fair_high:,.0f} đ (giữa {fair_mid:,.0f} đ, {upside_pct:+.1f}%)"
+
+  trend_down = bool((multi_tf or {}).get('isSevereDowntrend')) or (w_ma50 and current_price < w_ma50 * 0.97)
+  roe_falling = roe_4q_ago is not None and roe_vci < roe_4q_ago - 3.0
+  earnings_down = profit_growth < 0 or roe_falling
+  earnings_txt = (
+      f"tăng trưởng LN {profit_growth:+.1f}%" + (f", ROE (VCI) giảm từ {roe_4q_ago:.1f}% xuống {roe_vci:.1f}% trong 4 quý" if roe_falling else '')
+  )
+
+  if current_price < fair_low or (current_price <= fair_mid and upside_pct is not None and upside_pct >= 15.0):
+    if trend_down:
+      decision, dec_type = 'RẺ SO VỚI LỊCH SỬ - CHỜ XU HƯỚNG ĐẢO CHIỀU', 'warning'
+      reason = (
+          f"Giá {current_price:,.0f} đ thấp hơn vùng hợp lý {target_str}, nhưng giá dưới MA50 tuần ({w_ma50:,.0f} đ) / xu hướng giảm. "
+          f"Chưa gom khi chưa có tín hiệu tạo đáy (giá lấy lại MA50 tuần kèm thanh khoản)."
+      )
+    elif earnings_down:
+      decision, dec_type = 'RẺ NHƯNG LỢI NHUẬN SUY GIẢM - CHỜ XÁC NHẬN', 'warning'
+      reason = (
+          f"Định giá thấp hơn lịch sử ({target_str}) nhưng {earnings_txt}: có thể rẻ vì lợi nhuận đang giảm. "
+          f"Chờ BCTC quý tới xác nhận lợi nhuận ổn định."
+      )
+    elif fundamental_info.get('dataConflicts'):
+      decision, dec_type = 'CHỜ ĐỐI CHIẾU SỐ LIỆU (DATA_CONFLICT)', 'warning'
+      reason = (
+          f"Giá dưới vùng hợp lý {target_str}, nhưng số liệu đầu vào định giá đang lệch giữa các nguồn "
+          f"({'; '.join(fundamental_info['dataConflicts'])}). Đối chiếu BCTC gốc trên HOSE/HNX trước khi gom."
+      )
+    elif roe >= 12.0:
+      decision, dec_type = 'GOM TÍCH SẢN (DƯỚI VÙNG HỢP LÝ)', 'success'
+      reason = (
+          f"ROE {roe:.1f}%, {earnings_txt}, xu hướng tuần chưa gãy. Giá dưới vùng hợp lý {target_str}. "
+          f"Có thể gom từng phần quanh {dca_zone}, dừng nếu thủng {inval_str}."
+      )
+    else:
+      decision, dec_type = 'NẮM GIỮ THEO DÕI NỀN', 'warning'
+      reason = f"Giá dưới vùng hợp lý {target_str} nhưng ROE {roe:.1f}% thấp (< 12%), chưa đủ chất lượng để tích sản."
+  elif current_price <= fair_high:
+    decision, dec_type = 'TRONG VÙNG HỢP LÝ - NẮM GIỮ', 'warning'
+    reason = f"Giá {current_price:,.0f} đ nằm trong vùng hợp lý {target_str}. Nắm giữ nếu đã có, không mua đuổi; vùng gom ưu tiên {dca_zone}."
+  else:
+    decision, dec_type = 'ĐỊNH GIÁ CAO - CHỜ CHIẾT KHẤU', 'warning'
+    reason = f"Giá {current_price:,.0f} đ cao hơn vùng hợp lý {target_str}. Kiên nhẫn chờ chiết khấu về vùng {dca_zone}."
+
+  plan.update({
+      'decision': decision,
+      'type': dec_type,
+      'reason': f"{reason} Phương pháp: {method}.{notes_txt}",
+      'target': target_str,
+      'targetVal': fair_mid,
+      'upsidePct': upside_pct,
+      'fairRange': [fair_low, fair_mid, fair_high],
+      'bandLabel': f"{band['method']} {applied[0]}-{applied[2]}x ({band['quarters']}Q{', định giá lại' if band['deRating'] else ''})",
+      'valuationMethod': method,
+  })
+  return plan
+
+
+# ==================== PHIÊN GIAO DỊCH & NẾN ĐANG CHẠY ====================
+VN_UTC_OFFSET_SEC = 7 * 3600
+# Thời gian khớp lệnh HOSE/HNX: 9:00-11:30 (150 phút) + 13:00-14:45 gồm ATC (105 phút)
+TRADING_MINUTES_PER_SESSION = 255
+SESSION_CLOSE_MINUTE = 14 * 60 + 45
+# Ngân sách rủi ro mỗi lệnh T+ (% NAV) theo spec vsr-engine (0.25 - 0.75%)
+T_PLUS_RISK_BUDGET_PCT = 0.5
+# Trần tỷ trọng tham chiếu cho 1 mã (% NAV)
+SINGLE_STOCK_NAV_CAP_PCT = 15.0
+
+
+def _vn_date(ts):
+  return time.strftime('%Y-%m-%d', time.gmtime(ts + VN_UTC_OFFSET_SEC))
+
+
+def _trading_minutes_elapsed(minute_of_day):
+  morning = min(max(minute_of_day - 9 * 60, 0), 150)
+  afternoon = min(max(minute_of_day - 13 * 60, 0), 105)
+  return morning + afternoon
+
+
+def merge_live_session_bar(t_list, opens, highs, lows, closes, volumes, ssi_item):
+  """
+  Ghép nến phiên hôm nay từ snapshot SSI vào chuỗi nến ngày (sửa trực tiếp các list).
+  - Entrade thường chưa có nến hôm nay trong phiên -> nối thêm nến mới, KHÔNG ghi đè giá đóng cửa hôm qua.
+  - Nếu Entrade đã có nến hôm nay -> cập nhật bằng số liệu SSI mới nhất.
+  Trả về (has_live_bar, is_partial, elapsed_fraction):
+    is_partial = phiên chưa kết thúc (trước 14:45), nến và khối lượng hôm nay chưa hoàn chỉnh.
+  """
+  if not ssi_item or ssi_item.get('matchedPrice', 0) <= 0 or not closes:
+    return False, False, 1.0
+  session_start = ssi_item.get('sessionStart')
+  now_vn = time.gmtime(time.time() + VN_UTC_OFFSET_SEC)
+  today = time.strftime('%Y-%m-%d', now_vn)
+  minute_of_day = now_vn.tm_hour * 60 + now_vn.tm_min
+  # Snapshot SSI không thuộc phiên hôm nay (cuối tuần, ngày nghỉ) hoặc chưa mở cửa -> không ghép
+  if not session_start or _vn_date(session_start / 1000.0) != today or minute_of_day < 9 * 60:
+    return False, False, 1.0
+
+  price = ssi_item['matchedPrice']
+  bar_open = ssi_item.get('openPrice') or price
+  bar_high = max(ssi_item.get('highest') or price, price)
+  bar_low = min(ssi_item.get('lowest') or price, price)
+  bar_vol = ssi_item.get('stockVol') or 0
+
+  last_date = _vn_date(t_list[-1]) if t_list else None
+  if last_date == today:
+    opens[-1], highs[-1], lows[-1], closes[-1] = bar_open, bar_high, bar_low, price
+    volumes[-1] = max(volumes[-1], bar_vol)
+  elif last_date is None or last_date < today:
+    opens.append(bar_open)
+    highs.append(bar_high)
+    lows.append(bar_low)
+    closes.append(price)
+    volumes.append(bar_vol)
+  else:
+    return False, False, 1.0
+
+  is_partial = now_vn.tm_wday < 5 and minute_of_day < SESSION_CLOSE_MINUTE
+  elapsed = _trading_minutes_elapsed(minute_of_day) / float(TRADING_MINUTES_PER_SESSION)
+  # Tránh phóng đại khi mới mở cửa: coi tối thiểu 30 phút đã trôi qua
+  elapsed = max(30.0 / TRADING_MINUTES_PER_SESSION, min(1.0, elapsed)) if is_partial else 1.0
+  return True, is_partial, elapsed
+
+
+def classify_volume_signal(vol_ratio, day_change_pct, is_projected):
+  """Khối lượng chỉ có ý nghĩa khi đi cùng chiều giá: KL lớn ngày giảm là phân phối, không phải dòng tiền vào."""
+  tag = ' ước tính cả phiên' if is_projected else ''
+  is_up = day_change_pct > 0
+  is_down = day_change_pct < 0
+  if vol_ratio >= 1.5:
+    if is_up:
+      return f'Dòng tiền vào mạnh: giá tăng kèm KL x{vol_ratio}{tag}', 'emerald'
+    if is_down:
+      return f'Bán mạnh kèm KL lớn x{vol_ratio}{tag} (dấu hiệu phân phối)', 'rose'
+    return f'KL lớn x{vol_ratio}{tag} nhưng giá đứng (giằng co cung cầu)', 'amber'
+  if vol_ratio >= 1.0:
+    if is_down:
+      return f'Giá giảm với KL trên trung bình x{vol_ratio}{tag}', 'amber'
+    if is_up:
+      return f'Thanh khoản tích cực x{vol_ratio}{tag}', 'blue'
+    return f'KL trên trung bình x{vol_ratio}{tag} nhưng giá đứng', 'slate'
+  if vol_ratio <= 0.6:
+    if is_down:
+      return f'Giảm với KL thấp x{vol_ratio}{tag} (lực bán yếu, cạn cung)', 'slate'
+    if is_up:
+      return f'Tăng thiếu KL x{vol_ratio}{tag} (lực cầu chưa xác nhận)', 'amber'
+    return f'Thanh khoản thấp x{vol_ratio}{tag}', 'slate'
+  return f'Thanh khoản bình quân x{vol_ratio}{tag}', 'slate'
+
+
+# ==================== REGIME THỊ TRƯỜNG (5 ĐIỀU KIỆN THEO SPEC VSR-ENGINE) ====================
+# Universe đo độ rộng: Top 200 mã có ADTV20 lớn nhất (loại nhiễu từ mã không thanh khoản); Top 100 làm proxy VN100 cho A/D
+BREADTH_UNIVERSE_SIZE = 200
+BREADTH_AD_UNIVERSE_SIZE = 100
+BREADTH_CANDIDATE_SIZE = 300
+BREADTH_HISTORY_DAYS = 50
+
+REGIME_LEVELS = [
+    # (điểm tối thiểu, tên, hệ số risk budget)
+    (4, 'RISK_ON', 1.0),
+    (3, 'NEUTRAL', 0.75),
+    (2, 'DEFENSIVE', 0.5),
+    (0, 'NO_NEW_RISK', 0.0),
+]
+
+_BREADTH_UNIVERSE = {'date': None, 'data': None, 'loading': False}
+_BREADTH_LOCK = threading.Lock()
+_BREADTH_READY = threading.Event()
+# Lần tải đầu tiên (chưa có universe nào) thì request chờ tối đa N giây thay vì trả regime thiếu dữ liệu
+BREADTH_FIRST_LOAD_WAIT_SEC = 20
+_REGIME_CACHE = {'time': 0, 'data': None}
+
+
+def _load_breadth_universe(ssi_board, today):
+  """Tải nến ngày của các mã ứng viên, chọn Top theo ADTV20 (giá trị giao dịch bình quân 20 phiên đã hoàn thành)."""
+  try:
+    stocks = [
+        v for v in ssi_board.values()
+        if v.get('stockType') == 's' and len(str(v.get('stockSymbol', ''))) == 3
+    ]
+    # Lọc ứng viên theo giá trị giao dịch phiên hiện tại; trước giờ mở cửa thì lấy toàn bộ mã HOSE
+    traded = sorted(
+        (v for v in stocks if (v.get('nmTotalTradedValue') or 0) > 0),
+        key=lambda v: -(v.get('nmTotalTradedValue') or 0),
+    )
+    if len(traded) >= BREADTH_UNIVERSE_SIZE:
+      candidates = [v['stockSymbol'] for v in traded[:BREADTH_CANDIDATE_SIZE]]
+    else:
+      candidates = [v['stockSymbol'] for v in stocks if v.get('exchange') == 'HOSE']
+
+    def _fetch(sym):
+      try:
+        d = fetch_chart_data(sym, days=BREADTH_HISTORY_DAYS, resolution='1D')
+        closes = d.get('c', [])
+        if len(closes) < 21:
+          return None
+        scale = 1000 if closes[-1] < 1000 else 1
+        dates = [_vn_date(t) for t in d.get('t', [])]
+        closes = [c * scale for c in closes]
+        vols = d.get('v', [])
+        # Chỉ giữ phiên đã hoàn thành (bỏ nến hôm nay nếu Entrade đã có)
+        if dates and dates[-1] == today:
+          dates, closes, vols = dates[:-1], closes[:-1], vols[:-1]
+        if len(closes) < 21:
+          return None
+        adtv = sum(c * v for c, v in zip(closes[-20:], vols[-20:])) / 20.0
+        return {'sym': sym, 'dates': dates, 'closes': closes, 'adtv': adtv}
+      except Exception:
+        return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+      rows = [r for r in pool.map(_fetch, candidates) if r]
+    rows.sort(key=lambda r: -r['adtv'])
+    universe = rows[:BREADTH_UNIVERSE_SIZE]
+    with _BREADTH_LOCK:
+      _BREADTH_UNIVERSE['date'] = today
+      _BREADTH_UNIVERSE['data'] = universe
+  except Exception as e:
+    print('Lỗi tải universe độ rộng thị trường:', e)
+  finally:
+    with _BREADTH_LOCK:
+      _BREADTH_UNIVERSE['loading'] = False
+    _BREADTH_READY.set()
+
+
+def get_breadth_universe(ssi_board):
+  """
+  Trả về (universe, ngày tạo universe). Universe được tải nền một lần mỗi ngày (không chặn request);
+  trong lúc tải lại cho ngày mới vẫn dùng tạm universe ngày trước. Chưa có gì thì trả về (None, None).
+  """
+  today = time.strftime('%Y-%m-%d', time.gmtime(time.time() + VN_UTC_OFFSET_SEC))
+  with _BREADTH_LOCK:
+    if _BREADTH_UNIVERSE['date'] != today and not _BREADTH_UNIVERSE['loading'] and ssi_board:
+      _BREADTH_UNIVERSE['loading'] = True
+      threading.Thread(target=_load_breadth_universe, args=(ssi_board, today), daemon=True).start()
+    first_load = _BREADTH_UNIVERSE['data'] is None and _BREADTH_UNIVERSE['loading']
+  if first_load:
+    _BREADTH_READY.wait(BREADTH_FIRST_LOAD_WAIT_SEC)
+  with _BREADTH_LOCK:
+    return _BREADTH_UNIVERSE['data'], _BREADTH_UNIVERSE['date']
+
+
+def warm_up_market_data():
+  """Tải trước bảng giá và universe độ rộng khi khởi động server để request đầu tiên có đủ regime."""
+  try:
+    get_breadth_universe(get_ssi_board_data())
+  except Exception as e:
+    print('Lỗi warm-up dữ liệu thị trường:', e)
+
+
+def _sma_at(values, end, period):
+  """SMA kết thúc tại vị trí end (không bao gồm end)."""
+  window = values[max(0, end - period):end]
+  return sum(window) / len(window) if len(window) == period else None
+
+
+def evaluate_market_regime(ssi_board):
+  """
+  Chấm Regime thị trường theo 5 điều kiện (mỗi điều kiện đạt = 1 điểm):
+    1. VN-Index > MA50 và độ dốc MA20 >= 0
+    2. VN-Index > MA200
+    3. >= 50% số mã trên MA20 (Top 200 mã ADTV20)
+    4. Thanh khoản VN-Index 5 phiên >= 90% trung bình 20 phiên
+    5. Không có phân kỳ chỉ số - độ rộng (rolling 5 phiên có >= 2 phiên VN-Index tăng > 0.3% nhưng A/D Top 100 < 0.8)
+  Điều kiện thiếu dữ liệu tính là KHÔNG ĐẠT (thận trọng) và được ghi rõ.
+  VN-Index tính theo phiên đã đóng cửa gần nhất; độ rộng dùng giá khớp realtime so với MA20 các phiên đã hoàn thành.
+  """
+  now = time.time()
+  if _REGIME_CACHE['data'] and now - _REGIME_CACHE['time'] < 120:
+    return _REGIME_CACHE['data']
+
+  vni = get_vnindex_series()
+  today = time.strftime('%Y-%m-%d', time.gmtime(now + VN_UTC_OFFSET_SEC))
+  dates, closes, vols = vni.get('dates', []), vni.get('closes', []), vni.get('volumes', [])
+  if dates and dates[-1] == today:
+    dates, closes, vols = dates[:-1], closes[:-1], vols[:-1]
+
+  conditions = []
+
+  def _add(name, met, detail):
+    conditions.append({'name': name, 'met': met, 'detail': detail})
+
+  n = len(closes)
+  last = closes[-1] if closes else 0
+  ma20 = _sma_at(closes, n, 20)
+  ma20_prev = _sma_at(closes, n - 5, 20)
+  ma50 = _sma_at(closes, n, 50)
+  ma200 = _sma_at(closes, n, 200)
+
+  if ma50 is not None and ma20 is not None and ma20_prev is not None:
+    slope = ma20 - ma20_prev
+    _add('VN-Index > MA50 & MA20 dốc lên', last > ma50 and slope >= 0,
+         f'VN-Index {last:,.1f} vs MA50 {ma50:,.1f}; MA20 {ma20:,.1f} ({slope:+,.1f} so với 5 phiên trước)')
+  else:
+    _add('VN-Index > MA50 & MA20 dốc lên', None, 'Chưa đủ dữ liệu VN-Index')
+
+  if ma200 is not None:
+    _add('VN-Index > MA200', last > ma200, f'VN-Index {last:,.1f} vs MA200 {ma200:,.1f}')
+  else:
+    _add('VN-Index > MA200', None, f'Chưa đủ 200 phiên VN-Index (có {n} phiên)')
+
+  universe, universe_date = get_breadth_universe(ssi_board)
+  stale_note = f' (universe ngày {universe_date}, đang cập nhật)' if universe and universe_date != today else ''
+  if universe:
+    above = 0
+    counted = 0
+    for u in universe:
+      ma = _sma_at(u['closes'], len(u['closes']), 20)
+      item = (ssi_board or {}).get(u['sym'], {})
+      price = item.get('matchedPrice') or u['closes'][-1]
+      if ma:
+        counted += 1
+        above += 1 if price > ma else 0
+    pct = round(above / counted * 100, 1) if counted else 0.0
+    _add('>= 50% mã trên MA20 (Top 200 ADTV)', pct >= 50.0, f'{above}/{counted} mã ({pct}%) trên MA20{stale_note}')
+  else:
+    _add('>= 50% mã trên MA20 (Top 200 ADTV)', None, 'Đang tải dữ liệu độ rộng thị trường, chưa đủ dữ liệu')
+
+  if len(vols) >= 20:
+    v5 = sum(vols[-5:]) / 5.0
+    v20 = sum(vols[-20:]) / 20.0
+    ratio = v5 / v20 if v20 else 0
+    _add('Thanh khoản 5 phiên >= 90% TB20', ratio >= 0.9, f'KL 5 phiên bằng {ratio * 100:.0f}% TB20')
+  else:
+    _add('Thanh khoản 5 phiên >= 90% TB20', None, 'Chưa đủ dữ liệu khối lượng VN-Index')
+
+  if universe and n >= 6:
+    top = universe[:BREADTH_AD_UNIVERSE_SIZE]
+    stock_maps = [dict(zip(u['dates'], u['closes'])) for u in top]
+    divergent_days = []
+    for i in range(n - 5, n):
+      d, d_prev = dates[i], dates[i - 1]
+      vni_chg = (closes[i] - closes[i - 1]) / closes[i - 1] * 100 if closes[i - 1] else 0
+      adv = sum(1 for m in stock_maps if d in m and d_prev in m and m[d] > m[d_prev])
+      dec = sum(1 for m in stock_maps if d in m and d_prev in m and m[d] < m[d_prev])
+      ad_ratio = adv / dec if dec else float('inf')
+      if vni_chg > 0.3 and ad_ratio < 0.8:
+        divergent_days.append(f'{d} (VN-Index {vni_chg:+.2f}%, A/D {adv}/{dec})')
+    has_div = len(divergent_days) >= 2
+    detail = (
+        f"Phân kỳ {len(divergent_days)}/5 phiên: {'; '.join(divergent_days)}" if divergent_days
+        else 'Không có phiên phân kỳ trong 5 phiên gần nhất'
+    )
+    _add('Không phân kỳ chỉ số - độ rộng', not has_div,
+         detail + ' (chưa kiểm tra tiêu chí đóng góp điểm của nhóm vốn hóa lớn)')
+  else:
+    _add('Không phân kỳ chỉ số - độ rộng', None, 'Chưa đủ dữ liệu độ rộng để kiểm tra phân kỳ')
+
+  score = sum(1 for c in conditions if c['met'])
+  missing = [c['name'] for c in conditions if c['met'] is None]
+  regime, coefficient = 'NO_NEW_RISK', 0.0
+  for min_score, name, coef in REGIME_LEVELS:
+    if score >= min_score:
+      regime, coefficient = name, coef
+      break
+
+  summary = f"Regime {regime} ({score}/5 điều kiện, hệ số risk budget {coefficient}) theo phiên {dates[-1] if dates else '--'}"
+  if missing:
+    summary += f"; thiếu dữ liệu: {', '.join(missing)} (tính là không đạt)"
+
+  result = {
+      'regime': regime,
+      'score': score,
+      'coefficient': coefficient,
+      'conditions': conditions,
+      'asOf': dates[-1] if dates else '',
+      'missing': missing,
+      'summary': summary,
+  }
+  # Không cache lâu khi độ rộng đang tải dở để cập nhật ngay khi có dữ liệu
+  if not missing and not stale_note:
+    _REGIME_CACHE['time'] = now
+    _REGIME_CACHE['data'] = result
+  return result
+
+
+def analyze_technicals_and_scoring(
+    candles_data, ssi_item, current_price, fundamental_info, ticker=None, exchange='HOSE', regime=None
+):
+  """
+  Phân tích toàn diện kỹ thuật, xung lực dòng tiền, hỗ trợ/kháng cự động cấu trúc Fractal,
+  ATR(14) chuẩn Wilder, Trade Plan T+ sau phí thuế và Đầu tư Trung/Dài hạn chuẩn BCTC.
+  TUYỆT ĐỐI KHÔNG HARDCODE SỐ LIỆU HAY BỊA +/- %.
+  """
+  c_list = candles_data.get('c', [])
+  o_list = candles_data.get('o', [])
+  h_list = candles_data.get('h', [])
+  l_list = candles_data.get('l', [])
+  v_list = candles_data.get('v', [])
+  t_list = candles_data.get('t', [])
+
+  scale = 1000 if c_list and c_list[-1] < 1000 else 1
+  closes = [p * scale for p in c_list]
+  opens = [p * scale for p in o_list] if o_list else closes[:]
+  highs = [p * scale for p in h_list]
+  lows = [p * scale for p in l_list]
+  volumes = [v for v in v_list]
+
+  # Ghép nến phiên hôm nay từ SSI (không ghi đè nến hôm qua khi Entrade chưa có nến hôm nay)
+  has_live_bar, is_partial, elapsed_fraction = merge_live_session_bar(
+      t_list, opens, highs, lows, closes, volumes, ssi_item
+  )
+  # Chuỗi nến đã hoàn thành: dùng cho mẫu hình nến, ngày phân phối, KL trung bình và RS
+  n_done = len(closes) - 1 if is_partial else len(closes)
+  bar_dates = [_vn_date(t) for t in t_list]
+  if len(closes) > len(bar_dates):
+    bar_dates.append(time.strftime('%Y-%m-%d', time.gmtime(time.time() + VN_UTC_OFFSET_SEC)))
+  dates_done = bar_dates[:n_done]
+  opens_done, highs_done, lows_done = opens[:n_done], highs[:n_done], lows[:n_done]
+  closes_done, volumes_done = closes[:n_done], volumes[:n_done]
+
+  rsi = calculate_rsi(closes, 14)
+  ma20 = calculate_sma(closes, 20)
+  ma50 = calculate_sma(closes, 50) if len(closes) >= 50 else ma20
+  # KL trung bình 20 phiên đã hoàn thành (không lẫn KL dở dang của phiên đang chạy)
+  vol_ma20 = calculate_sma(volumes_done, 20)
+  latest_vol = volumes[-1] if volumes else 0
+  # Trong phiên: ước tính KL cả phiên theo thời gian khớp lệnh đã trôi qua
+  projected_vol = latest_vol / elapsed_fraction if is_partial else latest_vol
+  prev_close = closes[-2] if len(closes) >= 2 else current_price
+  day_change_pct = round(((closes[-1] - prev_close) / prev_close) * 100, 2) if closes and prev_close else 0.0
+
+  # Đột biến Volume (luôn đọc cùng chiều giá)
+  vol_ratio = round(projected_vol / vol_ma20, 2) if vol_ma20 > 0 else 1.0
+  vol_signal, vol_color = classify_volume_signal(vol_ratio, day_change_pct, is_partial)
+
+  # Tỷ lệ Mua / Bán chủ động từ SSI & Dòng vốn khối ngoại
+  buy_active = ssi_item.get('stockBUVol', 0) if ssi_item else 0
+  sell_active = ssi_item.get('stockSDVol', 0) if ssi_item else 0
+  total_active = buy_active + sell_active
+  buy_ratio = round((buy_active / total_active) * 100, 1) if total_active else 50.0
+
+  buy_foreign = ssi_item.get('buyForeignQtty', 0) if ssi_item else 0
+  sell_foreign = ssi_item.get('sellForeignQtty', 0) if ssi_item else 0
+  foreign_net = buy_foreign - sell_foreign
+
+  # 1. Tính toán ATR 14 phiên Wilder
+  atr14 = calculate_atr(highs, lows, closes, period=14)
+  if atr14 <= 0:
+    atr14 = round(current_price * 0.02, 1)
+
+  # 2. Xác định các ngưỡng cấu trúc S1, S2, R1, R2 từ Fractal Pivots
+  support_level, s2_support, resistance_level, r2_target = identify_structural_levels(
+      highs, lows, closes, current_price, atr14
+  )
+
+  # Sức mạnh giá tương đối so với VN-Index (trên các phiên đã hoàn thành)
+  rs_info = calculate_relative_strength(dates_done, closes_done, get_vnindex_series())
+
+  # 2.1. Đánh giá Hành vi Nến & Tín hiệu Chốt Lời cho người đang giữ hàng (trên nến đã đóng cửa)
+  position_holding = detect_candlestick_exit_signals(
+      opens_done, highs_done, lows_done, closes_done, volumes_done, current_price, ma20, atr14,
+      support_level, resistance_level, rsi, vol_ma20, rs_info=rs_info, is_partial=is_partial
+  )
+
+  # Cắt lỗ: mốc cấu trúc dưới S1 một khoảng đệm 0.5 ATR, nhưng không sát hơn 2 x ATR14.
+  # Hàng mua phiên T chỉ bán được từ chiều T+2, stop quá sát nằm trong nhiễu giá và làm R:R đẹp giả tạo.
+  structural_stop = support_level - (0.5 * atr14)
+  if structural_stop >= current_price:
+    structural_stop = current_price - atr14
+  stop_price = round(min(structural_stop, current_price - 2.0 * atr14), -2)
+
+  downside_val = max(1.0, current_price - stop_price)
+  downside = round((downside_val / current_price) * 100, 1) if current_price > 0 else 4.0
+
+  # Mục tiêu chốt lời T+: Target 1 tại Kháng cự R1, Target 2 tại R2
+  target_price = resistance_level
+  upside_val = max(0.0, target_price - current_price)
+  upside = round((upside_val / current_price) * 100, 1) if current_price > 0 else 8.0
+
+  upside2_val = max(0.0, r2_target - current_price)
+  upside2 = round((upside2_val / current_price) * 100, 1) if current_price > 0 else 12.0
+
+  # Net R:R sau thuế phí giao dịch thị trường Việt Nam (0.4% vòng đời lệnh: phí CTCK + thuế bán 0.1%)
+  net_upside = max(0.0, (target_price - current_price) - (0.004 * current_price))
+  net_downside = (current_price - stop_price) + (0.004 * current_price)
+  rr_ratio = round(net_upside / net_downside, 2) if net_downside > 0 else 1.0
+
+  dist_to_support = round(((current_price - support_level) / support_level) * 100, 1) if support_level > 0 else 0.0
+
+  # Vùng Mua T+ (Entry Zone)
+  if dist_to_support <= 3.8:
+    entry_min = support_level
+    entry_max = round(min(support_level * 1.025, current_price * 1.005), -2)
+    tplus_entry = f"{entry_min:,.0f} - {entry_max:,.0f} đ"
+  else:
+    entry_min = support_level
+    entry_max = round(support_level + 0.5 * atr14, -2)
+    tplus_entry = f"Chờ test lại {entry_min:,.0f} - {entry_max:,.0f} đ"
+
+  # Đồng thuận đa khung thời gian D1 + W1
+  multi_tf = calculate_multi_timeframe_confluence(ticker, current_price, ma20)
+  w_levels = calculate_weekly_levels(ticker, current_price)
+
+  # Quản trị Vị thế & Quy mô Giải ngân (risk-budget-first):
+  # size = min(risk_budget / stop, 2% NAV / worst_gap kẹt sàn 2 phiên, trần 1 mã)
+  # worst_gap: HOSE 13.5% -> 15% NAV, HNX 19% -> 10.5% NAV, UPCoM 27.8% -> 7.2% NAV
+  ex_clean = (exchange or 'HOSE').upper()
+  floor_cap = 15.0 if 'HOSE' in ex_clean else (10.5 if 'HNX' in ex_clean else 7.2)
+  regime = regime or {}
+  regime_name = regime.get('regime', 'NEUTRAL')
+  regime_coef = regime.get('coefficient', 0.75)
+  risk_budget_pct = round(T_PLUS_RISK_BUDGET_PCT * regime_coef, 2)
+  nominal_nav_pct = round((risk_budget_pct / downside) * 100.0, 1) if downside > 0 else 0.0
+  max_nav_pct = round(min(floor_cap, SINGLE_STOCK_NAV_CAP_PCT, nominal_nav_pct), 1)
+  pilot_nav_pct = round(max_nav_pct * 0.35, 1)
+  pyramid_nav_pct = round(max_nav_pct * 0.65, 1)
+
+  position_sizing = {
+      'maxNavPct': max_nav_pct,
+      'pilotNavPct': pilot_nav_pct,
+      'pyramidNavPct': pyramid_nav_pct,
+      'riskBudgetPct': risk_budget_pct,
+      'baseRiskBudgetPct': T_PLUS_RISK_BUDGET_PCT,
+      'regime': regime_name,
+      'regimeCoefficient': regime_coef,
+      'downsideRiskPct': downside,
+      'floorCap': floor_cap,
+      'exchange': ex_clean,
+      'guide': (
+          f"Regime {regime_name}: ngân sách rủi ro {T_PLUS_RISK_BUDGET_PCT}% x hệ số {regime_coef} = {risk_budget_pct}% NAV mỗi lệnh. "
+          f"Giải ngân tối đa {max_nav_pct}% NAV (Sàn {ex_clean} trần kẹt sàn {floor_cap}% NAV). "
+          f"Thăm dò: {pilot_nav_pct}% NAV quanh nền, Gia tăng: {pyramid_nav_pct}% NAV khi break cản {resistance_level:,.0f} đ. "
+          f"Cắt lỗ tại {stop_price:,.0f} đ (-{downside}% deal, tổn thất tối đa ~{risk_budget_pct}% tổng NAV; "
+          f"lưu ý hàng mới mua chỉ bán được từ chiều T+2)."
+      ),
+  }
+
+  # CHẤM ĐIỂM KỸ THUẬT (TA SCORE / 100)
+  ta_score = 40
+  if current_price >= ma20: ta_score += 20
+  if current_price >= ma50: ta_score += 10
+  if 50 <= rsi <= 65: ta_score += 15
+  elif 40 <= rsi < 50: ta_score += 8
+  elif rsi > 70: ta_score -= 15
+  # RSI thấp không cộng điểm: quá bán chưa phải tín hiệu mua khi chưa có cấu trúc tạo đáy
+
+  # Khối lượng chỉ được cộng điểm khi đi cùng chiều tăng giá; KL lớn ngày giảm bị trừ điểm (phân phối)
+  if vol_ratio >= 1.5:
+    ta_score += 15 if day_change_pct > 0 else (-10 if day_change_pct < 0 else 0)
+  elif vol_ratio >= 1.1:
+    ta_score += 8 if day_change_pct > 0 else (-5 if day_change_pct < 0 else 0)
+
+  if buy_ratio >= 55: ta_score += 10
+  elif buy_ratio < 45: ta_score -= 5
+
+  rs_score = rs_info.get('rsScore', 50)
+  if rs_score >= 80: ta_score += 15
+  elif rs_score >= 65: ta_score += 8
+  elif rs_score < 40: ta_score -= 10
+
+  if multi_tf.get('isAlignedBullish'): ta_score += 8
+  elif multi_tf.get('isSevereDowntrend'): ta_score -= 10
+
+  ta_score = max(10, min(98, ta_score))
+
+
+  # QUYẾT ĐỊNH VỊ THẾ T+ TOÁN HỌC KHẮT KHE (LƯỚT SÓNG 2-10 PHIÊN)
+  if rsi > 70 or (rsi > 68 and foreign_net < -50000):
+    tplus_decision = 'QUÁ MUA - CHỜ RUNG LẮC'
+    tplus_type = 'danger'
+    tplus_reason = (
+        f"RSI chạm {rsi} (vùng quá mua), giá đang ở vùng rủi ro điều chỉnh T+ cao. "
+        f"Khối ngoại {'bán ròng ' + f'{abs(foreign_net):,.0f} cp' if foreign_net < 0 else 'đã đẩy giá cao'}. Tuyệt đối không mua đuổi."
+    )
+  elif current_price < ma20 or multi_tf.get('isSevereDowntrend'):
+    tplus_decision = 'DƯỚI MA20 - CHỜ TẠO NỀN'
+    tplus_type = 'danger'
+    tplus_reason = (
+        f"Giá đóng cửa ({current_price:,.0f} đ) nằm dưới MA20 ({ma20:,.0f} đ), phe bán chiếm {100-buy_ratio:.1f}%. "
+        f"Cần chờ dòng tiền lớn tạo nền tích lũy trước khi mở vị thế."
+    )
+  elif dist_to_support > 3.8:
+    tplus_decision = 'XA NỀN - CHỜ RETEST'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"Giá hiện tại đã tăng cách ngưỡng hỗ trợ S1 {dist_to_support:.1f}% (>3.5%). "
+        f"Vị thế treo leo bất lợi, ưu tiên chờ nhịp rung lắc test lại nền {support_level:,.0f} đ."
+    )
+  elif rr_ratio < 2.0:
+    tplus_decision = f'R:R KÉM (1:{rr_ratio}) - KHÔNG ĐẠT CHUẨN'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"Tỷ lệ Lợi nhuận/Rủi ro ròng chỉ đạt 1:{rr_ratio} (< 2.0 sau thuế phí 0.4%). "
+        f"Biên lãi kỳ vọng (+{upside}%) không đủ bù đắp rủi ro cắt lỗ (-{downside}%). Không mở vị thế mua T+."
+    )
+  elif ta_score >= 75 and vol_ratio >= 1.25 and day_change_pct > 0 and buy_ratio >= 50 and rs_score >= 60 and rr_ratio >= 2.0:
+    tplus_decision = 'MUA T+ (DÒNG TIỀN XÁC NHẬN)'
+    tplus_type = 'success'
+    tplus_reason = (
+        f"Giá giữ vững trên MA20 ({ma20:,.0f} đ), tăng {day_change_pct:+.2f}% kèm KL x{vol_ratio} TB20{' (ước tính cả phiên)' if is_partial else ''}, RS {rs_score}/99. "
+        f"Lực mua chủ động chiếm {buy_ratio}%, Net R:R đạt chuẩn 1:{rr_ratio}. Giải ngân theo tỷ trọng đề xuất, tuân thủ mốc cắt lỗ."
+    )
+  elif current_price >= ma20 and 42 <= rsi <= 68 and dist_to_support <= 3.8 and rr_ratio >= 2.0:
+    tplus_decision = 'MUA TÍCH LŨY T+ (ĐẠT CHUẨN)'
+    tplus_type = 'success'
+    tplus_reason = (
+        f"Nến duy trì sát nền MA20 ({ma20:,.0f} đ), cách hỗ trợ {dist_to_support:.1f}%, RSI lành mạnh ({rsi}), "
+        f"Net R:R đạt chuẩn 1:{rr_ratio}. Gom trong các nhịp rung lắc quanh nền."
+    )
+  elif rsi < 35:
+    tplus_decision = 'BẮT ĐÁY NẢY KỸ THUẬT (RỦI RO CAO)'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"RSI vùng quá bán ({rsi}), sát hỗ trợ ({support_level:,.0f} đ). "
+        f"Chỉ dành cho nhà đầu tư chấp nhận rủi ro cao đánh nhịp hồi phục kiểm định MA20 (hàng về chiều T+2)."
+    )
+  else:
+    tplus_decision = 'QUAN SÁT THEO DÕI'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"Cổ phiếu đang giằng co chưa hình thành setup T+ đạt chuẩn (RSI {rsi}, Net R:R 1:{rr_ratio}). "
+        f"Kiên nhẫn chờ tín hiệu dòng tiền rõ nét hơn."
+    )
+
+  # Cổng Regime: mở vị thế mới yêu cầu regime >= NEUTRAL; NO_NEW_RISK không mở vị thế mới
+  regime_summary = regime.get('summary', '')
+  if tplus_type == 'success' and regime_name == 'NO_NEW_RISK':
+    tplus_decision = 'NO_TRADE - THỊ TRƯỜNG NO_NEW_RISK'
+    tplus_type = 'danger'
+    tplus_reason = f"Setup kỹ thuật của mã đạt chuẩn nhưng {regime_summary}. Không mở vị thế mới cho đến khi regime cải thiện."
+  elif tplus_type == 'success' and regime_name == 'DEFENSIVE':
+    tplus_decision = 'CHỜ - THỊ TRƯỜNG PHÒNG THỦ'
+    tplus_type = 'warning'
+    tplus_reason = (
+        f"Setup kỹ thuật của mã đạt chuẩn nhưng {regime_summary}. "
+        f"Chỉ xét mua tỷ trọng nhỏ nếu mã thuộc ngành dẫn dắt có xác nhận; mặc định chờ."
+    )
+
+  # 3. Kế hoạch Đầu tư Trung / Dài hạn Toán Học (Chuẩn BCTC, không bịa số)
+  sector = fundamental_info.get('sector', '') if fundamental_info else ''
+  mid_term_plan = calculate_fundamental_valuation(
+      fundamental_info, current_price, sector, w_levels, s2_support, multi_tf=multi_tf
+  )
+  # Spec: mở vị thế mới (kể cả trung hạn) yêu cầu regime >= NEUTRAL
+  if mid_term_plan.get('type') == 'success' and regime_name in ('DEFENSIVE', 'NO_NEW_RISK'):
+    mid_term_plan['decision'] = f"CHỜ - THỊ TRƯỜNG {'NO_NEW_RISK' if regime_name == 'NO_NEW_RISK' else 'PHÒNG THỦ'}"
+    mid_term_plan['type'] = 'warning'
+    mid_term_plan['reason'] = (
+        f"{mid_term_plan.get('reason', '')} Tuy nhiên {regime_summary}: chưa giải ngân mới; "
+        f"đưa mã vào danh sách theo dõi, gom khi regime về NEUTRAL trở lên."
+    )
+  elif regime_name in ('DEFENSIVE', 'NO_NEW_RISK'):
+    mid_term_plan['reason'] = f"{mid_term_plan.get('reason', '')} Lưu ý: {regime_summary}."
+
+  fa_score = fundamental_info.get('faScore', 0) if fundamental_info else 0
+  is_audited = fundamental_info.get('isAudited', False) if fundamental_info else False
+  if is_audited and fa_score > 0:
+    total_score = round(ta_score * 0.55 + fa_score * 0.45)
+  else:
+    total_score = ta_score
+
+  # Đánh giá tổng quan (Overall Status)
+  if ta_score >= 75 and fa_score >= 70:
+    overall_status = '🌟 CỔ PHIẾU HOÀN HẢO: FA xuất sắc & Dòng tiền T+ bùng nổ'
+    overall_color = 'emerald'
+  elif ta_score >= 70:
+    overall_status = '⚡ DÒNG TIỀN T+ MẠNH: Ưu tiên lướt sóng ngắn hạn'
+    overall_color = 'blue'
+  elif fa_score >= 75:
+    overall_status = '💎 DOANH NGHIỆP GIÁ TRỊ: Thích hợp gom tích sản trung hạn'
+    overall_color = 'indigo'
+  elif ta_score < 45 and (fa_score < 50 and is_audited):
+    overall_status = '⚠️ CẢNH BÁO RỦI RO: Cả kỹ thuật và cơ bản đều suy yếu'
+    overall_color = 'rose'
+  else:
+    overall_status = '⏳ TRẠNG THÁI TRUNG TÍNH: Tích lũy chờ đợi tín hiệu mới'
+    overall_color = 'amber'
+
+  return {
+      'rsi': rsi,
+      'ma20': ma20,
+      'ma50': ma50,
+      'atr14': atr14,
+      'volMa20': vol_ma20,
+      'volRatio': vol_ratio,
+      'volSignal': vol_signal,
+      'volColor': vol_color,
+      'volProjected': is_partial,
+      'dayChangePct': day_change_pct,
+      'isPartialSession': is_partial,
+      'buyRatio': buy_ratio,
+      'buyActive': buy_active,
+      'sellActive': sell_active,
+      'support': support_level,
+      'support2': s2_support,
+      'resistance': resistance_level,
+      'resistance2': r2_target,
+      'upside': upside,
+      'upside2': upside2,
+      'downside': downside,
+      'rrRatio': rr_ratio,
+      'taScore': ta_score,
+      'totalScore': total_score,
+      'overallStatus': overall_status,
+      'overallColor': overall_color,
+      'rs': rs_info,
+      'multiTimeframe': multi_tf,
+      'weeklyLevels': w_levels,
+      'positionSizing': position_sizing,
+      'positionHolding': position_holding,
+      'tPlus': {
+          'decision': tplus_decision,
+          'type': tplus_type,
+          'reason': tplus_reason,
+          'entry': tplus_entry,
+          'entryMin': entry_min,
+          'entryMax': entry_max,
+          'target': f"{target_price:,.0f} (+{upside}%)",
+          'target2': f"{r2_target:,.0f} (+{upside2}%)",
+          'stop': f"{stop_price:,.0f} (-{downside}%)",
+          'stopPrice': stop_price,
+          'targetPrice': target_price,
+          'rrRatio': rr_ratio,
+          'distSupportPct': dist_to_support,
+          'isEligible': tplus_type == 'success',
+      },
+      'midTerm': mid_term_plan,
+      'regime': regime,
+  }
+
+
+# ==================== CONTROLLERS & ENDPOINTS ====================
+
+
+
+# ==================== DỰ BÁO TRIỂN VỌNG TƯƠNG LAI ĐA CHIỀU (GSO, VIETSTOCK, SSI) ====================
+
+# ==================== CHUYÊN GIA ĐỊNH LƯỢNG & ĐÁNH GIÁ RỦI RO (SECURITIES RISK ASSESSMENT ENGINE) ====================
+
+def calculate_market_fear_greed_index(ssi_board, ssi_item, technical_info):
+  """
+  Chỉ số Tâm Lý Thị Trường & Cổ Phiếu (Securities Market Fear & Greed Index: 0 - 100).
+  Kết hợp định lượng 5 trụ cột:
+  1. Độ rộng thị trường toàn sàn (Market Breadth: % mã tăng vs giảm trên SSI board) - 30%
+  2. Xung lực dòng tiền thị trường (Active Buy / Total Active Vol trên toàn sàn) - 20%
+  3. Chỉ số xung lực cổ phiếu (RSI 14 phiên) - 25%
+  4. Lực mua chủ động cổ phiếu (Stock Buy Ratio) - 15%
+  5. Đột biến thanh khoản cổ phiếu (Vol Ratio vs MA20) - 10%
+  """
+  gainers = 0
+  losers = 0
+  total_bu = 0
+  total_sd = 0
+
+  if ssi_board:
+    for item in ssi_board.values():
+      m_p = item.get('matchedPrice', 0)
+      r_p = item.get('refPrice', 0)
+      if m_p > 0 and r_p > 0:
+        if m_p > r_p:
+          gainers += 1
+        elif m_p < r_p:
+          losers += 1
+      total_bu += item.get('stockBUVol', 0)
+      total_sd += item.get('stockSDVol', 0)
+
+  # 1. Market breadth score
+  total_mkt = gainers + losers
+  breadth_ratio = (gainers / total_mkt) if total_mkt > 0 else 0.5
+  breadth_score = breadth_ratio * 100.0
+
+  # 2. Market active flow score
+  tot_flow = total_bu + total_sd
+  mkt_flow_score = (total_bu / tot_flow * 100.0) if tot_flow > 0 else 50.0
+
+  # 3. Stock RSI
+  stock_rsi = technical_info.get('rsi', 50.0) if technical_info else 50.0
+
+  # 4. Stock active buy ratio
+  stock_buy_ratio = technical_info.get('buyRatio', 50.0) if technical_info else 50.0
+
+  # 5. Stock vol ratio
+  stock_vol_ratio = min(2.5, technical_info.get('volRatio', 1.0) if technical_info else 1.0)
+  vol_score = min(100.0, stock_vol_ratio * 50.0)
+
+  raw_score = (
+      breadth_score * 0.30 +
+      mkt_flow_score * 0.20 +
+      stock_rsi * 0.25 +
+      stock_buy_ratio * 0.15 +
+      vol_score * 0.10
+  )
+  fear_greed_score = int(round(max(5.0, min(95.0, raw_score))))
+
+  if fear_greed_score > 80:
+    label = 'Cực kỳ hưng phấn (Extreme Greed)'
+    color = 'rose'
+  elif fear_greed_score >= 60:
+    label = 'Lạc quan / Hưng phấn (Greed)'
+    color = 'emerald'
+  elif fear_greed_score >= 45:
+    label = 'Cân bằng / Thận trọng (Neutral)'
+    color = 'amber'
+  elif fear_greed_score >= 25:
+    label = 'Lo ngại / Thận trọng (Fear)'
+    color = 'orange'
+  else:
+    label = 'Sợ hãi tột độ (Extreme Fear)'
+    color = 'rose'
+
+  return fear_greed_score, label, color
+
+
+# Chỉ quét tin gắn đúng mã, đăng trong vòng 90 ngày (tin không rõ ngày vẫn quét nhưng ghi rõ)
+GOVERNANCE_NEWS_MAX_AGE_DAYS = 90
+
+
+def detect_governance_and_legal_risks(ticker, news_list, fundamental_info):
+  """
+  Dò từ khóa rủi ro pháp lý, pha loãng và biến động lãnh đạo trên tiêu đề tin GẮN ĐÚNG MÃ.
+  - Không quét tin vĩ mô/thời sự chung và mô tả doanh nghiệp (dễ khớp nhầm 'kiểm soát', 'vi phạm'...).
+  - Kết quả là dò từ khóa tự động: luôn ở trạng thái CHƯA XÁC MINH, cần đối chiếu công bố gốc HOSE/HNX/UBCKNN.
+  - Không tìm thấy từ khóa không đồng nghĩa với không có rủi ro pháp lý.
+  """
+  legal_keywords = [
+      'khởi tố', 'bị bắt', 'tạm giam', 'truy tố', 'truy cứu', 'thanh tra',
+      'xử phạt', 'bị phạt', 'phạt vi phạm', 'thao túng', 'hủy niêm yết',
+      'đình chỉ giao dịch', 'tạm ngừng giao dịch', 'diện cảnh báo', 'diện kiểm soát',
+      'hạn chế giao dịch', 'kê biên', 'phong tỏa', 'bị kiện', 'khởi kiện', 'tranh chấp',
+      'mất khả năng thanh toán', 'chậm thanh toán', 'chậm trả lãi', 'ý kiến ngoại trừ',
+      'từ chối đưa ra ý kiến', 'giải chấp', 'bán giải chấp', 'phá sản',
+  ]
+  dilution_keywords = [
+      'phát hành riêng lẻ', 'chào bán riêng lẻ', 'chào bán cổ phiếu', 'chào bán thêm',
+      'trái phiếu chuyển đổi', 'pha loãng', 'quyền mua cổ phiếu',
+  ]
+  mgmt_keywords = [
+      'từ nhiệm', 'miễn nhiệm', 'bãi nhiệm', 'thay đổi ban lãnh đạo', 'esop',
+  ]
+
+  legal_findings = []
+  dilution_findings = []
+  mgmt_findings = []
+
+  scanned = 0
+  for n in news_list or []:
+    if not n.get('tickerSpecific'):
+      continue
+    title = n.get('title', '')
+    if not title:
+      continue
+    age = _news_age_days(n.get('date', ''))
+    if age is not None and age > GOVERNANCE_NEWS_MAX_AGE_DAYS:
+      continue
+    scanned += 1
+    date_txt = n.get('date') or 'không rõ ngày'
+    label = f"{title} ({n.get('source', 'Tin tức')}, {date_txt})"
+    lower_text = title.lower()
+    if any(kw in lower_text for kw in legal_keywords):
+      legal_findings.append(label)
+    if any(kw in lower_text for kw in dilution_keywords):
+      dilution_findings.append(label)
+    if any(kw in lower_text for kw in mgmt_keywords):
+      mgmt_findings.append(label)
+
+  has_legal = len(legal_findings) > 0
+  has_dilution = len(dilution_findings) > 0
+
+  parts = []
+  if has_legal:
+    parts.append(f"⚠️ TIN CÓ TỪ KHÓA PHÁP LÝ (chưa xác minh): '{legal_findings[0]}'. Cần đọc nguyên văn công bố trên HOSE/HNX/UBCKNN để đánh giá mức độ.")
+  if has_dilution:
+    parts.append(f"⚠️ TIN CÓ TỪ KHÓA PHA LOÃNG (chưa xác minh): '{dilution_findings[0]}'. Kiểm tra giá phát hành, tỷ lệ và đối tượng chào bán.")
+  if mgmt_findings:
+    parts.append(f"Ghi nhận thông tin nhân sự/ESOP: '{mgmt_findings[0]}'.")
+
+  if parts:
+    governance_summary = " ".join(parts)
+  elif scanned == 0:
+    governance_summary = "Pháp lý & pha loãng: chưa đủ dữ liệu (không lấy được tin gắn mã trong 90 ngày gần nhất)."
+  else:
+    governance_summary = (
+        f"Chưa phát hiện từ khóa rủi ro pháp lý/pha loãng trong {scanned} tin gắn mã gần nhất. "
+        "Đây chỉ là dò tiêu đề tự động, chưa thay thế việc đối chiếu công bố thông tin HOSE/HNX/UBCKNN."
+    )
+
+  return has_legal, has_dilution, legal_findings, dilution_findings, governance_summary
+
+
+def build_macro_context(news_list):
+  """
+  Bối cảnh vĩ mô chỉ dựa trên tin chung lấy trực tiếp (kèm nguồn và ngày).
+  Engine không tự đánh giá môi trường vĩ mô/ngành khi chưa tích hợp số liệu vĩ mô (lãi suất, tỷ giá, CPI...).
+  """
+  macro_items = [
+      n for n in (news_list or [])
+      if not n.get('tickerSpecific') and n.get('badge') in ('VĨ MÔ NHÀ NƯỚC', 'THỜI SỰ KINH TẾ (CHUNG)')
+  ]
+  if macro_items:
+    headlines = '; '.join(
+        f"'{n.get('title', '')}' ({n.get('source', '')}, {n.get('date') or 'không rõ ngày'})"
+        for n in macro_items
+    )
+    macro_impact = (
+        f"Tin vĩ mô mới nhất: {headlines}. "
+        "Chưa tích hợp số liệu vĩ mô định lượng (lãi suất, tỷ giá, CPI, tín dụng); engine không tự kết luận môi trường ngành."
+    )
+  else:
+    macro_impact = "Dữ liệu chưa ghi nhận (chưa lấy được tin vĩ mô và chưa tích hợp số liệu vĩ mô định lượng)."
+  return 'Chưa đánh giá', 'slate', macro_impact
+
+
+def _period_key(period):
+  m = re.match(r'^(\d{4})-Q([1-4])', str(period or ''))
+  return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def expected_latest_report_period(now_ts=None):
+  """Kỳ BCTC quý mới nhất đã quá hạn công bố (45 ngày sau khi kết thúc quý, áp dụng cho BCTC hợp nhất)."""
+  now_ts = now_ts or time.time()
+  today = time.gmtime(now_ts + VN_UTC_OFFSET_SEC)
+  year, quarter = today.tm_year, (today.tm_mon - 1) // 3 + 1
+  for _ in range(8):
+    quarter -= 1
+    if quarter == 0:
+      year, quarter = year - 1, 4
+    end_month = quarter * 3
+    next_year, next_month = (year + 1, 1) if end_month == 12 else (year, end_month + 1)
+    quarter_end = time.mktime((next_year, next_month, 1, 0, 0, 0, 0, 0, -1)) - 86400
+    if quarter_end + 45 * 86400 <= time.mktime(today):
+      return (year, quarter)
+  return None
+
+
+def compute_data_confidence(ssi_item, fundamental_info, technical_info, news_list, has_legal_unverified, regime):
+  """
+  Data Confidence (0 - 100) theo spec vsr-engine: bắt đầu 100, trừ điểm cho từng thiếu sót.
+  DC < 65 -> chỉ WAIT/NO_TRADE; BUY yêu cầu DC >= 80.
+  """
+  dc = 100
+  deductions = []
+
+  latest_session = (regime or {}).get('asOf', '')
+  session_start = (ssi_item or {}).get('sessionStart')
+  price_date = _vn_date(session_start / 1000.0) if session_start and (ssi_item or {}).get('refPrice') else None
+  if not price_date:
+    dc -= 30
+    deductions.append('-30 không lấy được giá từ bảng giá realtime')
+  elif latest_session and price_date < latest_session:
+    dc -= 30
+    deductions.append(f'-30 giá thuộc phiên {price_date}, cũ hơn phiên gần nhất {latest_session}')
+
+  period = _period_key((fundamental_info or {}).get('reportPeriod', ''))
+  expected = expected_latest_report_period()
+  if not period:
+    dc -= 15
+    deductions.append('-15 thiếu BCTC')
+  elif expected and period < expected:
+    dc -= 15
+    deductions.append(f'-15 BCTC kỳ {period[0]}-Q{period[1]} cũ hơn kỳ đã quá hạn công bố {expected[0]}-Q{expected[1]}')
+
+  if (technical_info or {}).get('volMa20', 0) <= 0:
+    dc -= 15
+    deductions.append('-15 thiếu dữ liệu khối lượng')
+
+  if not any(n.get('tickerSpecific') for n in (news_list or [])):
+    dc -= 20
+    deductions.append('-20 chưa có tin gắn mã từ nguồn Tier 1-2')
+
+  conflicts = (fundamental_info or {}).get('dataConflicts') or []
+  if conflicts:
+    dc -= 15
+    deductions.append('-15 DATA_CONFLICT (' + '; '.join(conflicts) + ')')
+
+  if has_legal_unverified:
+    dc -= 10
+    deductions.append('-10 tin pháp lý trọng yếu chưa xác minh')
+
+  return max(0, dc), deductions
+
+
+def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_info, technical_info, ssi_item, ssi_board, news_list):
+  """
+  CHUYÊN GIA ĐỊNH LƯỢNG & ĐÁNH GIÁ RỦI RO CHỨNG KHOÁN (SECURITIES RISK ASSESSMENT ENGINE)
+  Triển khai quy trình phân tích định lượng chuẩn 5 phần và hệ thống Guardrail ngưỡng chặn rủi ro.
+  Tuân thủ 3 nguyên tắc bất di bất dịch (Grounding Rules):
+  1. Không suy diễn ngoài dữ liệu (nếu thiếu, ghi 'Dữ liệu chưa ghi nhận').
+  2. Khách quan đa chiều (nhận định tích cực luôn đi kèm yếu tố rủi ro tương ứng).
+  3. Phân biệt rõ giữa dữ liệu thực tế lịch sử/hiện tại và kịch bản dự báo xác suất.
+  """
+  env_rating, env_color, macro_impact = build_macro_context(news_list)
+
+  # 1. Tính toán Fear & Greed Index
+  fear_greed_score, fear_greed_label, fear_greed_color = calculate_market_fear_greed_index(
+      ssi_board, ssi_item, technical_info
+  )
+
+  # 2. Phân tích Dòng vốn Khối ngoại & Thanh khoản thực tế
+  buy_f = ssi_item.get('buyForeignQtty', 0) if ssi_item else 0
+  sell_f = ssi_item.get('sellForeignQtty', 0) if ssi_item else 0
+  foreign_net = buy_f - sell_f
+  vol_ratio = technical_info.get('volRatio', 1.0)
+  buy_ratio = technical_info.get('buyRatio', 50.0)
+
+  if foreign_net > 100000:
+    foreign_flow_text = (
+        f"Khối ngoại mua ròng tích cực +{foreign_net:,.0f} cổ phiếu trong phiên ngắn hạn "
+        f"(Khối lượng mua: {buy_f:,.0f} cp vs Bán: {sell_f:,.0f} cp). Dòng tiền ngoại nâng đỡ tâm lý, "
+        f"tuy nhiên cần kiểm định mức độ duy trì dòng vốn ngoại khi chỉ số tiến sát kháng cự đỉnh cũ."
+    )
+  elif foreign_net < -50000:
+    foreign_flow_text = (
+        f"Khối ngoại bán ròng đáng kể -{abs(foreign_net):,.0f} cổ phiếu trong phiên ngắn hạn "
+        f"(Khối lượng mua: {buy_f:,.0f} cp vs Bán: {sell_f:,.0f} cp). Áp lực cơ cấu chốt lời từ dòng vốn "
+        f"ngoại tạo áp lực cung tiềm ẩn lên các nhịp tăng giá."
+    )
+  elif foreign_net < 0:
+    foreign_flow_text = (
+        f"Khối ngoại bán ròng nhẹ -{abs(foreign_net):,.0f} cổ phiếu trong phiên, giao dịch tương đối cân bằng. "
+        f"Dòng tiền nội địa giữ vai trò chủ đạo chi phối bước giá."
+    )
+  else:
+    foreign_flow_text = (
+        f"Khối ngoại giao dịch cân bằng (Ròng: {foreign_net:+,.0f} cp, Mua: {buy_f:,.0f} vs Bán: {sell_f:,.0f} cp). "
+        f"Xu hướng trung hạn ổn định, cổ phiếu vận động theo cung cầu tự nhiên thị trường."
+    )
+
+  rs_info = technical_info.get('rs', {}) if technical_info else {}
+  rs_score = rs_info.get('rsScore', 50)
+  alpha_1m = rs_info.get('stockAlpha1M', 0.0)
+  alpha_3m = rs_info.get('stockAlpha3M', 0.0)
+
+  sentiment_liquidity_text = (
+      f"Chỉ số Tâm lý thị trường ghi nhận {fear_greed_score}/100 ({fear_greed_label}). "
+      f"Thanh khoản đạt {vol_ratio}x mức bình quân 20 phiên với tỷ lệ mua chủ động {buy_ratio}%, "
+      f"cho thấy mức độ hấp thụ cung-cầu {'tích cực, phe mua kiểm soát thế trận' if buy_ratio >= 52 else 'thận trọng, phe bán vẫn còn gây sức ép'}. "
+      f"Sức mạnh giá tương đối RS Rating O'Neil (CANSLIM) đạt {rs_score}/99 "
+      f"với Alpha 1 tháng {alpha_1m:+.1f}% và Alpha 3 tháng {alpha_3m:+.1f}% so với VN-Index."
+  )
+
+  # 3. Phân tích Nội tại & Rủi ro Pháp lý (Áp dụng Grounding Rules 1 & 2)
+  pe = fundamental_info.get('pe', 0.0) if fundamental_info else 0.0
+  pb = fundamental_info.get('pb', 0.0) if fundamental_info else 0.0
+  roe = fundamental_info.get('roe', 0.0) if fundamental_info else 0.0
+  growth = fundamental_info.get('profitGrowth', 0.0) if fundamental_info else 0.0
+  debt = fundamental_info.get('debtToEquity', 0.0) if fundamental_info else 0.0
+  is_audited = fundamental_info.get('isAudited', False) if fundamental_info else False
+  ocf = fundamental_info.get('ocf', 0.0) if fundamental_info else 0.0
+  cfo_ttm = fundamental_info.get('cfoTtm') if fundamental_info else None
+  borrow_de = fundamental_info.get('borrowDE') if fundamental_info else None
+  # Dòng tiền dùng cho guardrail: CFO 4 quý nếu có, nếu không dùng OCF quý gần nhất
+  cfo_eff = cfo_ttm if cfo_ttm is not None else ocf
+  gross_margin = fundamental_info.get('grossMargin', 0.0) if fundamental_info else 0.0
+  net_margin = fundamental_info.get('netMargin', 0.0) if fundamental_info else 0.0
+  ocf_status = fundamental_info.get('ocfStatus', '') if fundamental_info else ''
+  report_period = fundamental_info.get('reportPeriod', '') if fundamental_info else ''
+  period_txt = f" (kỳ {report_period})" if report_period else ""
+  is_fin_sector = sector in FINANCIAL_SECTORS
+
+  pe_display = f"{pe:.1f}x" if pe > 0 else "Dữ liệu chưa ghi nhận"
+  pb_display = f"{pb:.1f}x" if pb > 0 else "Dữ liệu chưa ghi nhận"
+  roe_display = f"{roe:.1f}%" if roe != 0 else "Dữ liệu chưa ghi nhận"
+  growth_display = f"{growth:+.1f}%" if growth != 0 else "Dữ liệu chưa ghi nhận"
+  ocf_display = f"{ocf:+,.1f} tỷ đ" if ocf != 0 else "Dữ liệu chưa ghi nhận"
+
+  cfo_ttm_txt = f", CFO 4 quý {cfo_ttm:+,.1f} tỷ đ" if cfo_ttm is not None else ""
+  ocf_text = f" Dòng tiền HĐKD quý gần nhất {ocf_display} ({ocf_status}){cfo_ttm_txt}, Biên lãi gộp {gross_margin:.1f}% và Biên lãi ròng {net_margin:.1f}%." if ocf != 0 or gross_margin != 0 else ""
+  debt_txt = (
+      f"Nợ vay/VCSH {borrow_de:.2f}x (Nợ phải trả/VCSH {debt:.2f}x)" if borrow_de is not None
+      else f"Nợ phải trả/VCSH {debt:.2f}x"
+  )
+
+  if roe != 0 and pe > 0:
+    if roe >= 15.0 and growth > 0:
+      growth_quality = (
+          f"Theo BCTC công bố gần nhất{period_txt}, {ticker} ghi nhận tỷ suất sinh lời ROE {roe_display} "
+          f"và tăng trưởng lợi nhuận {growth_display}. Định giá P/E hiện tại {pe_display} và P/B {pb_display}. "
+          f"{debt_txt}.{ocf_text}"
+      )
+    elif growth < 0:
+      growth_quality = (
+          f"Theo BCTC công bố gần nhất{period_txt}, {ticker} ghi nhận ROE {roe_display}, tuy nhiên tăng trưởng lợi nhuận "
+          f"suy giảm {growth_display}. Mặc dù P/E ở mức {pe_display} (P/B {pb_display}), "
+          f"biên an toàn doanh nghiệp suy giảm và rủi ro điều chỉnh định giá vẫn hiện hữu nếu chu kỳ kinh doanh chưa tạo đáy.{ocf_text}"
+      )
+    else:
+      growth_quality = (
+          f"Theo BCTC công bố gần nhất{period_txt}, {ticker} duy trì ROE {roe_display} với P/E {pe_display} và P/B {pb_display}, "
+          f"tăng trưởng lợi nhuận {growth_display}. Cần đối chiếu định giá với lịch sử của chính mã và nhóm cùng ngành "
+          f"trước khi kết luận rẻ/đắt.{ocf_text}"
+      )
+  else:
+    growth_quality = (
+        f"Chỉ số định giá P/E ({pe_display}) và ROE ({roe_display}) chưa ghi nhận đầy đủ từ nguồn dữ liệu BCTC. "
+        f"Doanh nghiệp đang giao dịch theo thanh khoản và dòng tiền thực tế trên sàn.{ocf_text}"
+    )
+
+  has_legal, has_dilution, legal_findings, dilution_findings, governance_summary = detect_governance_and_legal_risks(
+      ticker, news_list, fundamental_info
+  )
+
+  # 4. Ma trận Kịch bản Kỳ vọng & Quản trị Rủi ro (Scenario Matrix)
+  support_level = technical_info.get('support', round(current_price * 0.96, -2))
+  resistance_level = technical_info.get('resistance', round(current_price * 1.08, -2))
+  stop_loss_price = technical_info.get('tPlus', {}).get('stop', '')
+  if not stop_loss_price or stop_loss_price == '--':
+    stop_loss_price = f"{round(support_level * 0.97, -2):,.0f} đ"
+  target_price_str = technical_info.get('tPlus', {}).get('target', '')
+  if not target_price_str or target_price_str == '--':
+    target_price_str = f"{resistance_level:,.0f} đ"
+
+  upside = technical_info.get('upside', 8.0)
+  downside = technical_info.get('downside', 4.0)
+  rr_ratio = technical_info.get('rrRatio', 2.0)
+  ma20 = technical_info.get('ma20', current_price)
+
+  pos_sizing = technical_info.get('positionSizing', {})
+  max_nav = pos_sizing.get('maxNavPct', 25.0)
+  pilot_nav = pos_sizing.get('pilotNavPct', 8.5)
+  pyramid_nav = pos_sizing.get('pyramidNavPct', 16.5)
+
+  mtf = technical_info.get('multiTimeframe', {})
+  confluence_text = mtf.get('confluence', 'Theo dõi xu hướng')
+  mtf_desc = mtf.get('description', '')
+
+  bull_trigger = (
+      f"Dòng tiền mua chủ động duy trì trên 55%, RS Rating duy trì kênh trên (>=65), "
+      f"khối ngoại ngừng bán ròng và giá giữ vững hỗ trợ then chốt {support_level:,.0f} đ (nền MA20 {ma20:,.0f} đ)."
+  )
+  bull_target = f"{resistance_level:,.0f} đ (+{upside}%)"
+
+  bear_risk = (
+      f"Áp lực bán ròng gia tăng, xuất hiện phiên phân phối thanh khoản đột biến, "
+      f"hoặc giá đóng cửa xuyên thủng ngưỡng hỗ trợ {support_level:,.0f} đ."
+  )
+  bear_support = f"{support_level:,.0f} đ (Cắt lỗ tại {stop_loss_price})"
+
+  # 5. Hệ thống Guardrail & Quyết định Hành động (Action Conclusion)
+  guardrails_triggered = []
+  action_status = "Theo dõi"
+  status_color = "slate"
+
+  # Kiểm tra Rủi ro Đuôi Kẹt Sàn (TAIL LOCK RISK) - chỉ dựa trên số liệu tài chính.
+  # Tin pháp lý dò bằng từ khóa chưa xác minh nên không đủ căn cứ kích hoạt HARD_NO_TRADE.
+  # Tiêu chí spec: vay ngắn hạn (gồm nợ/trái phiếu đến hạn 12 tháng) vượt tiền + đầu tư ngắn hạn + CFO dương.
+  _, tail_lock_financial, distress_reasons = assess_financial_distress(fundamental_info, sector)
+  tail_lock_risk = tail_lock_financial
+  tail_lock_reasons = distress_reasons if tail_lock_financial else []
+
+  # Guardrail Cực Hạn: Kẹt thanh khoản Tail Lock Risk
+  if tail_lock_risk:
+    guardrail_msg = (
+        f"🚨 GUARDRAIL KẸT THANH KHOẢN (TAIL LOCK RISK): Phát hiện nguy cơ kẹt sàn nghiêm trọng ({'; '.join(tail_lock_reasons)}). "
+        f"Kích hoạt ngắt mạch: Cưỡng chế HARD_NO_TRADE. Stress test kẹt sàn ~10 phiên (-51.6% vốn HOSE). Tuyệt đối cấm mua mới."
+    )
+    guardrails_triggered.append(guardrail_msg)
+    action_status = "Hạn chế giao dịch / HARD NO TRADE"
+    status_color = "rose"
+    core_warning = (
+        f"RỦI RO KẸT THANH KHOẢN CAO: {'; '.join(tail_lock_reasons)}. "
+        f"Không mua mới. Nếu đang nắm giữ, ưu tiên hạ tỷ trọng khi cổ phiếu còn thanh khoản; "
+        f"lưu ý lệnh bán có thể không khớp nếu cổ phiếu mất thanh khoản (kẹt sàn)."
+    )
+    if 'tPlus' in technical_info:
+      technical_info['tPlus']['decision'] = 'HARD_NO_TRADE (RỦI RO KẸT SÀN)'
+      technical_info['tPlus']['type'] = 'danger'
+      technical_info['tPlus']['reason'] = core_warning
+
+  # Guardrail Pháp lý: tin gắn mã có từ khóa pháp lý (chưa xác minh) -> tạm ngừng mua mới, chờ đối chiếu công bố gốc
+  elif has_legal:
+    guardrail_msg = (
+        f"GUARDRAIL PHÁP LÝ (CHƯA XÁC MINH): Tin gắn mã có từ khóa pháp lý '{legal_findings[0]}' -> "
+        f"Tạm ngừng mua mới cho đến khi đối chiếu nguyên văn công bố trên HOSE/HNX/UBCKNN."
+    )
+    guardrails_triggered.append(guardrail_msg)
+    action_status = "Chờ xác minh pháp lý"
+    status_color = "rose"
+    core_warning = (
+        f"Phát hiện tin có từ khóa pháp lý: '{legal_findings[0]}'. Đây là dò từ khóa tự động trên tiêu đề, chưa xác minh mức độ. "
+        f"Tạm ngừng mua mới; nếu đang nắm giữ, đọc nguyên văn công bố để đánh giá ảnh hưởng tới lợi nhuận/vốn trước khi quyết định, không bán vội theo tiêu đề."
+    )
+    if 'tPlus' in technical_info:
+      technical_info['tPlus']['decision'] = 'CHỜ XÁC MINH TIN PHÁP LÝ'
+      technical_info['tPlus']['type'] = 'warning'
+      technical_info['tPlus']['reason'] = core_warning
+
+  # Guardrail 2: Cảnh báo Rủi ro Pha loãng sâu
+  elif has_dilution:
+    guardrail_msg = (
+        f"GUARDRAIL PHA LOÃNG (CHƯA XÁC MINH): Tin gắn mã có từ khóa phát hành/pha loãng '{dilution_findings[0]}' -> "
+        "Buộc chuyển trạng thái sang 'Thận trọng / Hạn chế giao dịch' bất chấp tín hiệu kỹ thuật ngắn hạn."
+    )
+    guardrails_triggered.append(guardrail_msg)
+    action_status = "Thận trọng / Hạn chế giao dịch"
+    status_color = "rose"
+    core_warning = (
+        "Ưu tiên bảo toàn vốn; tạm ngừng mở vị thế mua mới cho đến khi kiểm tra giá phát hành, tỷ lệ pha loãng và đối tượng chào bán trong công bố chính thức."
+    )
+
+  # Guardrail 1: Thị trường hưng phấn cực độ (Fear & Greed > 80) kết hợp Khối ngoại xả hàng
+  elif (fear_greed_score > 80 or (technical_info.get('rsi', 50) > 72 and fear_greed_score >= 70)) and foreign_net < -50000:
+    guardrail_msg = (
+        f"GUARDRAIL QUẢN TRỊ RỦI RO: Chỉ số tâm lý thị trường hưng phấn cực độ ({fear_greed_score}/100) kết hợp áp lực "
+        f"khối ngoại bán ròng mạnh ({foreign_net:,.0f} cp) -> Buộc AI hạ tỷ trọng khuyến nghị mua mới, ưu tiên quản trị chốt lời bảo vệ thành quả."
+    )
+    guardrails_triggered.append(guardrail_msg)
+    action_status = "Hạ tỷ trọng"
+    status_color = "amber"
+    core_warning = (
+        f"Cảnh giác bẫy tăng giá khi thị trường hưng phấn kết hợp khối ngoại bán ròng; chủ động hiện thực hóa lợi nhuận "
+        f"từng phần khi giá tiệm cận vùng kháng cự {resistance_level:,.0f} đ."
+    )
+
+  # Guardrail 3: Cảnh báo Lợi nhuận giấy & Thâm hụt dòng tiền nặng
+  elif (not is_fin_sector) and cfo_eff < 0 and growth > 0 and ((borrow_de > 1.0) if borrow_de is not None else (debt > 1.8)):
+    guardrail_msg = (
+        f"GUARDRAIL CHẤT LƯỢNG LỢI NHUẬN: Dòng tiền HĐKD âm ({cfo_eff:+,.1f} tỷ đ{', 4 quý' if cfo_ttm is not None else ''}) dù LNST tăng trưởng, "
+        f"kết hợp đòn bẩy cao ({debt_txt}) -> Tiềm ẩn rủi ro lợi nhuận giấy và căng thẳng dòng tiền lưu động."
+    )
+    guardrails_triggered.append(guardrail_msg)
+    action_status = "Theo dõi"
+    status_color = "amber"
+    core_warning = (
+        f"Thận trọng với rủi ro dòng tiền HĐKD âm ({cfo_eff:+,.1f} tỷ đ); chỉ giao dịch ngắn hạn theo dòng tiền T+ "
+        f"với tỷ trọng nhỏ tối đa {pilot_nav}% NAV, không giải ngân vốn lớn."
+    )
+
+  # Động cơ khuyến nghị chuẩn khi không vi phạm Guardrail
+  else:
+    ta_score = technical_info.get('taScore', 50)
+    fa_score = fundamental_info.get('faScore', 0) if fundamental_info else 0
+    rsi = technical_info.get('rsi', 50)
+
+    if ta_score >= 75 and current_price >= ma20 and buy_ratio >= 55 and rs_score >= 60:
+      action_status = "Mở vị thế thăm dò"
+      status_color = "emerald"
+      core_warning = (
+          f"Quản trị vị thế: Giải ngân thăm dò tối đa {pilot_nav}% NAV quanh {current_price*0.985:,.0f} - {current_price*0.995:,.0f} đ "
+          f"(tổng vị thế tối đa {max_nav}% NAV). {mtf_desc} Cắt lỗ tuyệt đối nếu thủng {support_level:,.0f} đ."
+      )
+    elif current_price >= ma20 and 46 <= rsi <= 68:
+      action_status = "Tích lũy"
+      status_color = "blue"
+      core_warning = (
+          f"Theo dõi tính nhất quán của dòng tiền chủ động tại vùng hỗ trợ {support_level:,.0f} đ (RS {rs_score}/99). "
+          f"Tỷ trọng đề xuất: Thăm dò {pilot_nav}% NAV, rủi ro mỗi lệnh <= {pos_sizing.get('riskBudgetPct', T_PLUS_RISK_BUDGET_PCT)}% NAV."
+      )
+    elif rsi > 70:
+      action_status = "Hạ tỷ trọng"
+      status_color = "amber"
+      core_warning = (
+          f"Cổ phiếu tiến sâu vào vùng quá mua RSI ({rsi:.1f}), rủi ro điều chỉnh T+ gia tăng; "
+          f"hạn chế đua giá và canh chốt lời từng phần tại {resistance_level:,.0f} đ."
+      )
+    elif current_price < ma20:
+      action_status = "Theo dõi"
+      status_color = "slate"
+      core_warning = (
+          f"Giá vẫn vận động dưới đường MA20 ({ma20:,.0f} đ) và {confluence_text}; "
+          f"kiên nhẫn đứng ngoài quan sát cho đến khi xuất hiện nến đảo chiều xác nhận dòng tiền lớn hấp thụ trở lại."
+      )
+    else:
+      action_status = "Theo dõi"
+      status_color = "slate"
+      core_warning = (
+          f"Duy trì tỷ trọng an toàn và theo dõi phản ứng cung cầu của cổ phiếu quanh ngưỡng hỗ trợ {support_level:,.0f} đ."
+      )
+
+  # Data Confidence (DC) theo spec: bắt đầu 100 và trừ điểm theo từng thiếu sót dữ liệu
+  regime = technical_info.get('regime', {}) or {}
+  dc_score, dc_deductions = compute_data_confidence(
+      ssi_item, fundamental_info, technical_info, news_list, has_legal, regime
+  )
+  dc_rating = "CAO" if dc_score >= 80 else ("KHÁ" if dc_score >= 65 else "THẤP")
+
+  # Cổng quyết định cuối: Regime và DC (quyết định là lớp cuối, không phải phép cộng điểm)
+  regime_name = regime.get('regime', 'NEUTRAL')
+  regime_summary = regime.get('summary', 'Regime chưa xác định')
+  t_plus = technical_info.get('tPlus', {})
+  mid_term = technical_info.get('midTerm', {})
+  buy_statuses = {"Mở vị thế thăm dò", "Tích lũy"}
+
+  if action_status in buy_statuses and regime_name == 'NO_NEW_RISK':
+    action_status = "Theo dõi (NO_NEW_RISK)"
+    status_color = "slate"
+    core_warning = f"{regime_summary}: không mở vị thế mới. {core_warning}"
+  elif action_status in buy_statuses and regime_name == 'DEFENSIVE':
+    action_status = "Chờ (thị trường phòng thủ)"
+    status_color = "amber"
+    core_warning = f"{regime_summary}: mặc định chờ, chỉ xét tỷ trọng nhỏ ở mã ngành dẫn dắt có xác nhận. {core_warning}"
+
+  if dc_score < 80:
+    dc_reason = f"Độ tin cậy dữ liệu {dc_score}/100 ({'; '.join(dc_deductions)})"
+    gate_label = 'WAIT - DỮ LIỆU CHƯA ĐỦ TIN CẬY' if dc_score < 65 else 'WAIT - DC CHƯA ĐẠT 80'
+    if action_status in buy_statuses:
+      action_status = "Chờ (dữ liệu chưa đủ tin cậy)"
+      status_color = "amber"
+      core_warning = f"{dc_reason}: chưa đủ điều kiện mua mới. {core_warning}"
+    if t_plus.get('type') == 'success':
+      t_plus['decision'] = gate_label
+      t_plus['type'] = 'warning'
+      t_plus['reason'] = f"{dc_reason}. Setup kỹ thuật đạt nhưng cần bổ sung dữ liệu trước khi mua. {t_plus.get('reason', '')}"
+      t_plus['isEligible'] = False
+    if dc_score < 65 and mid_term.get('type') == 'success':
+      mid_term['decision'] = gate_label
+      mid_term['type'] = 'warning'
+      mid_term['reason'] = f"{dc_reason}. {mid_term.get('reason', '')}"
+
+  # Bottom Line
+  t_dec = technical_info.get('tPlus', {}).get('decision', 'Quan sát')
+  t_ent = technical_info.get('tPlus', {}).get('entry', '--')
+  t_stp = technical_info.get('tPlus', {}).get('stop', '--')
+  t_tgt = technical_info.get('tPlus', {}).get('target', '--')
+  t_rr = technical_info.get('tPlus', {}).get('rrRatio', 1.0)
+  m_dec = technical_info.get('midTerm', {}).get('decision', 'Theo dõi')
+  m_tgt = technical_info.get('midTerm', {}).get('target', '--')
+  m_dca = technical_info.get('midTerm', {}).get('dcaZone', '--')
+
+  h_info = technical_info.get('positionHolding', {})
+  h_dec = h_info.get('decision', 'Theo dõi')
+  h_stop = h_info.get('trailingStopDisplay', '--')
+  h_pattern = h_info.get('candlePattern', 'Chưa có mẫu hình xấu')
+
+  bottom_line = (
+      f"• Lướt sóng T+ (Mua mới): {t_dec} (Vùng vào: {t_ent}, Mục tiêu: {t_tgt}, Cắt lỗ: {t_stp}, Net R:R 1:{t_rr}).\n"
+      f"• Vị thế đang nắm giữ (Chốt sớm / Chặn lãi): {h_dec} (Chặn lãi Trailing Stop: {h_stop} | Tín hiệu nến: {h_pattern}).\n"
+      f"• Đầu tư Trung/Dài hạn: {m_dec} (Định giá hợp lý: {m_tgt}, Vùng gom DCA: {m_dca}).\n"
+      f"• Thị trường: {regime_summary}. Độ tin cậy dữ liệu {dc_score}/100.\n"
+      f"Thông tin tham khảo, không phải tư vấn đầu tư cá nhân; ngưỡng điểm là tham số tạm, chưa backtest."
+  )
+
+  # 6. Biên soạn Báo Cáo Markdown Chuẩn theo Prompt Yêu Cầu
+  markdown_report = f"""# BÁO CÁO ĐỊNH LƯỢNG & ĐÁNH GIÁ RỦI RO: {ticker}
+
+## 1. TỔNG QUAN TÁC ĐỘNG VĨ MÔ & NGÀNH
+- **Đánh giá môi trường**: [{env_rating}]
+- **Tác động cụ thể**: {macro_impact}
+
+## 2. NỘI TẠI & RỦI RO PHÁP LÝ DOANH NGHIỆP
+- **Chất lượng tăng trưởng**: {growth_quality}
+- **Rủi ro quản trị & pha loãng**: {governance_summary}
+
+## 3. DÒNG TIỀN & TÂM LÝ THỊ TRƯỜNG
+- **Dòng vốn khối ngoại**: {foreign_flow_text}
+- **Tâm lý & thanh khoản**: {sentiment_liquidity_text}
+- **Regime thị trường**: {regime_summary}
+{chr(10).join(f"  - [{'x' if c['met'] else (' ' if c['met'] is False else '?')}] {c['name']}: {c['detail']}" for c in regime.get('conditions', []))}
+
+## 4. MA TRẬN KỊCH BẢN KỲ VỌNG & QUẢN TRỊ RỦI RO
+- **Kịch bản Khả quan (Bull Case)**:
+  - Điều kiện kích hoạt: {bull_trigger}
+  - Mục tiêu giá/Kháng cự kỳ vọng: {bull_target}
+- **Kịch bản Thận trọng/Phòng thủ (Bear Case)**:
+  - Yếu tố rủi ro kích hoạt: {bear_risk}
+  - Vùng hỗ trợ/Cắt lỗ đề xuất: {bear_support}
+- **Tỷ lệ Lợi nhuận/Rủi ro (R:R Ratio)**: 1:{rr_ratio}
+- **Quản trị vị thế (Position Sizing)**: Tỷ trọng giải ngân tối đa {max_nav}% NAV (Thăm dò: {pilot_nav}% NAV, Gia tăng: {pyramid_nav}% NAV) • Rủi ro tối đa mỗi lệnh {pos_sizing.get('riskBudgetPct', T_PLUS_RISK_BUDGET_PCT)}% NAV.
+
+## 5. KẾT LUẬN HÀNH ĐỘNG & VỊ THẾ NẮM GIỮ
+- **Trạng thái Mua Mới**: [{action_status}]
+- **Vị thế Đang Nắm Giữ**: [{h_dec}] (Chặn lãi Trailing Stop: {h_stop} | Mẫu hình nến: {h_pattern})
+- **Xu hướng đa khung (Multi-Timeframe)**: {confluence_text}
+- **Độ tin cậy dữ liệu**: {dc_score}/100 ({dc_rating}){(' — ' + '; '.join(dc_deductions)) if dc_deductions else ''}
+- **Lưu ý cốt lõi**: {core_warning}
+
+## 6. ĐÚC KẾT (BOTTOM LINE)
+{bottom_line}
+"""
+
+  return {
+      'macroSector': {
+          'environment': env_rating,
+          'environmentColor': env_color,
+          'macroImpact': macro_impact,
+          'sector': sector,
+      },
+      'fundamentalRisk': {
+          'growthQuality': growth_quality,
+          'governanceDilutionRisk': governance_summary,
+          'peDisplay': pe_display,
+          'pbDisplay': pb_display,
+          'roeDisplay': roe_display,
+          'growthDisplay': growth_display,
+          'ocfDisplay': ocf_display,
+          'grossMargin': gross_margin,
+          'netMargin': net_margin,
+          'ocfStatus': ocf_status,
+          'hasLegalDisputes': has_legal,
+          'hasDilutionRisk': has_dilution,
+          'isAudited': is_audited,
+      },
+      'marketFlow': {
+          'foreignFlow': foreign_flow_text,
+          'foreignNet': foreign_net,
+          'sentimentLiquidity': sentiment_liquidity_text,
+          'fearGreedScore': fear_greed_score,
+          'fearGreedLabel': fear_greed_label,
+          'fearGreedColor': fear_greed_color,
+          'buyRatio': buy_ratio,
+          'volRatio': vol_ratio,
+          'rsScore': rs_score,
+      },
+      'scenarioMatrix': {
+          'bullCase': {
+              'trigger': bull_trigger,
+              'targetPrice': resistance_level,
+              'targetDisplay': bull_target,
+              'upside': upside,
+          },
+          'bearCase': {
+              'trigger': bear_risk,
+              'supportPrice': support_level,
+              'stopLoss': stop_loss_price,
+              'supportDisplay': bear_support,
+              'downside': downside,
+          },
+          'rrRatio': rr_ratio,
+          'positionSizing': pos_sizing,
+      },
+      'actionConclusion': {
+          'status': action_status,
+          'statusColor': status_color,
+          'guardrailsTriggered': guardrails_triggered,
+          'coreWarning': core_warning,
+          'multiTimeframe': mtf,
+      },
+      'tailLockRisk': tail_lock_risk,
+      'tailLockReasons': tail_lock_reasons,
+      'dcScore': dc_score,
+      'dcRating': dc_rating,
+      'dcDeductions': dc_deductions,
+      'regime': regime,
+      'bottomLine': bottom_line,
+      'rawMarkdown': markdown_report,
+  }
+
+
+def generate_multi_source_future_outlook(ticker, sector, current_price, fundamental_info, technical_info, ssi_item=None, ssi_board=None, news_list=None):
+  """Wrapper tương thích ngược tổng hợp phân tích đa nguồn từ SecuritiesRiskAssessmentEngine."""
+  risk_rep = evaluate_securities_risk_engine(
+      ticker=ticker,
+      sector=sector,
+      current_price=current_price,
+      fundamental_info=fundamental_info,
+      technical_info=technical_info,
+      ssi_item=ssi_item or {},
+      ssi_board=ssi_board or {},
+      news_list=news_list or []
+  )
+
+  fg = risk_rep['marketFlow']
+  act = risk_rep['actionConclusion']
+  scen = risk_rep['scenarioMatrix']
+
+  return {
+      'consensus': act['status'].upper(),
+      'consensusColor': act['statusColor'],
+      'confidence': f"Fear & Greed: {fg['fearGreedScore']}/100 ({fg['fearGreedLabel']})",
+      'macroSummary': f"[{risk_rep['macroSector']['environment']}] {risk_rep['macroSector']['macroImpact']}",
+      'fundamentalSummary': f"{risk_rep['fundamentalRisk']['growthQuality']} {risk_rep['fundamentalRisk']['governanceDilutionRisk']}",
+      'flowSummary': f"{fg['foreignFlow']} {fg['sentimentLiquidity']}",
+      'bullScenario': f"Mục tiêu {scen['bullCase']['targetDisplay']}. Kích hoạt: {scen['bullCase']['trigger']}",
+      'bearScenario': f"{scen['bearCase']['supportDisplay']}. Rủi ro kích hoạt: {scen['bearCase']['trigger']}",
+      'tailLockRisk': risk_rep.get('tailLockRisk', False),
+      'tailLockReasons': risk_rep.get('tailLockReasons', []),
+      'dcScore': risk_rep.get('dcScore', 80),
+      'dcRating': risk_rep.get('dcRating', 'CAO'),
+      'bottomLine': risk_rep.get('bottomLine', ''),
+      'riskEngine': risk_rep,
+  }
+
+
+# ==================== CỔNG TRUY VẾT TIN TỨC & SỰ KIỆN ĐA NGUỒN DYNAMIC ====================
+_LIVE_NEWS_CACHE = {}
+_LIVE_NEWS_CACHE_TTL = 600  # 10 phút cache cho mỗi mã cổ phiếu
+
+
+def _mentions_ticker(text, ticker):
+  """Kiểm tra tiêu đề có nhắc đúng mã cổ phiếu (khớp nguyên từ, tránh 'VIC' khớp 'VICTORY')."""
+  return bool(re.search(rf'(?<![A-Z0-9]){re.escape(ticker.upper())}(?![A-Z0-9])', str(text or '').upper()))
+
+
+def _news_age_days(date_str):
+  """Số ngày kể từ ngày đăng tin (định dạng YYYY-MM-DD...). Trả về None nếu không rõ ngày."""
+  m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', str(date_str or ''))
+  if not m:
+    return None
+  try:
+    ts = time.mktime(time.strptime(m.group(0), '%Y-%m-%d'))
+    return max(0, int((time.time() - ts) // 86400))
+  except Exception:
+    return None
+
+
+def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, pct_change, sector_name):
+  """Truy vết Real-time dữ liệu Tin tức, BCTC, Sự kiện & Vĩ mô từ nhiều nguồn độc lập
+  (Tin doanh nghiệp FiinGroup/VCI, Cổng Sự kiện HoSE/HNX, CafeF, VnExpress Kinh Doanh, SSI iBoard, Cổng TTĐT Chính Phủ).
+  Mỗi bản ghi giữ ngày đăng thực tế ('' nếu nguồn không cung cấp) và cờ tickerSpecific:
+  chỉ tin gắn đúng mã mới được dùng để dò rủi ro pháp lý/pha loãng.
+  """
+  now = time.time()
+  cached = _LIVE_NEWS_CACHE.get(ticker)
+  if cached and (now - cached['time'] < _LIVE_NEWS_CACHE_TTL):
+    records = [dict(r) for r in cached['data']]
+    # Cập nhật số liệu SSI realtime mới nhất nếu có
+    for r in records:
+      if r.get('source') == 'SSI iBoard Pro':
+        vol = ssi_item.get('stockVol', 0) if ssi_item else 0
+        buy_vol = ssi_item.get('stockBUVol', 0) if ssi_item else 0
+        sell_vol = ssi_item.get('stockSDVol', 0) if ssi_item else 0
+        f_net = (ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)) if ssi_item else 0
+        r['title'] = (
+            f"Khớp lệnh {current_price:,.0f} ({pct_change:+.2f}%) | KL: {vol:,.0f} cp | "
+            f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | NN ròng: {f_net:,.0f} cp"
+        )
+        r['date'] = time.strftime('%d/%m/%Y %H:%M')
+    return records
+
+  news_records = []
+  browser_headers = {
+      'User-Agent': (
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
+          ' AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      )
+  }
+
+  # 1. Tin doanh nghiệp gắn mã (FiinGroup/VCI) kèm ngày đăng thực tế
+  def trace_company_news():
+    items = []
+    try:
+      news_df = vnstock_call(lambda: Company(symbol=ticker, source='VCI').news())
+      if news_df is not None and not news_df.empty:
+        if 'public_date' in news_df.columns:
+          news_df = news_df.sort_values('public_date', ascending=False)
+        for _, n in news_df.head(3).iterrows():
+          title = str(n.get('news_title') or '').strip()
+          if not title:
+            continue
+          link = n.get('news_source_link')
+          items.append({
+              'source': 'Tin Doanh Nghiệp (FiinGroup/VCI)',
+              'badge': 'TIN DOANH NGHIỆP',
+              'badgeColor': 'amber',
+              'title': title,
+              'date': str(n.get('public_date') or '')[:10],
+              'url': link if isinstance(link, str) and link.startswith('http') else f'https://s.cafef.vn/hose/{ticker}-cong-ty.chn',
+              'tickerSpecific': True,
+          })
+    except Exception:
+      pass
+    return items
+
+  # 2. CafeF: chỉ nhận kết quả tìm kiếm có nhắc đúng mã (trang tìm kiếm không cung cấp ngày đăng)
+  def trace_cafef():
+    try:
+      url = f'https://cafef.vn/tim-kiem.chn?keywords={ticker}'
+      req = urllib.request.Request(url, headers=browser_headers)
+      with urllib.request.urlopen(req, timeout=3.5) as res:
+        soup = BeautifulSoup(res.read(), 'html.parser')
+      for h in soup.find_all(['h3', 'h4']):
+        a = h.find('a')
+        if a and a.get_text(strip=True):
+          txt = a.get_text(strip=True)
+          if len(txt) <= 15 or not _mentions_ticker(txt, ticker):
+            continue
+          link = a.get('href', '')
+          if not link.startswith('http'):
+            link = 'https://cafef.vn' + link
+          return {
+              'source': 'CafeF Doanh Nghiệp',
+              'badge': 'TIN TỨC BÁO CHÍ',
+              'badgeColor': 'amber',
+              'title': txt,
+              'date': '',
+              'url': link,
+              'tickerSpecific': True,
+          }
+    except Exception:
+      pass
+    return None
+
+  # 3. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX qua VCI): sự kiện mới nhất theo ngày công bố
+  def trace_events():
+    try:
+      events = vnstock_call(lambda: Company(symbol=ticker, source='VCI').events())
+      if events is not None and not events.empty:
+        if 'public_date' in events.columns:
+          events = events.sort_values('public_date', ascending=False)
+        e0 = events.iloc[0]
+        title = str(
+            e0.get('event_title_vi')
+            or e0.get('event_name_vi')
+            or f'Công bố thông tin {ticker}'
+        )
+        pub_date = e0.get('public_date')
+        return {
+            'source': 'Cổng Sự Kiện Doanh Nghiệp (HoSE/HNX)',
+            'badge': 'SỰ KIỆN & CỔ TỨC',
+            'badgeColor': 'cyan',
+            'title': title,
+            'date': str(pub_date)[:10] if isinstance(pub_date, str) else '',
+            'url': f'https://s.cafef.vn/tin-doanh-nghiep/{ticker}/event.chn',
+            'tickerSpecific': True,
+        }
+    except Exception:
+      pass
+    return None
+
+  # 4. VnExpress Kinh Doanh RSS: ưu tiên tin nhắc đúng mã, nếu không có thì chỉ là tin thời sự chung
+  def trace_vne():
+    try:
+      url = 'https://vnexpress.net/rss/kinh-doanh.rss'
+      req = urllib.request.Request(url, headers=browser_headers)
+      with urllib.request.urlopen(req, timeout=3.5) as res:
+        root = ET.fromstring(res.read())
+      items = root.findall('.//item')
+
+      def _to_record(item, ticker_specific):
+        return {
+            'source': 'VnExpress Kinh Doanh',
+            'badge': 'TIN DOANH NGHIỆP' if ticker_specific else 'THỜI SỰ KINH TẾ (CHUNG)',
+            'badgeColor': 'purple',
+            'title': item.findtext('title', ''),
+            'date': item.findtext('pubDate', '')[:16],
+            'url': item.findtext('link', ''),
+            'tickerSpecific': ticker_specific,
+        }
+
+      for item in items[:30]:
+        if _mentions_ticker(item.findtext('title', ''), ticker):
+          return _to_record(item, True)
+      if items:
+        return _to_record(items[0], False)
+    except Exception:
+      pass
+    return None
+
+  # 5. Vĩ mô Cổng Thông Tin Điện Tử Chính Phủ (tin chung, không gắn mã)
+  def trace_gov():
+    try:
+      url = 'https://baochinhphu.vn/kinh-te.rss'
+      req = urllib.request.Request(url, headers=browser_headers)
+      with urllib.request.urlopen(req, timeout=3.5) as res:
+        root = ET.fromstring(res.read())
+      items = root.findall('.//item')
+      if items:
+        it0 = items[0]
+        return {
+            'source': 'Cổng TTĐT Chính Phủ (Vĩ Mô)',
+            'badge': 'VĨ MÔ NHÀ NƯỚC',
+            'badgeColor': 'rose',
+            'title': it0.findtext('title', ''),
+            'date': it0.findtext('pubDate', ''),
+            'url': it0.findtext('link', ''),
+            'tickerSpecific': False,
+        }
+    except Exception:
+      pass
+    return None
+
+  # Thực thi crawl song song 5 luồng
+  with ThreadPoolExecutor(max_workers=5) as ex:
+    f_company = ex.submit(trace_company_news)
+    f_cafef = ex.submit(trace_cafef)
+    f_events = ex.submit(trace_events)
+    f_vne = ex.submit(trace_vne)
+    f_gov = ex.submit(trace_gov)
+
+    company_items = f_company.result()
+    cafef_item = f_cafef.result()
+    events_item = f_events.result()
+    vne_item = f_vne.result()
+    gov_item = f_gov.result()
+
+  # 1. Tin doanh nghiệp gắn mã
+  news_records.extend(company_items)
+  if cafef_item and all(cafef_item['title'] != r['title'] for r in news_records):
+    news_records.append(cafef_item)
+
+  # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX)
+  if events_item:
+    news_records.append(events_item)
+
+  # 3. Chỉ số BCTC chuẩn hóa từ VCI (Vietcap qua vnstock)
+  pe = fundamental_info.get('pe', 0.0) if fundamental_info else 0.0
+  pb = fundamental_info.get('pb', 0.0) if fundamental_info else 0.0
+  roe = fundamental_info.get('roe', 0.0) if fundamental_info else 0.0
+  eps = fundamental_info.get('eps', 0.0) if fundamental_info else 0.0
+  gross_margin = fundamental_info.get('grossMargin', 0.0) if fundamental_info else 0.0
+  growth = fundamental_info.get('profitGrowth', 0.0) if fundamental_info else 0.0
+  is_audited = fundamental_info.get('isAudited', False) if fundamental_info else False
+  report_period = fundamental_info.get('reportPeriod', '') if fundamental_info else ''
+
+  if is_audited and (pe > 0 or pb > 0 or roe != 0 or eps > 0):
+    metrics = []
+    if pe > 0:
+      metrics.append(f'P/E {pe:.1f}x')
+    if pb > 0:
+      metrics.append(f'P/B {pb:.1f}x')
+    if roe != 0:
+      metrics.append(f'ROE {roe:.1f}%')
+    if eps > 0:
+      metrics.append(f'EPS {eps:,.0f}đ')
+    if gross_margin > 0:
+      metrics.append(f'Biên LN gộp {gross_margin:.1f}%')
+    if growth != 0:
+      metrics.append(f'Tăng trưởng LN {growth:+.1f}%')
+    period_txt = f' kỳ {report_period}' if report_period else ''
+    fin_title = f'Chỉ số BCTC{period_txt} mã {ticker}: ' + ' | '.join(metrics)
+  else:
+    fin_title = (
+        f'Chỉ số tài chính mã {ticker}: Dữ liệu BCTC chưa ghi nhận'
+        ' đầy đủ từ nguồn dữ liệu.'
+    )
+  news_records.append({
+      'source': 'Chỉ số BCTC (VCI qua vnstock)',
+      'badge': 'BÁO CÁO TÀI CHÍNH',
+      'badgeColor': 'blue',
+      'title': fin_title,
+      'date': report_period,
+      'url': f'https://finance.vietstock.vn/{ticker}/tai-chinh.htm',
+      'tickerSpecific': False,
+  })
+
+  # 4. VnExpress Kinh Doanh
+  if vne_item:
+    news_records.append(vne_item)
+
+  # 5. SSI iBoard Pro Realtime
+  vol = ssi_item.get('stockVol', 0) if ssi_item else 0
+  buy_vol = ssi_item.get('stockBUVol', 0) if ssi_item else 0
+  sell_vol = ssi_item.get('stockSDVol', 0) if ssi_item else 0
+  f_net = (ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)) if ssi_item else 0
+  ssi_title = (
+      f"Khớp lệnh {current_price:,.0f} ({pct_change:+.2f}%) | KL: {vol:,.0f} cp | "
+      f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | Khối ngoại ròng: {f_net:,.0f} cp"
+  )
+  news_records.append({
+      'source': 'SSI iBoard Pro',
+      'badge': 'DÒNG TIỀN REALTIME',
+      'badgeColor': 'emerald',
+      'title': ssi_title,
+      'date': time.strftime('%d/%m/%Y %H:%M'),
+      'url': 'https://iboard.ssi.com.vn/',
+      'tickerSpecific': False,
+  })
+
+  # 6. Cổng TTĐT Chính Phủ
+  if gov_item:
+    news_records.append(gov_item)
+
+  # Lưu cache
+  _LIVE_NEWS_CACHE[ticker] = {'time': now, 'data': news_records}
+  return news_records
+
+
+def handle_stock_detail(ticker, resolution='1D'):
+  ticker = ticker.strip().upper()
+  ssi_board = get_ssi_board_data()
+  ssi_item = ssi_board.get(ticker, {})
+
+  # Toàn bộ phân tích (RSI, MA, ATR, hỗ trợ/kháng cự, kế hoạch T+) luôn chạy trên nến NGÀY;
+  # resolution chỉ quyết định dữ liệu nến vẽ biểu đồ.
+  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D')
+  t_list = chart_data.get('t', [])
+  o_list = chart_data.get('o', [])
+  h_list = chart_data.get('h', [])
+  l_list = chart_data.get('l', [])
+  c_list = chart_data.get('c', [])
+  v_list = chart_data.get('v', [])
+
+  if not c_list:
+    raise ValueError(f'Không tìm thấy dữ liệu cho mã {ticker}')
+
+  scale = 1000 if c_list[-1] < 1000 else 1
+  latest_c = c_list[-1] * scale
+  prev_c = (c_list[-2] * scale) if len(c_list) > 1 else latest_c
+
+  # Dữ liệu realtime từ SSI nếu có phiên đang mở
+  if ssi_item and ssi_item.get('matchedPrice', 0) > 0:
+    current_price = ssi_item['matchedPrice']
+    price_change = ssi_item.get('priceChange', current_price - prev_c)
+    pct_change = ssi_item.get(
+        'priceChangePercent',
+        round((price_change / prev_c) * 100, 2) if prev_c else 0,
+    )
+    company_name = ssi_item.get(
+        'companyNameVi', ssi_item.get('clientName', f'Cổ phiếu {ticker}')
+    )
+    exchange = ssi_item.get('exchange', 'HOSE').upper()
+    ceiling = ssi_item.get('ceiling', round(current_price * 1.07))
+    floor = ssi_item.get('floor', round(current_price * 0.93))
+    ref_price = ssi_item.get('refPrice', prev_c)
+    highest_price = ssi_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
+    lowest_price = ssi_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
+    total_vol = ssi_item.get('stockVol', v_list[-1] if v_list else 0)
+    foreign_net = ssi_item.get('buyForeignQtty', 0) - ssi_item.get(
+        'sellForeignQtty', 0
+    )
+  elif ssi_item and ssi_item.get('refPrice', 0) > 0:
+    ref_price = ssi_item['refPrice']
+    current_price = ssi_item.get('matchedPrice') or ref_price
+    price_change = ssi_item.get('priceChange', current_price - ref_price)
+    pct_change = ssi_item.get('priceChangePercent', 0)
+    company_name = ssi_item.get(
+        'companyNameVi', ssi_item.get('clientName', f'Cổ phiếu {ticker}')
+    )
+    exchange = ssi_item.get('exchange', 'HOSE').upper()
+    ceiling = ssi_item.get('ceiling', round(ref_price * 1.07))
+    floor = ssi_item.get('floor', round(ref_price * 0.93))
+    highest_price = ssi_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
+    lowest_price = ssi_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
+    total_vol = ssi_item.get('stockVol', v_list[-1] if v_list else 0)
+    foreign_net = ssi_item.get('buyForeignQtty', 0) - ssi_item.get(
+        'sellForeignQtty', 0
+    )
+  else:
+    current_price = latest_c
+    price_change = latest_c - prev_c
+    pct_change = round((price_change / prev_c) * 100, 2) if prev_c else 0
+    company_name = f'Cổ phiếu {ticker}'
+    exchange = 'HOSE'
+    ref_price = prev_c
+    ceiling = round(ref_price * 1.07)
+    floor = round(ref_price * 0.93)
+    highest_price = (h_list[-1] * scale) if h_list else current_price
+    lowest_price = (l_list[-1] * scale) if l_list else current_price
+    total_vol = v_list[-1] if v_list else 0
+    foreign_net = 0
+
+  if not highest_price or highest_price <= 0:
+    highest_price = current_price
+  if not lowest_price or lowest_price <= 0:
+    lowest_price = current_price
+
+  # Định dạng nến cho Lightweight Charts (TradingView)
+  if resolution == '1D':
+    candles_series = format_candles(chart_data, resolution='1D')
+  else:
+    candles_series = format_candles(fetch_chart_data(ticker, resolution=resolution), resolution=resolution)
+
+  # Cơ bản doanh nghiệp
+  fundamental_info = get_fundamental_profile(ticker, current_price)
+  if company_name == f'Cổ phiếu {ticker}' and fundamental_info.get('name'):
+    company_name = fundamental_info['name']
+
+  # Phân tích kỹ thuật & Chấm điểm
+  market_regime = evaluate_market_regime(ssi_board)
+  analysis = analyze_technicals_and_scoring(
+      chart_data, ssi_item, current_price, fundamental_info, ticker=ticker, exchange=exchange,
+      regime=market_regime,
+  )
+
+  # 1. Danh sách Cổng thông tin sự kiện & Báo cáo BCTC tham chiếu (Mỗi record 1 nguồn uy tín khác nhau, trace động)
+  date_str = (
+      time.strftime('%d/%m/%Y', time.localtime(t_list[-1]))
+      if t_list
+      else time.strftime('%d/%m/%Y')
+  )
+  sector_name = fundamental_info.get('sector', 'Thị trường')
+  news_list = fetch_live_multi_sources(
+      ticker, ssi_item, fundamental_info, current_price, pct_change, sector_name
+  )
+
+  # 2. Tổng hợp thông tin đa chiều định lượng & đánh giá rủi ro 5 phần
+  risk_engine_report = evaluate_securities_risk_engine(
+      ticker=ticker,
+      sector=sector_name,
+      current_price=current_price,
+      fundamental_info=fundamental_info,
+      technical_info=analysis,
+      ssi_item=ssi_item,
+      ssi_board=ssi_board,
+      news_list=news_list,
+  )
+
+  future_outlook = generate_multi_source_future_outlook(
+      ticker,
+      sector_name,
+      current_price,
+      fundamental_info,
+      analysis,
+      ssi_item=ssi_item,
+      ssi_board=ssi_board,
+      news_list=news_list,
+  )
+
+  # Lịch sử VCI chỉ dùng nội bộ để định giá, không trả về giao diện
+  fundamental_info.pop('vciHistory', None)
+
+  return {
+      'code': ticker,
+      'name': company_name,
+      'exchange': exchange,
+      'date': date_str,
+      'price': current_price,
+      'prevPrice': ref_price,
+      'priceChange': price_change,
+      'percentChange': pct_change,
+      'highest': highest_price,
+      'lowest': lowest_price,
+      'highPrice': highest_price,
+      'lowPrice': lowest_price,
+      'ceiling': ceiling,
+      'floor': floor,
+      'refPrice': ref_price,
+      'totalVolume': total_vol,
+      'foreignNet': foreign_net,
+      'fundamentals': fundamental_info,
+      'technicals': analysis,
+      'candles': candles_series,
+      'news': news_list,
+      'futureOutlook': future_outlook,
+      'riskEngine': risk_engine_report,
+  }
+
+
+
+
+# ==================== WEB SERVER ROUTING ====================
+
+
+def render_template_html(file_path):
+  """Nạp tự động các component HTML phân tách qua cú pháp <!-- include: components/... -->"""
+  try:
+    with open(file_path, 'r', encoding='utf-8') as f:
+      content = f.read()
+
+    base_dir = os.path.dirname(os.path.abspath(file_path))
+
+    def replace_include(match):
+      rel_path = match.group(1).strip()
+      target_path = os.path.join(base_dir, rel_path)
+      if os.path.exists(target_path):
+        with open(target_path, 'r', encoding='utf-8') as inc_f:
+          return inc_f.read()
+      return f"<!-- Missing component: {rel_path} -->"
+
+    rendered = re.sub(r'<!--\s*include:\s*([^\s]+)\s*-->', replace_include, content)
+    # Tự động cache-bust các script/css bằng timestamp mỗi khi người dùng tải lại trang
+    cache_ts = int(time.time())
+    rendered = re.sub(r'\?v=[\w\.]+', f'?v={cache_ts}', rendered)
+    return rendered
+  except Exception as e:
+    print('Lỗi render template HTML:', e)
+    with open(file_path, 'r', encoding='utf-8') as f:
+      return f.read()
+
+
+class ModularStockServer(http.server.SimpleHTTPRequestHandler):
+  extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map.copy()
+  extensions_map.update({
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.html': 'text/html; charset=utf-8',
+  })
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, directory=ROOT_DIR, **kwargs)
+
+  def end_headers(self):
+    self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    self.send_header('Pragma', 'no-cache')
+    self.send_header('Expires', '0')
+    super().end_headers()
+
+  def send_json(self, status, payload):
+    try:
+      self.send_response(status)
+      self.send_header('Content-Type', 'application/json; charset=utf-8')
+      self.send_header('Access-Control-Allow-Origin', '*')
+      self.end_headers()
+      self.wfile.write(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
+    except (BrokenPipeError, ConnectionResetError):
+      pass
+
+  def do_GET(self):
+    parsed = urllib.parse.urlparse(self.path)
+    path = parsed.path
+
+    if path == '/api/chart':
+      params = urllib.parse.parse_qs(parsed.query)
+      ticker_list = params.get('ticker', [''])
+      ticker = ticker_list[0].strip().upper() if ticker_list else ''
+      if not ticker:
+        self.send_json(400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'})
+        return
+      resolution = params.get('resolution', ['1D'])[0]
+      try:
+        self.send_json(200, handle_chart_only(ticker, resolution=resolution))
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/stock' or self.path.startswith('/api/stock?'):
+      params = urllib.parse.parse_qs(parsed.query)
+      ticker_list = params.get('ticker', [''])
+      ticker = ticker_list[0].strip().upper() if ticker_list else ''
+      if not ticker:
+        self.send_json(400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'})
+        return
+      resolution = params.get('resolution', ['1D'])[0]
+      try:
+        self.send_json(
+            200, handle_stock_detail(ticker, resolution=resolution)
+        )
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path in ['/', '', '/index.html']:
+      index_file = os.path.join(ROOT_DIR, 'index.html')
+      html_content = render_template_html(index_file)
+      encoded = html_content.encode('utf-8')
+      self.send_response(200)
+      self.send_header('Content-Type', 'text/html; charset=utf-8')
+      self.send_header('Content-Length', str(len(encoded)))
+      self.end_headers()
+      self.wfile.write(encoded)
+      return
+
+    super().do_GET()
+
+
+class ReusableTCPServer(socketserver.TCPServer):
+  allow_reuse_address = True
+  daemon_threads = True
+
+
+if __name__ == '__main__':
+  PORT = get_configured_port(8000)
+  threading.Thread(target=warm_up_market_data, daemon=True).start()
+  print(
+      f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT} (PORT={PORT})'
+  )
+  try:
+    with ReusableTCPServer(('', PORT), ModularStockServer) as httpd:
+      httpd.serve_forever()
+  except OSError as e:
+    if e.errno == 48:
+      print(f'\n❌ Cổng {PORT} đang bị tiến trình khác chiếm dụng!')
+      print(f'👉 Bạn có thể giải phóng cổng bằng lệnh: lsof -ti :{PORT} | xargs kill -9')
+      print(f'👉 Hoặc chỉ định cổng khác: ./start.sh 8080  (hoặc PORT=8080 python3 backend/server.py)\n')
+    raise
