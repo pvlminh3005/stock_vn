@@ -6,14 +6,102 @@ let volumeSeries = null;
 let ma20Series = null;
 let ma50Series = null;
 
+// Quản lý Price Lines & Observers tránh memory leak
+let activePriceLines = [];
+let chartResizeObserver = null;
+let isResizeListenerAttached = false;
+
 function safeSetText(id, text) {
   const el = document.getElementById(id);
   if (el) el.innerText = (text !== undefined && text !== null) ? text : "--";
 }
 
+export function clearChartPriceLines() {
+  if (!candleSeries || activePriceLines.length === 0) return;
+  for (const line of activePriceLines) {
+    try {
+      candleSeries.removePriceLine(line);
+    } catch (e) {
+      // Bỏ qua nếu dòng đã bị gỡ
+    }
+  }
+  activePriceLines = [];
+}
+
+export function setChartPriceLines(config = {}) {
+  if (!chart || !candleSeries) return;
+  clearChartPriceLines();
+
+  const LineStyle = (window.LightweightCharts && window.LightweightCharts.LineStyle) || {
+    Solid: 0,
+    Dotted: 1,
+    Dashed: 2,
+    LargeDashed: 3,
+    SparseDotted: 4
+  };
+
+  // 1. Đường Target T+ (Kháng cự / Chốt lời) - Xanh dương nhạt / Sky
+  if (config.target && config.target > 0) {
+    try {
+      const line = candleSeries.createPriceLine({
+        price: config.target,
+        color: '#38bdf8',
+        lineWidth: 1.5,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: config.targetLabel || 'Target T+',
+      });
+      activePriceLines.push(line);
+    } catch (err) {
+      console.warn("Lỗi tạo đường Target:", err);
+    }
+  }
+
+  // 2. Đường Vùng Mua (Entry / Hỗ trợ) - Xanh lá / Emerald
+  if (config.buyZone && config.buyZone > 0) {
+    try {
+      const line = candleSeries.createPriceLine({
+        price: config.buyZone,
+        color: '#10b981',
+        lineWidth: 1.5,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: config.buyZoneLabel || 'Vùng mua',
+      });
+      activePriceLines.push(line);
+    } catch (err) {
+      console.warn("Lỗi tạo đường Vùng mua:", err);
+    }
+  }
+
+  // 3. Đường Cắt Lỗ (Stop Loss) - Đỏ / Rose
+  if (config.stopLoss && config.stopLoss > 0) {
+    try {
+      const line = candleSeries.createPriceLine({
+        price: config.stopLoss,
+        color: '#f43f5e',
+        lineWidth: 1.5,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: config.stopLossLabel || 'Cắt lỗ',
+      });
+      activePriceLines.push(line);
+    } catch (err) {
+      console.warn("Lỗi tạo đường Cắt lỗ:", err);
+    }
+  }
+}
+
 export function initChart() {
   const container = document.getElementById("chartContainer");
   if (!container || !window.LightweightCharts) return;
+
+  // Dọn dẹp price lines & observer cũ nếu đã từng khởi tạo
+  clearChartPriceLines();
+  if (chartResizeObserver) {
+    chartResizeObserver.disconnect();
+    chartResizeObserver = null;
+  }
 
   container.innerHTML = "";
 
@@ -125,9 +213,9 @@ export function initChart() {
     }
   });
 
-  // Tự động co giãn toàn bộ chiều rộng và chiều cao container bằng ResizeObserver
+  // Tự động co giãn bằng ResizeObserver (được gỡ trước khi tạo mới tránh leak)
   if (window.ResizeObserver) {
-    const resizeObserver = new ResizeObserver(entries => {
+    chartResizeObserver = new ResizeObserver(entries => {
       if (!entries || entries.length === 0 || !chart) return;
       const entry = entries[0];
       const width = entry.contentRect.width;
@@ -136,17 +224,22 @@ export function initChart() {
         chart.applyOptions({ width, height });
       }
     });
-    resizeObserver.observe(container);
+    chartResizeObserver.observe(container);
   }
 
-  window.addEventListener('resize', () => {
-    if (chart && container) {
-      chart.applyOptions({
-        width: container.clientWidth,
-        height: container.clientHeight || 520,
-      });
-    }
-  });
+  // Lắng nghe window resize duy nhất 1 lần cho toàn vòng đời trang
+  if (!isResizeListenerAttached) {
+    window.addEventListener('resize', () => {
+      const c = document.getElementById("chartContainer");
+      if (chart && c) {
+        chart.applyOptions({
+          width: c.clientWidth,
+          height: c.clientHeight || 520,
+        });
+      }
+    });
+    isResizeListenerAttached = true;
+  }
 }
 
 export function updateChartData(candles, resolution = '1D') {

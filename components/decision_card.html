@@ -1,30 +1,30 @@
-<!-- TRUNG TÂM RA QUYẾT ĐỊNH ĐẦU TƯ UNIFIED VSR DECISION ENGINE (HERO CARD) -->
-<div id="unifiedDecisionHeroCard" class="mt-4 p-4 sm:p-6 rounded-2xl border border-slate-800 bg-slate-900/95 shadow-2xl backdrop-blur relative overflow-hidden space-y-5">
+<!-- TRUNG TÂM RA QUYẾT ĐỊNH ĐẦU TƯ (UNIFIED 2-STRATEGY HERO CARD) -->
+<div id="unifiedDecisionHeroCard" class="p-4 sm:p-6 rounded-2xl border border-slate-800 bg-slate-900/95 shadow-2xl backdrop-blur relative overflow-hidden space-y-5">
   
   <!-- Header: Tiêu đề Hero, Regime & Data Confidence Badges -->
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-800/80">
     <div class="flex items-center gap-3">
-      <div class="w-11 h-11 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner flex-shrink-0">
-        <i class="fa-solid fa-brain text-xl"></i>
+      <div class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner flex-shrink-0">
+        <i class="fa-solid fa-chart-line text-lg"></i>
       </div>
       <div>
         <div class="flex items-center gap-2 flex-wrap">
           <h2 class="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-2">
-            <span>ĐỘNG CƠ RA QUYẾT ĐỊNH ĐẦU TƯ</span>
+            <span>TRUNG TÂM RA QUYẾT ĐỊNH ĐẦU TƯ</span>
             <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700/60 font-bold uppercase">
               VSR-Engine v2.0
             </span>
           </h2>
         </div>
         <p class="text-xs text-slate-400 mt-0.5">
-          Quyết định duy nhất • Tách bạch Chất lượng vs Thời điểm • Quản trị vị thế &amp; Kỳ vọng toán học (EV)
+          Khuyến nghị hành động rõ ràng • Tách bạch Lướt sóng T+ vs Đầu tư Trung hạn • Quản trị rủi ro đa vị thế
         </p>
       </div>
     </div>
 
-    <!-- Badges thị trường & Độ tin cậy dữ liệu kèm Tooltip (?) -->
+    <!-- Badges thị trường & Độ tin cậy dữ liệu kèm Tooltip -->
     <div class="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-      <!-- 1. Regime Badge kèm Tooltip -->
+      <!-- 1. Regime Badge -->
       <div id="heroRegimeBadge" class="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-lg border font-bold bg-slate-800 text-slate-300 border-slate-700">
         <i class="fa-solid fa-chart-pie text-cyan-400"></i>
         <span id="heroRegimeText">Regime: --</span>
@@ -32,25 +32,25 @@
           <i class="fa-solid fa-circle-question text-slate-400 hover:text-cyan-400 transition text-[11px] cursor-pointer"></i>
           <div class="tooltip-box text-left">
             <div class="font-bold text-xs text-cyan-400 border-b border-slate-700 pb-1 mb-1 font-sans">
-              Trạng Thái Thị Trường (Market Regime - 5 Tiêu Chí)
+              Trạng Thái Thị Trường (Market Regime)
             </div>
             <div class="text-[11px] text-slate-300 space-y-1.5 font-sans whitespace-normal w-72">
-              <p>Đánh giá 5 điều kiện an toàn toàn diện của VN-Index và độ rộng sàn:</p>
+              <p>Đánh giá điều kiện an toàn toàn diện của VN-Index và độ rộng sàn:</p>
               <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
-                <li><strong class="text-emerald-400">RISK_ON (4-5/5):</strong> Thị trường thuận lợi, giải ngân tối đa (hệ số rủi ro 1.0).</li>
-                <li><strong class="text-blue-400">NEUTRAL (3/5):</strong> Cân bằng, quản trị rủi ro bình thường (hệ số 0.75).</li>
-                <li><strong class="text-amber-400">DEFENSIVE (2/5):</strong> Phòng thủ, giảm quy mô hoặc đứng ngoài chờ (hệ số 0.5).</li>
-                <li><strong class="text-rose-400">NO_NEW_RISK (0-1/5):</strong> Bão rủi ro, tuyệt đối không mở vị thế mới (hệ số 0.0).</li>
+                <li><strong class="text-emerald-400">RISK_ON (4-5/5):</strong> Thuận lợi giải ngân.</li>
+                <li><strong class="text-blue-400">NEUTRAL (3/5):</strong> Cân bằng, quản trị bình thường.</li>
+                <li><strong class="text-amber-400">DEFENSIVE (2/5):</strong> Phòng thủ, giảm quy mô.</li>
+                <li><strong class="text-rose-400">NO_NEW_RISK (0-1/5):</strong> Bão rủi ro, dừng mở vị thế.</li>
               </ul>
               <div class="pt-1.5 border-t border-slate-700/80 text-[10px] text-slate-400 font-mono" id="heroRegimeTooltipDetail">
-                • Đang nạp điều kiện thị trường...
+                • Đang nạp điều kiện...
               </div>
             </div>
           </div>
         </span>
       </div>
 
-      <!-- 2. Data Confidence Badge kèm Tooltip -->
+      <!-- 2. Data Confidence Badge -->
       <div id="heroDcBadge" class="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-lg border font-bold bg-slate-800 text-slate-300 border-slate-700">
         <i class="fa-solid fa-shield-halved text-emerald-400"></i>
         <span id="heroDcText">DC: --/100</span>
@@ -58,14 +58,14 @@
           <i class="fa-solid fa-circle-question text-slate-400 hover:text-emerald-400 transition text-[11px] cursor-pointer"></i>
           <div class="tooltip-box text-left">
             <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1 font-sans">
-              Độ Tin Cậy Dữ Liệu (Data Confidence Score)
+              Độ Tin Cậy Dữ Liệu (DC Score)
             </div>
             <div class="text-[11px] text-slate-300 space-y-1.5 font-sans whitespace-normal w-72">
-              <p>Thang đo 0 - 100 điểm đánh giá độ tươi và tính đầy đủ của dữ liệu thực tế:</p>
+              <p>Đánh giá độ tươi và tính đầy đủ của dữ liệu thực tế:</p>
               <ul class="list-disc pl-4 space-y-0.5 text-slate-300">
-                <li><strong class="text-emerald-400">&ge; 80 (CAO):</strong> Dữ liệu chuẩn xác, đủ điều kiện mở vị thế mua mới.</li>
-                <li><strong class="text-blue-400">65 - 79 (KHÁ):</strong> Đủ điều kiện nắm giữ/theo dõi, hạn chế giải ngân lớn.</li>
-                <li><strong class="text-rose-400">&lt; 65 (THẤP):</strong> Thiếu BCTC / giá cũ $\rightarrow$ Khóa cổng BUY, chỉ cho phép WAIT hoặc NO_TRADE.</li>
+                <li><strong class="text-emerald-400">&ge; 80 (CAO):</strong> Dữ liệu chuẩn xác, đủ điều kiện mở vị thế.</li>
+                <li><strong class="text-blue-400">65 - 79 (KHÁ):</strong> Nắm giữ/theo dõi, hạn chế giải ngân lớn.</li>
+                <li><strong class="text-rose-400">&lt; 65 (THẤP):</strong> Thiếu BCTC $\rightarrow$ Khóa BUY.</li>
               </ul>
               <div class="pt-1.5 border-t border-slate-700/80 text-[10px] text-slate-400 font-mono" id="heroDcTooltipDetail">
                 • Dữ liệu cập nhật đầy đủ thời gian thực
@@ -75,10 +75,9 @@
         </span>
       </div>
     </div>
-
   </div>
 
-  <!-- CẢNH BÁO CỔNG CHẶN CỨNG (HARD RULES & GUARDRAILS TRIGGERED) -->
+  <!-- CẢNH BÁO CỔNG CHẶN CỨNG (NẾU CÓ VI PHẠM) -->
   <div id="heroHardRulesBanner" class="hidden p-3.5 rounded-xl border border-rose-600/40 bg-rose-950/30 text-rose-300 text-xs space-y-1">
     <div class="font-bold text-rose-200 uppercase tracking-wide flex items-center gap-2">
       <i class="fa-solid fa-triangle-exclamation text-rose-400"></i>
@@ -87,279 +86,265 @@
     <ul id="heroHardRulesList" class="space-y-0.5 pl-5 list-disc text-slate-300 text-[11px] leading-relaxed"></ul>
   </div>
 
-  <!-- SPOTLIGHT: HÀNH ĐỘNG DUY NHẤT & PHÂN TÁCH 2 TRỤ CỘT CHẤT LƯỢNG VS THỜI ĐIỂM -->
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+  <!-- BỘ LỌC VỊ THẾ NHANH (SEGMENTED CONTROL): GIÚP USER ĐỊNH VỊ CHÍNH XÁC TRONG 1 GIÂY -->
+  <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+        <i class="fa-solid fa-user-check text-blue-400"></i> Vị thế của bạn:
+      </span>
+      <span class="text-[11px] text-slate-500 hidden sm:inline">(Chọn để làm nổi bật chiến lược phù hợp)</span>
+    </div>
+
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono">
+        <button id="filterPosAll" type="button" class="px-3 py-1.5 rounded-md font-bold transition flex items-center gap-1.5 bg-blue-600 text-white shadow cursor-pointer">
+          <i class="fa-solid fa-table-columns"></i> <span>Tất cả</span>
+        </button>
+        <button id="filterPosNew" type="button" class="px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-cart-plus text-emerald-400"></i> <span>Chưa có hàng (Mua mới)</span>
+        </button>
+        <button id="filterPosHolding" type="button" class="px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-briefcase text-amber-400"></i> <span>Đang nắm giữ</span>
+        </button>
+      </div>
+
+      <!-- Khung nhập giá vốn tiện ích (khi đang nắm giữ) -->
+      <div id="costPriceWidget" class="hidden flex items-center gap-1.5 bg-slate-900 border border-amber-900/40 rounded-lg px-2.5 py-1 text-xs font-mono">
+        <span class="text-[11px] text-amber-400">Giá vốn:</span>
+        <input id="userCostInput" type="number" step="100" placeholder="Giá mua (đ)..." class="w-28 px-2 py-0.5 text-xs bg-slate-950 border border-slate-700 rounded text-white font-mono focus:border-amber-500 focus:outline-none">
+        <span id="userPnLBadge" class="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">--%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- KHỐI 2 CỘT CHIẾN LƯỢC CHÍNH (THEO ĐÚNG WIREFRAME) -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
     
-    <!-- Cột Trái (7 cols): Khối Quyết Định Trực Tiếp Toàn Diện -->
-    <div class="lg:col-span-7 p-4 sm:p-5 rounded-xl border border-slate-800 bg-slate-950/70 flex flex-col justify-between space-y-3.5">
+    <!-- CỘT 1: CHIẾN LƯỢC LƯỚT SÓNG (T+ / NGẮN HẠN) -->
+    <div id="colTPlus" class="p-4 sm:p-5 rounded-2xl border border-blue-900/40 bg-slate-950/70 shadow-lg flex flex-col justify-between space-y-4 transition">
       <div>
-        <!-- Horizon Switcher: Lướt sóng T+ vs Trung & Dài Hạn -->
-        <div class="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800/80">
-          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <i class="fa-solid fa-bullseye text-blue-400"></i> Khuyến Nghị Hành Động:
+        <!-- Tiêu đề Cột 1 -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800/80">
+          <div>
+            <h3 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+              <i class="fa-solid fa-bolt text-amber-400"></i>
+              <span>CHIẾN LƯỢC LƯỚT SÓNG (T+ / NGẮN HẠN)</span>
+            </h3>
+            <span class="text-xs text-slate-400 font-mono mt-0.5 block">Khung nắm giữ: 3 - 10 phiên</span>
+          </div>
+          <span id="tplusScoreBadge" class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
+            Điểm: --/100
           </span>
-          <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-[11px] font-mono">
-            <button id="heroTabTplus" type="button" class="px-2.5 py-1 rounded-md font-bold transition flex items-center gap-1 bg-blue-600 text-white shadow cursor-pointer">
-              <i class="fa-solid fa-bolt text-amber-300"></i> <span>LƯỚT SÓNG T+</span>
-            </button>
-            <button id="heroTabMidterm" type="button" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer">
-              <i class="fa-solid fa-gem text-cyan-400"></i> <span>TRUNG &amp; DÀI HẠN</span>
-            </button>
-          </div>
         </div>
 
-        <!-- Position Perspective Switcher: Mua Mới vs Đang Nắm Giữ -->
-        <div class="mt-2 flex items-center justify-between gap-2 flex-wrap">
-          <div class="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
-            <i class="fa-solid fa-user-tag text-slate-500"></i> <span>Vị thế của bạn:</span>
-          </div>
-          <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-[11px] font-mono">
-            <button id="heroPosNew" type="button" class="px-2.5 py-1 rounded-md font-bold transition flex items-center gap-1.5 bg-emerald-600 text-white shadow cursor-pointer">
-              <i class="fa-solid fa-cart-plus"></i> <span>MUA MỚI (CHƯA CÓ)</span>
-            </button>
-            <button id="heroPosHolding" type="button" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 cursor-pointer">
-              <i class="fa-solid fa-briefcase text-amber-400"></i> <span>ĐANG NẮM GIỮ</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Khung nhập giá vốn tiện ích (khi đang nắm giữ) -->
-        <div id="heroHoldingCostBox" class="hidden mt-2 p-2 rounded-lg bg-slate-900/90 border border-amber-900/40 flex items-center justify-between gap-2 flex-wrap text-xs font-mono">
-          <div class="flex items-center gap-1.5 text-amber-300 text-[11px]">
-            <i class="fa-solid fa-coins text-amber-400"></i> <span>Giá vốn của bạn:</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <input id="heroEntryCostInput" type="number" step="100" placeholder="Nhập giá vốn (đ)..." class="w-36 px-2.5 py-1 text-xs bg-slate-950 border border-slate-700 rounded text-white font-mono focus:border-amber-500 focus:outline-none">
-            <span id="heroCostPnLBadge" class="text-xs font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">--%</span>
-          </div>
-        </div>
-
-        <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-          <span id="heroHorizonFocus">Khung: Lướt sóng T+ (2-7 phiên)</span>
-          <span id="heroHorizonBadgeDetail" class="text-slate-400 truncate">Ưu tiên điểm vào &amp; R/R</span>
-        </div>
-
-        <!-- Big Action Spotlight Display -->
-        <div class="mt-2 flex items-center gap-3.5 flex-wrap">
-          <div id="heroActionBigBadge" class="px-4 py-2 rounded-xl text-lg sm:text-xl font-black uppercase tracking-wider font-mono border shadow-lg flex items-center gap-2 bg-amber-950 text-amber-300 border-amber-600">
-            <i id="heroActionIcon" class="fa-solid fa-hand text-amber-400"></i>
-            <span id="heroPrimaryActionText">WAIT</span>
-          </div>
-          <div class="flex-1 min-w-[200px]">
-            <div id="heroActionSubtagBadge" class="text-xs sm:text-sm font-extrabold text-white">
-              CHỜ TẠO NỀN / THEO DÕI
+        <div class="space-y-4 mt-4">
+          <!-- PHẦN 1A: VỊ THẾ MUA MỚI -->
+          <div id="boxTPlusNew" class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 transition">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-cart-plus text-emerald-400"></i> VỊ THẾ: MUA MỚI
+              </span>
+              <div id="tplusNewStatusBadge" class="text-xs font-black font-mono px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                [ CHỜ PHÂN TÍCH ]
+              </div>
             </div>
-            <p id="heroActionReasonText" class="text-xs text-slate-300 mt-0.5 leading-relaxed">
-              Hệ thống đang sẵn sàng phân tích mã...
+
+            <!-- Bảng mốc giá hành động Mua mới T+ -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono pt-1">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Vùng mua:</span>
+                <span id="tplusBuyZoneVal" class="font-bold text-emerald-400 text-xs sm:text-sm block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Chốt lời (TP):</span>
+                <span id="tplusTPVal" class="font-bold text-sky-400 text-xs sm:text-sm block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Cắt lỗ (SL):</span>
+                <span id="tplusSLVal" class="font-bold text-rose-400 text-xs sm:text-sm block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Tỷ lệ R/R:</span>
+                <span id="tplusRRVal" class="font-bold text-amber-400 text-xs sm:text-sm block truncate">1 : --</span>
+              </div>
+            </div>
+
+            <p id="tplusNewReasonText" class="text-xs text-slate-300 leading-relaxed font-sans">
+              Đang phân tích điều kiện giải ngân T+...
+            </p>
+          </div>
+
+          <!-- PHẦN 1B: VỊ THẾ ĐANG NẮM GIỮ -->
+          <div id="boxTPlusHold" class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 transition">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-briefcase text-amber-400"></i> VỊ THẾ: ĐANG NẮM GIỮ
+              </span>
+              <div id="tplusHoldStatusBadge" class="text-xs font-black font-mono px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                [ CHỜ PHÂN TÍCH ]
+              </div>
+            </div>
+
+            <!-- Bảng mốc giá hành động Đang nắm giữ T+ -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono pt-1">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Chặn lãi (Trailing Stop):</span>
+                <span id="tplusTrailingVal" class="font-bold text-emerald-400 text-xs sm:text-sm block">-- đ</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Chốt từng phần:</span>
+                <span id="tplusTrimVal" class="font-bold text-amber-400 text-xs sm:text-sm block">--</span>
+              </div>
+            </div>
+
+            <p id="tplusHoldReasonText" class="text-xs text-slate-300 leading-relaxed font-sans">
+              Đang phân tích quản trị vị thế gồng lãi...
             </p>
           </div>
         </div>
-
-        <!-- Chỉ số động lực chính của Horizon -->
-        <div id="heroHorizonMetricsBar" class="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center gap-2 flex-wrap text-[11px] font-mono text-slate-400">
-          <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800" id="heroMetric1">Mua CĐ: --%</span>
-          <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800" id="heroMetric2">Vol: --x TB20</span>
-          <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800" id="heroMetric3">RSI: --</span>
-          <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800" id="heroMetric4">Net R/R: --</span>
-        </div>
       </div>
 
-      <!-- Tóm tắt vị thế tức thời -->
-      <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-slate-300 flex-wrap gap-2">
-        <span class="flex items-center gap-1.5 font-sans text-slate-400">
-          <i class="fa-solid fa-wallet text-slate-500"></i> <span id="heroAllocatedLabel">Giải ngân tức thời phiên hôm nay:</span>
-        </span>
-        <span id="heroAllocatedNowText" class="font-bold text-amber-300 text-sm bg-slate-900 px-2.5 py-0.5 rounded border border-slate-800">
-          0.0% NAV
-        </span>
+      <!-- Quick metrics T+ -->
+      <div class="pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-400 flex-wrap gap-2">
+        <span id="tplusIndVol">Vol: --x TB20</span>
+        <span id="tplusIndBuyRatio">Mua CĐ: --%</span>
+        <span id="tplusIndRSI">RSI: --</span>
+        <span id="tplusIndAlloc" class="text-emerald-400 font-bold">Giải ngân: --% NAV</span>
       </div>
     </div>
 
-    <!-- Cột Phải (5 cols): Tách Bạch 2 Trục "Chất Lượng DN" vs "Thời Điểm Mua" -->
-    <div class="lg:col-span-5 p-4 sm:p-5 rounded-xl border border-slate-800 bg-slate-950/70 flex flex-col justify-between space-y-3">
-      <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-        <span class="flex items-center gap-1.5">
-          <i class="fa-solid fa-scale-balanced text-indigo-400"></i> Độc Lập 2 Chiều Ra Quyết Định:
-        </span>
-      </div>
-
-      <!-- Trục 1: Chất Lượng Doanh Nghiệp (Quality) -->
-      <div class="p-3 rounded-lg bg-slate-900/80 border border-slate-800/90 space-y-1.5">
-        <div class="flex items-center justify-between text-xs">
-          <span class="text-slate-300 font-bold flex items-center gap-1.5">
-            <i class="fa-solid fa-building text-emerald-400"></i> 1. Chất lượng DN (Quality)
-          </span>
-          <span id="heroQualityScore" class="font-mono font-black text-emerald-400">--/100</span>
-        </div>
-        <div class="text-[11px] text-slate-400 flex items-center justify-between" id="heroQualityDesc">
-          <span>Đang đánh giá cơ bản...</span>
-        </div>
-      </div>
-
-      <!-- Trục 2: Thời Điểm Thực Thi (Timing) -->
-      <div class="p-3 rounded-lg bg-slate-900/80 border border-slate-800/90 space-y-1.5">
-        <div class="flex items-center justify-between text-xs">
-          <span class="text-slate-300 font-bold flex items-center gap-1.5">
-            <i class="fa-solid fa-stopwatch text-amber-400"></i> 2. Thời điểm mua (Timing)
-          </span>
-          <span id="heroTimingScore" class="font-mono font-black text-rose-400">--/100</span>
-        </div>
-        <div class="text-[11px] text-slate-400 flex items-center justify-between" id="heroTimingDesc">
-          <span>Đang đánh giá điểm nổ &amp; MA20...</span>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- HÀNG 4 CHỈ SỐ THỰC THI (QUICK EXECUTION METRICS) -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-center font-mono">
-    <!-- Card 1: Position Sizing (Quản trị vốn) -->
-    <div class="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1">
-      <span class="text-[11px] text-slate-400 font-sans block font-medium">Quy mô vị thế (% NAV)</span>
-      <div id="heroPosSizingVal" class="text-base sm:text-lg font-black text-emerald-400">--% NAV</div>
-      <div id="heroPosSizingSub" class="text-[10px] text-slate-500 font-sans truncate">Thăm dò --% • Trần --%</div>
-    </div>
-
-    <!-- Card 2: Net R:R (Lợi nhuận / Rủi ro) -->
-    <div class="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1">
-      <span class="text-[11px] text-slate-400 font-sans block font-medium">Tỷ lệ Net R:R ròng</span>
-      <div id="heroNetRRVal" class="text-base sm:text-lg font-black text-amber-400">1 : --</div>
-      <div id="heroNetRRSub" class="text-[10px] text-slate-500 font-sans truncate">Sau thuế phí 0.4%</div>
-    </div>
-
-    <!-- Card 3: Expected Value (Kỳ vọng toán học EV) -->
-    <div class="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1">
-      <span class="text-[11px] text-slate-400 font-sans block font-medium">Kỳ vọng toán học (EV)</span>
-      <div id="heroEVVal" class="text-base sm:text-lg font-black text-blue-400">--%</div>
-      <div id="heroEVSub" class="text-[10px] text-slate-500 font-sans truncate">Bull --% • Base --% • Bear --%</div>
-    </div>
-
-    <!-- Card 4: Stop Loss & Hard Invalidation -->
-    <div class="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1">
-      <span class="text-[11px] text-slate-400 font-sans block font-medium">Cắt lỗ / Vô hiệu hóa</span>
-      <div id="heroStopLossVal" class="text-base sm:text-lg font-black text-rose-400">-- đ</div>
-      <div id="heroHardInvalSub" class="text-[10px] text-slate-500 font-sans truncate">Hard Invalidation: -- đ</div>
-    </div>
-  </div>
-
-  <!-- MA TRẬN KẾ HOẠCH HÀNH ĐỘNG (ENTRY ĐA TẦNG & MA TRẬN TP/SL CHUẨN HÓA) -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-    
-    <!-- Khối 1: Vùng Vào Lệnh Đa Tầng (Entry A & Entry B) -->
-    <div class="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2.5">
-      <div class="flex items-center justify-between text-xs">
-        <span class="font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-          <i class="fa-solid fa-layer-group"></i> Vùng Vào Lệnh Đa Tầng (Entries)
-        </span>
-        <span class="text-[11px] text-slate-500 font-mono">2 tầng chiến thuật</span>
-      </div>
-
-      <div class="space-y-2 font-mono text-xs">
-        <!-- Entry A: Pullback -->
-        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+    <!-- CỘT 2: CHIẾN LƯỢC ĐẦU TƯ (TRUNG & DÀI HẠN) -->
+    <div id="colMidterm" class="p-4 sm:p-5 rounded-2xl border border-indigo-900/40 bg-slate-950/70 shadow-lg flex flex-col justify-between space-y-4 transition">
+      <div>
+        <!-- Tiêu đề Cột 2 -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800/80">
           <div>
-            <span class="font-bold text-emerald-300 block font-sans text-xs">Entry A (Pullback nền)</span>
-            <span class="text-[10px] text-slate-400 font-sans">Gom thăm dò quanh nền hỗ trợ S1</span>
+            <h3 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+              <i class="fa-solid fa-gem text-cyan-400"></i>
+              <span>CHIẾN LƯỢC ĐẦU TƯ (TRUNG &amp; DÀI HẠN)</span>
+            </h3>
+            <span class="text-xs text-slate-400 font-mono mt-0.5 block">Khung nắm giữ: 3 - 6+ tháng</span>
           </div>
-          <div class="text-right">
-            <span id="heroEntryAZone" class="font-bold text-white text-sm block">-- đ</span>
-            <span id="heroEntryAPct" class="text-[10px] text-emerald-400 font-sans">Size: --% NAV • R/R: --</span>
-          </div>
+          <span id="midtermScoreBadge" class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+            FA: --/100
+          </span>
         </div>
 
-        <!-- Entry B: Breakout -->
-        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 flex-wrap">
-          <div>
-            <span class="font-bold text-blue-300 block font-sans text-xs">Entry B (Breakout vượt cản)</span>
-            <span class="text-[10px] text-slate-400 font-sans">Gia tăng khi có dòng tiền bứt phá</span>
+        <div class="space-y-4 mt-4">
+          <!-- PHẦN 2A: VỊ THẾ MUA MỚI -->
+          <div id="boxMidtermNew" class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 transition">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-cart-plus text-emerald-400"></i> VỊ THẾ: MUA MỚI
+              </span>
+              <div id="midtermNewStatusBadge" class="text-xs font-black font-mono px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                [ CHỜ PHÂN TÍCH ]
+              </div>
+            </div>
+
+            <!-- Bảng mốc giá hành động Mua mới Trung hạn -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono pt-1">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Vùng gom:</span>
+                <span id="midtermBuyZoneVal" class="font-bold text-emerald-400 text-xs sm:text-sm block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Target 1:</span>
+                <span id="midtermTarget1Val" class="font-bold text-cyan-400 text-xs sm:text-sm block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Target 2:</span>
+                <span id="midtermTarget2Val" class="font-bold text-blue-400 text-xs sm:text-sm block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Ngưỡng QTRR:</span>
+                <span id="midtermRiskStopVal" class="font-bold text-rose-400 text-xs sm:text-sm block truncate">< --</span>
+              </div>
+            </div>
+
+            <p id="midtermNewReasonText" class="text-xs text-slate-300 leading-relaxed font-sans">
+              Đang phân tích định giá nội tại BCTC...
+            </p>
           </div>
-          <div class="text-right">
-            <span id="heroEntryBZone" class="font-bold text-white text-sm block">-- đ</span>
-            <span id="heroEntryBPct" class="text-[10px] text-blue-400 font-sans">Size: --% NAV • R/R: --</span>
+
+          <!-- PHẦN 2B: VỊ THẾ ĐANG NẮM GIỮ -->
+          <div id="boxMidtermHold" class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 transition">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-briefcase text-amber-400"></i> VỊ THẾ: ĐANG NẮM GIỮ
+              </span>
+              <div id="midtermHoldStatusBadge" class="text-xs font-black font-mono px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                [ CHỜ PHÂN TÍCH ]
+              </div>
+            </div>
+
+            <!-- Bảng mốc giá hành động Đang nắm giữ Trung hạn -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono pt-1">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Mốc gia tăng:</span>
+                <span id="midtermAddVal" class="font-bold text-emerald-400 text-xs block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Mốc hạ tỷ trọng:</span>
+                <span id="midtermTrimVal" class="font-bold text-rose-400 text-xs block truncate">--</span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[10px] text-slate-400 font-sans block">Kỳ vọng chu kỳ:</span>
+                <span id="midtermCycleVal" class="font-bold text-amber-400 text-xs block truncate">--</span>
+              </div>
+            </div>
+
+            <p id="midtermHoldReasonText" class="text-xs text-slate-300 leading-relaxed font-sans">
+              Đang phân tích chu kỳ tăng trưởng doanh nghiệp...
+            </p>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Khối 2: Ma Trận Chốt Lời (TP1 / TP2 / TP3) & Trailing Stop -->
-    <div class="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2.5">
-      <div class="flex items-center justify-between text-xs">
-        <span class="font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-          <i class="fa-solid fa-flag-checkered"></i> Chuẩn Hóa Mục Tiêu Chốt Lời (TP)
-        </span>
-        <span class="text-[11px] text-slate-500 font-mono">Kháng cự &amp; BCTC</span>
-      </div>
-
-      <div class="grid grid-cols-3 gap-2 text-center font-mono text-xs">
-        <!-- TP1 -->
-        <div class="p-2 rounded-lg bg-slate-900 border border-slate-800 space-y-0.5">
-          <span class="text-[10px] text-slate-400 font-sans block">TP1 (Trading)</span>
-          <span id="heroTP1Val" class="font-bold text-blue-300 block text-xs">--</span>
-          <span class="text-[9px] text-slate-500 block truncate">Kháng cự R1</span>
-        </div>
-
-        <!-- TP2 -->
-        <div class="p-2 rounded-lg bg-slate-900 border border-slate-800 space-y-0.5">
-          <span class="text-[10px] text-slate-400 font-sans block">TP2 (Kỹ thuật)</span>
-          <span id="heroTP2Val" class="font-bold text-cyan-300 block text-xs">--</span>
-          <span class="text-[9px] text-slate-500 block truncate">Kháng cự R2/Tuần</span>
-        </div>
-
-        <!-- TP3 -->
-        <div class="p-2 rounded-lg bg-slate-900 border border-slate-800 space-y-0.5">
-          <span class="text-[10px] text-slate-400 font-sans block">TP3 (Định giá)</span>
-          <span id="heroTP3Val" class="font-bold text-emerald-300 block text-xs">--</span>
-          <span class="text-[9px] text-slate-500 block truncate">Dải P/E BCTC</span>
-        </div>
-      </div>
-
-      <!-- Trailing stop bar -->
-      <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between text-xs font-mono">
-        <span class="text-slate-400 font-sans flex items-center gap-1.5 text-[11px]">
-          <i class="fa-solid fa-shield-halved text-rose-400"></i> Chặn lãi vị thế (Trailing Stop):
-        </span>
-        <span id="heroTrailingStopVal" class="font-bold text-emerald-400">-- đ</span>
+      <!-- Quick metrics Trung hạn -->
+      <div class="pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-400 flex-wrap gap-2">
+        <span id="midtermIndPE">P/E: --x</span>
+        <span id="midtermIndPB">P/B: --x</span>
+        <span id="midtermIndROE">ROE: --%</span>
+        <span id="midtermIndSafety" class="text-cyan-400 font-bold">Biên an toàn: --%</span>
       </div>
     </div>
 
   </div>
 
-  <!-- BA CÂU HỎI CỐT TỬ (THE 3 CORE QUESTIONS: WHY? WHY NOT BUY NOW? WHAT WILL CHANGE?) -->
-  <div class="p-4 sm:p-5 rounded-xl border border-indigo-900/60 bg-gradient-to-br from-indigo-950/40 via-slate-950 to-slate-950 shadow-inner space-y-3.5">
-    <div class="text-xs font-black uppercase tracking-wider text-indigo-400 flex items-center gap-2">
-      <i class="fa-solid fa-circle-question"></i>
-      <span>Minh Bạch Luận Điểm Quyết Định (The 3 Core Questions):</span>
+  <!-- KHỐI LUẬN ĐIỂM CỐT LÕI (3 DÒNG THEN CHỐT THEO ĐÚNG WIREFRAME) -->
+  <div class="p-4 sm:p-5 rounded-xl border border-indigo-900/60 bg-gradient-to-br from-indigo-950/40 via-slate-950 to-slate-950 shadow-inner space-y-3">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="text-xs font-black uppercase tracking-wider text-indigo-400 flex items-center gap-2">
+        <i class="fa-solid fa-list-check text-sm"></i>
+        <span>LUẬN ĐIỂM CỐT LÕI (3 DÒNG THEN CHỐT):</span>
+      </div>
+      <button type="button"
+        class="btn-open-financial-modal text-[11px] font-mono font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition hover:underline">
+        <i class="fa-solid fa-file-invoice-dollar"></i>
+        <span>Xem BCTC &amp; Định giá chi tiết →</span>
+      </button>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
-      <!-- Q1: WHY? -->
-      <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
-        <div class="font-bold text-emerald-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wide">
-          <i class="fa-solid fa-check"></i> 1. WHY? (Tại sao?)
-        </div>
-        <ul id="heroWhyList" class="space-y-1 text-slate-300 text-[11px] leading-relaxed list-disc pl-4">
-          <li>Đang phân tích lý do cốt lõi...</li>
-        </ul>
-      </div>
-
-      <!-- Q2: WHY NOT BUY NOW? -->
-      <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
-        <div class="font-bold text-amber-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wide">
-          <i class="fa-solid fa-hand"></i> 2. WHY NOT BUY NOW? (Rào cản?)
-        </div>
-        <p id="heroWhyNotText" class="text-slate-300 text-[11px] leading-relaxed">
-          Đang phân tích rào cản thời điểm mua...
+    <div class="space-y-2 text-xs text-slate-200 font-sans leading-relaxed">
+      <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex items-start gap-2.5">
+        <span class="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">1</span>
+        <p id="coreThesisTechnical" class="text-slate-300">
+          Đang cập nhật đồ thị kỹ thuật (120D)...
         </p>
       </div>
 
-      <!-- Q3: WHAT WILL CHANGE THE SIGNAL? -->
-      <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
-        <div class="font-bold text-cyan-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wide">
-          <i class="fa-solid fa-bolt"></i> 3. ĐIỀU KIỆN ĐẢO CHIỀU TÍN HIỆU?
-        </div>
-        <p id="heroWhatWillChangeText" class="text-slate-300 text-[11px] leading-relaxed">
-          Đang tính toán điều kiện kích hoạt lệnh mới...
+      <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex items-start gap-2.5">
+        <span class="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">2</span>
+        <p id="coreThesisFundamental" class="text-slate-300">
+          Đang cập nhật động lực cơ bản BCTC...
+        </p>
+      </div>
+
+      <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex items-start gap-2.5">
+        <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">3</span>
+        <p id="coreThesisRisk" class="text-slate-300">
+          Đang cập nhật kịch bản quản trị rủi ro...
         </p>
       </div>
     </div>
