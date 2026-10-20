@@ -42,6 +42,12 @@ def evaluate_tplus_strategy(
   rs_score = rs_info.get('rsScore', 50)
   atr14 = tech.get('atr14', round(current_price * 0.02, 1))
 
+  st = tech.get('supertrend', {})
+  st_bullish = st.get('isBullish', False)
+  st_flip_buy = st.get('isFlipBuy', False)
+  st_flip_sell = st.get('isFlipSell', False)
+  st_band = st.get('bandPrice', round(current_price * 0.95, -2))
+
   support_s1 = tech.get('support', round(current_price * 0.96, -2))
   resist_r1 = tech.get('resistance', round(current_price * 1.08, -2))
   resist_r2 = tech.get('resistance2', round(current_price * 1.15, -2))
@@ -75,7 +81,7 @@ def evaluate_tplus_strategy(
   if has_legal:
     hard_rules.append("⚠️ PHÁP LÝ NGHIÊM TRỌNG: Cổ phiếu có biến cố pháp lý/lãnh đạo chưa xác minh. Tránh rủi ro kẹt hàng chiều T+2.")
 
-  # Chấm điểm xung lực T+
+  # Chấm điểm xung lực T+ (Kết hợp Volume, Price, EMA và SuperTrend)
   tplus_score = 45
   if buy_ratio >= 55:
     tplus_score += 15
@@ -95,6 +101,14 @@ def evaluate_tplus_strategy(
     tplus_score += 10
   if ema9 >= ema21:
     tplus_score += 8
+
+  # Tín hiệu SuperTrend Ribbon (Xanh Vào / Hồng Ra)
+  if st_flip_buy:
+    tplus_score += 15
+  elif st_bullish:
+    tplus_score += 8
+  else:
+    tplus_score -= 10
 
   if has_bull_div:
     tplus_score += 15
@@ -124,8 +138,9 @@ def evaluate_tplus_strategy(
 
   # Trailing stop
   holding_tech = tech.get('positionHolding', {})
-  trailing_stop = holding_tech.get('trailingStop', stop_loss_price)
-  trailing_stop_display = holding_tech.get('trailingStopDisplay', f'{trailing_stop:,.0f} đ')
+  base_trailing = holding_tech.get('trailingStop', stop_loss_price)
+  trailing_stop = max(base_trailing, st_band) if (st_bullish and st_band > 0) else base_trailing
+  trailing_stop_display = f'{trailing_stop:,.0f} đ'
 
   # =========================================================================
   # 1. NHÁNH VỊ THẾ MUA MỚI (CHƯA CÓ HÀNG)
@@ -134,6 +149,8 @@ def evaluate_tplus_strategy(
   new_badge = 'QUAN SÁT TÍN HIỆU T+'
   new_subtag = 'WAIT_FLOW'
   new_reason = f'Cổ phiếu đang giằng co chưa có tín hiệu dòng tiền bùng nổ hoặc điểm mua an toàn (Mua CĐ {buy_ratio}%, Vol x{vol_ratio} TB20).'
+  if not st_bullish:
+    new_reason += f' Dải xu hướng SuperTrend đang HỒNG (Downtrend - dải cản {st_band:,.0f} đ), ưu tiên chờ đảo chiều.'
   new_alloc = 0.0
 
   if tail_lock_risk or has_legal:
@@ -142,6 +159,16 @@ def evaluate_tplus_strategy(
     new_subtag = 'AVOID_RISK'
     new_reason = 'Phát hiện nguy cơ kẹt sàn mất thanh khoản hoặc biến cố pháp lý. Tuyệt đối không mở vị thế mua mới.'
     new_alloc = 0.0
+  elif st_flip_buy and buy_ratio >= 48:
+    new_action = 'BUY'
+    new_badge = 'MUA THEO XU HƯỚNG T+ (XANH VÀO)'
+    new_subtag = 'BUY_ON_SUPERTREND'
+    new_reason = (
+        f"Chỉ báo SuperTrend đảo chiều xác nhận tín hiệu XANH VÀO quanh {current_price:,.0f} đ "
+        f"(dải đệm hỗ trợ tại {st_band:,.0f} đ). Lực mua chủ động {buy_ratio}%, Net R:R 1:{rr_ratio}. "
+        f"Mở vị thế đánh sóng ngắn hạn theo dải xu hướng."
+    )
+    new_alloc = pilot_nav_pct
   elif has_bull_div or (rsi < 35 and dist_to_s1 <= 3.0 and buy_ratio >= 48):
     new_action = 'BUY'
     new_badge = 'BẮT NẢY KỸ THUẬT (REVERSAL)'
@@ -199,6 +226,15 @@ def evaluate_tplus_strategy(
     hold_badge = 'CẮT LỖ BẢO TOÀN VỐN'
     hold_subtag = 'CUT_LOSS_TPLUS'
     hold_reason = f'Giá đã xuyên thủng ngưỡng phòng thủ T+ ({stop_loss_price:,.0f} đ, -{downside_pct}%). Kỷ luật thoát toàn bộ vị thế.'
+    hold_alloc = 0.0
+  elif st_flip_sell:
+    hold_action = 'SELL'
+    hold_badge = 'THOÁT HÀNG / BẢO TOÀN LÃI (HỒNG RA)'
+    hold_subtag = 'EXIT_SUPERTREND'
+    hold_reason = (
+        f"Chỉ báo SuperTrend vừa kích hoạt tín hiệu HỒNG RA (gãy dải hỗ trợ động quanh {st_band:,.0f} đ). "
+        f"Ưu tiên chốt lời / thoát hàng để bảo toàn lợi nhuận và hạn chế rủi ro điều chỉnh T+."
+    )
     hold_alloc = 0.0
   elif holding_tech.get('type') == 'danger' and holding_tech.get('action') == 'CẮT LỖ DỨT KHOÁT':
     hold_action = 'SELL'

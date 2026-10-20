@@ -314,6 +314,83 @@ def calculate_atr(highs, lows, closes, period=14):
   return round(float(atr), 1)
 
 
+def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
+  """Tính toán dải chỉ báo SuperTrend (ATR Volatility Trailing Band).
+
+  Xác định xu hướng Xanh Vào (Bullish) / Hồng Ra (Bearish) và nhận diện điểm đảo chiều Flip.
+  - Sóng Xanh (Bullish): Dải hỗ trợ Lower Band bám sát chân nến.
+  - Sóng Hồng (Bearish): Dải kháng cự Upper Band bám sát đỉnh nến.
+  """
+  n = len(closes)
+  if n < 2:
+    return {
+        'direction': 'NEUTRAL',
+        'isBullish': True,
+        'isBearish': False,
+        'isFlipBuy': False,
+        'isFlipSell': False,
+        'bandPrice': closes[-1] if closes else 0.0,
+    }
+
+  tr_list = [highs[0] - lows[0]]
+  for i in range(1, n):
+    tr = max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
+    tr_list.append(tr)
+
+  atr = [0.0] * n
+  sum_tr = 0.0
+  for i in range(n):
+    if i < period:
+      sum_tr += tr_list[i]
+      atr[i] = sum_tr / (i + 1)
+    else:
+      atr[i] = (atr[i - 1] * (period - 1) + tr_list[i]) / period
+
+  final_upper = [0.0] * n
+  final_lower = [0.0] * n
+  trend = [1] * n
+
+  for i in range(n):
+    hl2 = (highs[i] + lows[i]) / 2.0
+    basic_upper = hl2 + multiplier * atr[i]
+    basic_lower = hl2 - multiplier * atr[i]
+
+    if i == 0:
+      final_upper[i] = basic_upper
+      final_lower[i] = basic_lower
+      trend[i] = 1 if closes[i] >= highs[i] * 0.99 else -1
+    else:
+      if basic_upper < final_upper[i - 1] or closes[i - 1] > final_upper[i - 1]:
+        final_upper[i] = basic_upper
+      else:
+        final_upper[i] = final_upper[i - 1]
+
+      if basic_lower > final_lower[i - 1] or closes[i - 1] < final_lower[i - 1]:
+        final_lower[i] = basic_lower
+      else:
+        final_lower[i] = final_lower[i - 1]
+
+      if trend[i - 1] == 1:
+        trend[i] = -1 if closes[i] < final_lower[i] else 1
+      else:
+        trend[i] = 1 if closes[i] > final_upper[i] else -1
+
+  last_trend = trend[-1]
+  prev_trend = trend[-2] if n >= 2 else last_trend
+  is_flip_buy = (last_trend == 1 and prev_trend == -1)
+  is_flip_sell = (last_trend == -1 and prev_trend == 1)
+  current_band = final_lower[-1] if last_trend == 1 else final_upper[-1]
+
+  return {
+      'direction': 'BULLISH' if last_trend == 1 else 'BEARISH',
+      'isBullish': last_trend == 1,
+      'isBearish': last_trend == -1,
+      'isFlipBuy': is_flip_buy,
+      'isFlipSell': is_flip_sell,
+      'bandPrice': round(current_band, -2) if current_band >= 1000 else round(current_band, 2),
+  }
+
+
 def identify_structural_levels(highs, lows, closes, current_price, atr14):
   """Xác định hỗ trợ S1, S2 và kháng cự R1, R2 dựa trên cấu trúc Fractal Pivots (Swing High/Low).
 
@@ -810,6 +887,7 @@ def analyze_technicals_and_scoring(
   )
 
   rs_info = calculate_relative_strength(dates_done, closes_done, get_vnindex_series())
+  supertrend_info = calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0)
 
   position_holding = detect_candlestick_exit_signals(
       opens_done, highs_done, lows_done, closes_done, volumes_done, current_price, ma20, atr14,
@@ -1048,6 +1126,7 @@ def analyze_technicals_and_scoring(
       'weeklyLevels': w_levels,
       'positionSizing': position_sizing,
       'positionHolding': position_holding,
+      'supertrend': supertrend_info,
       'tPlus': {
           'decision': tplus_decision,
           'type': tplus_type,
