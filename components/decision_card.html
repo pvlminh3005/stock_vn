@@ -151,21 +151,57 @@
 
             <!-- Bảng mốc giá hành động Mua mới T+ -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono pt-1">
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
                 <span class="text-[10px] text-slate-400 font-sans block">Vùng mua:</span>
-                <span id="tplusBuyZoneVal" class="font-bold text-emerald-400 text-xs sm:text-sm block truncate">--</span>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="tplusBuyZoneVal" class="font-bold text-emerald-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-emerald-400/60">--</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1">Vùng Mua Khuyến Nghị (T+)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Vùng giá gom: <span id="tplusBuyZoneTooltipVal" class="font-bold text-white">--</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Biên độ gom lệnh an toàn sát nền hỗ trợ S1 / EMA9</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                <span class="text-[10px] text-slate-400 font-sans block">Chốt lời (TP):</span>
-                <span id="tplusTPVal" class="font-bold text-sky-400 text-xs sm:text-sm block truncate">--</span>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-[10px] text-slate-400 font-sans">Chốt lời (TP):</span>
+                  <span id="tplusTPPctBadge" class="text-[10px] font-bold font-mono text-sky-400 bg-sky-950/80 border border-sky-800/60 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">+--%</span>
+                </div>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="tplusTPVal" class="font-bold text-sky-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-sky-400/60">--</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-sky-400 border-b border-slate-700 pb-1 mb-1">Mục Tiêu Chốt Lời (TP)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Mức giá: <span id="tplusTPTooltipPrice" class="font-bold text-white">--</span></div>
+                      <div>Từ giá hiện tại: <span id="tplusTPTooltipPct" class="font-bold text-emerald-400">--%</span></div>
+                      <div id="tplusTPEntryRow" class="text-slate-300">Từ nền mua S1: <span id="tplusTPTooltipEntryPct" class="font-bold text-sky-400">--%</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Cản 1 rung lắc / Cản 2 mục tiêu sóng T+</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                <span class="text-[10px] text-slate-400 font-sans block">Cắt lỗ (SL):</span>
-                <span id="tplusSLVal" class="font-bold text-rose-400 text-xs sm:text-sm block truncate">--</span>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-[10px] text-slate-400 font-sans">Cắt lỗ (SL):</span>
+                  <span id="tplusSLPctBadge" class="text-[10px] font-bold font-mono text-rose-400 bg-rose-950/80 border border-rose-800/60 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">---%</span>
+                </div>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="tplusSLVal" class="font-bold text-rose-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-rose-400/60">--</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-rose-400 border-b border-slate-700 pb-1 mb-1">Mốc Cắt Lỗ Phòng Thủ (SL)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Mức giá: <span id="tplusSLTooltipPrice" class="font-bold text-white">--</span></div>
+                      <div>Tỷ lệ cắt lỗ: <span id="tplusSLTooltipPct" class="font-bold text-rose-400">--%</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Ngưỡng rủi ro bảo toàn vốn kỷ luật</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
                 <span class="text-[10px] text-slate-400 font-sans block">Tỷ lệ R/R:</span>
-                <span id="tplusRRVal" class="font-bold text-amber-400 text-xs sm:text-sm block truncate">1 : --</span>
+                <span id="tplusRRVal" class="font-bold text-amber-400 text-xs sm:text-sm block truncate mt-0.5">1 : --</span>
               </div>
             </div>
 
@@ -209,6 +245,7 @@
         <span id="tplusIndVol">Vol: --x TB20</span>
         <span id="tplusIndBuyRatio">Mua CĐ: --%</span>
         <span id="tplusIndRSI">RSI: --</span>
+        <span id="tplusIndStochRSI" class="text-amber-400 font-semibold">StochRSI: --</span>
         <span id="tplusIndAlloc" class="text-emerald-400 font-bold">Giải ngân: --% NAV</span>
       </div>
     </div>
@@ -244,21 +281,69 @@
 
             <!-- Bảng mốc giá hành động Mua mới Trung hạn -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono pt-1">
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
                 <span class="text-[10px] text-slate-400 font-sans block">Vùng gom:</span>
-                <span id="midtermBuyZoneVal" class="font-bold text-emerald-400 text-xs sm:text-sm block truncate">--</span>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="midtermBuyZoneVal" class="font-bold text-emerald-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-emerald-400/60">--</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-emerald-400 border-b border-slate-700 pb-1 mb-1">Vùng Gom Tích Sản (Trung Hạn)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Vùng giá gom: <span id="midtermBuyZoneTooltipVal" class="font-bold text-white">--</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Vùng định giá chiết khấu an toàn cho tầm nhìn 3-6+ tháng</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                <span class="text-[10px] text-slate-400 font-sans block">Target 1:</span>
-                <span id="midtermTarget1Val" class="font-bold text-cyan-400 text-xs sm:text-sm block truncate">--</span>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-[10px] text-slate-400 font-sans">Target 1:</span>
+                  <span id="midtermT1PctBadge" class="text-[10px] font-bold font-mono text-cyan-400 bg-cyan-950/80 border border-cyan-800/60 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">+--%</span>
+                </div>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="midtermTarget1Val" class="font-bold text-cyan-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-cyan-400/60">--</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-cyan-400 border-b border-slate-700 pb-1 mb-1">Mục Tiêu Target 1 (Trung Hạn)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Mức giá: <span id="midtermT1TooltipPrice" class="font-bold text-white">--</span></div>
+                      <div>Biên an toàn / Kỳ vọng: <span id="midtermT1TooltipPct" class="font-bold text-cyan-400">--%</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Định giá hợp lý theo kết quả kinh doanh BCTC</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                <span class="text-[10px] text-slate-400 font-sans block">Target 2:</span>
-                <span id="midtermTarget2Val" class="font-bold text-blue-400 text-xs sm:text-sm block truncate">--</span>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-[10px] text-slate-400 font-sans">Target 2:</span>
+                  <span id="midtermT2PctBadge" class="text-[10px] font-bold font-mono text-blue-400 bg-blue-950/80 border border-blue-800/60 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">+--%</span>
+                </div>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="midtermTarget2Val" class="font-bold text-blue-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-blue-400/60">--</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-blue-400 border-b border-slate-700 pb-1 mb-1">Mục Tiêu Target 2 (Kỳ Vọng Đỉnh)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Mức giá: <span id="midtermT2TooltipPrice" class="font-bold text-white">--</span></div>
+                      <div>Tỷ lệ kỳ vọng: <span id="midtermT2TooltipPct" class="font-bold text-blue-400">--%</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Kỳ vọng theo dải định giá P/E đỉnh chu kỳ</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                <span class="text-[10px] text-slate-400 font-sans block">Ngưỡng QTRR:</span>
-                <span id="midtermRiskStopVal" class="font-bold text-rose-400 text-xs sm:text-sm block truncate">< --</span>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between group relative">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-[10px] text-slate-400 font-sans">Ngưỡng QTRR:</span>
+                  <span id="midtermSLPctBadge" class="text-[10px] font-bold font-mono text-rose-400 bg-rose-950/80 border border-rose-800/60 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">---%</span>
+                </div>
+                <div class="tooltip-trigger tooltip-top mt-0.5 w-full">
+                  <span id="midtermRiskStopVal" class="font-bold text-rose-400 text-xs sm:text-sm block truncate cursor-pointer hover:underline decoration-dotted decoration-rose-400/60">< --</span>
+                  <div class="tooltip-box text-left font-sans">
+                    <div class="font-bold text-xs text-rose-400 border-b border-slate-700 pb-1 mb-1">Ngưỡng Quản Trị Rủi Ro (QTRR)</div>
+                    <div class="text-xs text-slate-200 space-y-1 font-mono">
+                      <div>Mức giá: <span id="midtermSLTooltipPrice" class="font-bold text-white">--</span></div>
+                      <div>Tỷ lệ rủi ro: <span id="midtermSLTooltipPct" class="font-bold text-rose-400">--%</span></div>
+                      <div class="text-[10px] text-slate-400 font-sans pt-0.5 border-t border-slate-800">Ngưỡng vi phạm xu hướng hỗ trợ nến tuần W1</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -306,6 +391,8 @@
         <span id="midtermIndPE">P/E: --x</span>
         <span id="midtermIndPB">P/B: --x</span>
         <span id="midtermIndROE">ROE: --%</span>
+        <span id="midtermIndMACD" class="text-indigo-300 font-semibold">MACD: --</span>
+        <span id="midtermIndEMA200" class="text-slate-300 font-semibold">EMA200: --</span>
         <span id="midtermIndSafety" class="text-cyan-400 font-bold">Biên an toàn: --%</span>
       </div>
     </div>

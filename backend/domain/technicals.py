@@ -24,6 +24,21 @@ from backend.constants.colors import (
     DECISION_TYPE_INFO,
     DECISION_TYPE_NEUTRAL as DECISION_NEUTRAL,
 )
+from backend.constants.indicators import (
+    TPLUS_SUPERTREND_PERIOD,
+    TPLUS_SUPERTREND_MULTIPLIER,
+    MIDTERM_SUPERTREND_PERIOD,
+    MIDTERM_SUPERTREND_MULTIPLIER,
+    STOCH_RSI_PERIOD,
+    STOCH_RSI_STOCH_PERIOD,
+    STOCH_RSI_SMOOTH_K,
+    STOCH_RSI_SMOOTH_D,
+    MACD_FAST_PERIOD,
+    MACD_SLOW_PERIOD,
+    MACD_SIGNAL_PERIOD,
+    EMA_MEDIUM_PERIOD,
+    EMA_LONG_PERIOD,
+)
 from backend.constants.config import (
     DAILY_HISTORY_DAYS,
     VN_UTC_OFFSET_SEC,
@@ -314,6 +329,262 @@ def calculate_atr(highs, lows, closes, period=14):
   return round(float(atr), 1)
 
 
+
+def calculate_stochastic_rsi(
+    closes,
+    rsi_period=14,
+    stoch_period=14,
+    k_period=3,
+    d_period=3,
+):
+  """Tính toán Stochastic RSI (14, 14, 3, 3) đo động lượng đảo chiều cực nhạy cho T+."""
+  if not closes or len(closes) < rsi_period + stoch_period:
+    return {
+        'k': 50.0,
+        'd': 50.0,
+        'isOversold': False,
+        'isOverbought': False,
+        'isBullishCross': False,
+        'isBearishCross': False,
+        'status': 'Chưa đủ dữ liệu',
+        'display': 'StochRSI: 50.0',
+    }
+
+  s = pd.Series(closes, dtype=float)
+  delta = s.diff()
+  gain = delta.where(delta > 0, 0.0)
+  loss = -delta.where(delta < 0, 0.0)
+  avg_gain = gain.ewm(alpha=1.0 / rsi_period, min_periods=rsi_period, adjust=False).mean()
+  avg_loss = loss.ewm(alpha=1.0 / rsi_period, min_periods=rsi_period, adjust=False).mean()
+  rs = avg_gain / avg_loss.replace(0, 0.00001)
+  rsi = 100.0 - (100.0 / (1.0 + rs))
+
+  rsi_min = rsi.rolling(window=stoch_period).min()
+  rsi_max = rsi.rolling(window=stoch_period).max()
+  stoch = ((rsi - rsi_min) / (rsi_max - rsi_min).replace(0, 0.00001)) * 100.0
+  stoch = stoch.clip(0.0, 100.0)
+
+  k_series = stoch.rolling(window=k_period).mean()
+  d_series = k_series.rolling(window=d_period).mean()
+
+  k_curr = round(float(k_series.iloc[-1]), 1) if not pd.isna(k_series.iloc[-1]) else 50.0
+  d_curr = round(float(d_series.iloc[-1]), 1) if not pd.isna(d_series.iloc[-1]) else 50.0
+  k_prev = round(float(k_series.iloc[-2]), 1) if len(k_series) >= 2 and not pd.isna(k_series.iloc[-2]) else k_curr
+  d_prev = round(float(d_series.iloc[-2]), 1) if len(d_series) >= 2 and not pd.isna(d_series.iloc[-2]) else d_curr
+
+  is_oversold = k_curr <= 20.0 and d_curr <= 25.0
+  is_overbought = k_curr >= 80.0 and d_curr >= 75.0
+  is_bullish_cross = (k_prev <= d_prev and k_curr > d_curr and k_curr <= 45.0)
+  is_bearish_cross = (k_prev >= d_prev and k_curr < d_curr and k_curr >= 55.0)
+
+  if is_bullish_cross:
+    status = 'CẮT VÀNG %K LÊN %D (BẮT NẢY T+)'
+  elif is_oversold:
+    status = 'VÙNG QUÁ BÁN T+ (<20)'
+  elif is_bearish_cross:
+    status = 'CẮT XUỐNG %D (CHỐT LỜI T+)'
+  elif is_overbought:
+    status = 'VÙNG QUÁ MUA T+ (>80)'
+  elif k_curr > d_curr:
+    status = 'XUNG LỰC TĂNG'
+  else:
+    status = 'XUNG LỰC GIẢM'
+
+  return {
+      'k': k_curr,
+      'd': d_curr,
+      'isOversold': is_oversold,
+      'isOverbought': is_overbought,
+      'isBullishCross': is_bullish_cross,
+      'isBearishCross': is_bearish_cross,
+      'status': status,
+      'display': f'%K {k_curr:.0f} / %D {d_curr:.0f}',
+  }
+
+
+def calculate_macd(closes, fast=12, slow=26, signal=9):
+  """Tính toán MACD (12, 26, 9) đo động lượng chu kỳ trung hạn."""
+  if not closes or len(closes) < slow + signal:
+    return {
+        'macd': 0.0,
+        'signal': 0.0,
+        'hist': 0.0,
+        'isBullish': False,
+        'isGoldenCross': False,
+        'isDeathCross': False,
+        'isAboveZero': False,
+        'status': 'Chưa đủ dữ liệu',
+        'display': 'MACD: --',
+    }
+
+  s = pd.Series(closes, dtype=float)
+  ema_fast = s.ewm(span=fast, adjust=False).mean()
+  ema_slow = s.ewm(span=slow, adjust=False).mean()
+  macd_line = ema_fast - ema_slow
+  signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+  hist = macd_line - signal_line
+
+  macd_curr = round(float(macd_line.iloc[-1]), 2)
+  sig_curr = round(float(signal_line.iloc[-1]), 2)
+  hist_curr = round(float(hist.iloc[-1]), 2)
+  macd_prev = float(macd_line.iloc[-2]) if len(macd_line) >= 2 else macd_curr
+  sig_prev = float(signal_line.iloc[-2]) if len(signal_line) >= 2 else sig_curr
+
+  is_golden_cross = (macd_prev <= sig_prev and macd_curr > sig_curr)
+  is_death_cross = (macd_prev >= sig_prev and macd_curr < sig_curr)
+  is_bullish = macd_curr > sig_curr or hist_curr > 0
+  is_above_zero = macd_curr > 0
+
+  if is_golden_cross:
+    status = 'CẮT LÊN SIGNAL (GOLDEN CROSS TRUNG HẠN)'
+  elif is_death_cross:
+    status = 'CẮT XUỐNG SIGNAL (DEATH CROSS TRUNG HẠN)'
+  elif is_above_zero and is_bullish:
+    status = 'UPTREND MẠNH (> ZERO)'
+  elif is_bullish:
+    status = 'ĐỘNG LƯỢNG HỒI PHỤC'
+  else:
+    status = 'DOWNTREND / ĐIỀU CHỈNH'
+
+  return {
+      'macd': macd_curr,
+      'signal': sig_curr,
+      'hist': hist_curr,
+      'isBullish': is_bullish,
+      'isGoldenCross': is_golden_cross,
+      'isDeathCross': is_death_cross,
+      'isAboveZero': is_above_zero,
+      'status': status,
+      'display': f'{macd_curr:+.2f} (Hist {hist_curr:+.2f})',
+  }
+
+
+def calculate_adx(highs, lows, closes, period=14):
+  """Tính toán chỉ báo ADX(14) đo cường độ xu hướng theo chuẩn Wilder.
+
+  Phục vụ lọc bẫy đi ngang (Sideway Trap):
+  - ADX < 20: Thị trường đi ngang / biên hẹp (Sideway/Choppy) -> Khóa tín hiệu mua mây.
+  - ADX >= 20 và dốc lên: Xu hướng đang hình thành/mạnh dần -> Tín hiệu xu hướng đáng tin cậy.
+  """
+  n = len(closes)
+  if n < period * 2:
+    return {
+        'adx': 20.0,
+        'plusDi': 20.0,
+        'minusDi': 20.0,
+        'slope': 0.0,
+        'isTrending': False,
+        'isSideway': True,
+        'isBullishTrend': False,
+        'status': 'Chưa đủ dữ liệu nến',
+        'display': 'ADX: --',
+    }
+
+  tr_list = []
+  plus_dm_list = []
+  minus_dm_list = []
+
+  for i in range(1, n):
+    h = highs[i]
+    l = lows[i]
+    prev_h = highs[i - 1]
+    prev_l = lows[i - 1]
+    prev_c = closes[i - 1]
+
+    tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+    tr_list.append(tr)
+
+    up_move = h - prev_h
+    down_move = prev_l - l
+
+    plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+    minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+    plus_dm_list.append(plus_dm)
+    minus_dm_list.append(minus_dm)
+
+  m = len(tr_list)
+  if m < period:
+    return {
+        'adx': 20.0,
+        'plusDi': 20.0,
+        'minusDi': 20.0,
+        'slope': 0.0,
+        'isTrending': False,
+        'isSideway': True,
+        'isBullishTrend': False,
+        'status': 'Chưa đủ dữ liệu',
+        'display': 'ADX: --',
+    }
+
+  # Wilder's Smoothing
+  smooth_tr = sum(tr_list[:period])
+  smooth_plus_dm = sum(plus_dm_list[:period])
+  smooth_minus_dm = sum(minus_dm_list[:period])
+
+  dx_list = []
+  plus_di_list = []
+  minus_di_list = []
+
+  for i in range(period, m):
+    smooth_tr = smooth_tr - (smooth_tr / period) + tr_list[i]
+    smooth_plus_dm = smooth_plus_dm - (smooth_plus_dm / period) + plus_dm_list[i]
+    smooth_minus_dm = smooth_minus_dm - (smooth_minus_dm / period) + minus_dm_list[i]
+
+    plus_di = (smooth_plus_dm / smooth_tr * 100.0) if smooth_tr > 0 else 0.0
+    minus_di = (smooth_minus_dm / smooth_tr * 100.0) if smooth_tr > 0 else 0.0
+
+    di_sum = plus_di + minus_di
+    dx = (abs(plus_di - minus_di) / di_sum * 100.0) if di_sum > 0 else 0.0
+
+    plus_di_list.append(plus_di)
+    minus_di_list.append(minus_di)
+    dx_list.append(dx)
+
+  if len(dx_list) < period:
+    curr_adx = sum(dx_list) / len(dx_list) if dx_list else 20.0
+    prev_adx = curr_adx
+  else:
+    adx_val = sum(dx_list[:period]) / period
+    adx_history = [adx_val]
+    for i in range(period, len(dx_list)):
+      adx_val = ((adx_val * (period - 1)) + dx_list[i]) / period
+      adx_history.append(adx_val)
+    curr_adx = adx_history[-1]
+    prev_adx = adx_history[-2] if len(adx_history) >= 2 else curr_adx
+
+  slope = round(curr_adx - prev_adx, 1)
+  curr_adx = round(curr_adx, 1)
+  curr_plus_di = round(plus_di_list[-1], 1) if plus_di_list else 20.0
+  curr_minus_di = round(minus_di_list[-1], 1) if minus_di_list else 20.0
+
+  is_trending = curr_adx >= 20.0 and (slope >= -0.2 or curr_adx >= 24.0)
+  is_sideway = curr_adx < 20.0 or (curr_adx < 22.0 and slope < 0)
+
+  if curr_adx >= 25.0 and curr_plus_di > curr_minus_di:
+    status = 'XU HƯỚNG TĂNG MẠNH (ADX >= 25)'
+  elif is_trending and curr_plus_di > curr_minus_di:
+    status = 'XU HƯỚNG TĂNG ĐANG HÌNH THÀNH (ADX >= 20)'
+  elif curr_adx >= 25.0 and curr_minus_di > curr_plus_di:
+    status = 'XU HƯỚNG GIẢM MẠNH (DOWNTREND)'
+  elif is_sideway:
+    status = 'SIDEWAY / BIÊN ĐỘ HẸP (ADX < 20)'
+  else:
+    status = 'XU HƯỚNG YẾU / CHUYỂN PHA'
+
+  return {
+      'adx': curr_adx,
+      'plusDi': curr_plus_di,
+      'minusDi': curr_minus_di,
+      'slope': slope,
+      'isTrending': is_trending,
+      'isSideway': is_sideway,
+      'isBullishTrend': is_trending and curr_plus_di > curr_minus_di,
+      'status': status,
+      'display': f'ADX: {curr_adx} (+DI {curr_plus_di} / -DI {curr_minus_di})',
+  }
+
+
 def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
   """Tính toán dải chỉ báo SuperTrend (ATR Volatility Trailing Band).
 
@@ -381,6 +652,14 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
   is_flip_sell = (last_trend == -1 and prev_trend == 1)
   current_band = final_lower[-1] if last_trend == 1 else final_upper[-1]
 
+  # Mốc cản vừa bị phá vỡ (Broken Band) ở phiên đảo chiều (Fix bug mô tả st_flip_sell)
+  if is_flip_sell:
+    broken_band = final_lower[-2] if n >= 2 else final_lower[-1]
+  elif is_flip_buy:
+    broken_band = final_upper[-2] if n >= 2 else final_upper[-1]
+  else:
+    broken_band = current_band
+
   return {
       'direction': 'BULLISH' if last_trend == 1 else 'BEARISH',
       'isBullish': last_trend == 1,
@@ -388,6 +667,9 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
       'isFlipBuy': is_flip_buy,
       'isFlipSell': is_flip_sell,
       'bandPrice': round(current_band, -2) if current_band >= 1000 else round(current_band, 2),
+      'supportBand': round(final_lower[-1], -2) if final_lower[-1] >= 1000 else round(final_lower[-1], 2),
+      'resistanceBand': round(final_upper[-1], -2) if final_upper[-1] >= 1000 else round(final_upper[-1], 2),
+      'brokenBand': round(broken_band, -2) if broken_band >= 1000 else round(broken_band, 2),
   }
 
 
@@ -442,12 +724,19 @@ def identify_structural_levels(highs, lows, closes, current_price, atr14):
     else:
       r1 = current_price + (2.0 * atr14)
 
-  # Kháng cự R2: Ngưỡng cản tiếp theo trên R1
-  valid_r2 = [sh for sh in swing_highs if sh > r1 * 1.015]
+  # Kháng cự R2: Ngưỡng cản cấu trúc chính tiếp theo trên R1, đảm bảo biên độ sóng T+ có ý nghĩa
+  min_r2_thresh = max(r1 * 1.025, current_price * 1.055)
+  valid_r2 = [sh for sh in swing_highs if sh >= min_r2_thresh]
   if valid_r2:
     r2 = min(valid_r2)
   else:
-    r2 = r1 + max(atr14 * 1.5, r1 * 0.035)
+    rec_low = min(sub_l[-20:]) if len(sub_l) >= 20 else s1
+    rec_high = max(sub_h[-20:]) if len(sub_h) >= 20 else max(r1, current_price)
+    wave_range = rec_high - rec_low
+    if wave_range > atr14 * 1.5:
+      r2 = max(r1 * 1.045, current_price + (1.0 * wave_range))
+    else:
+      r2 = max(r1 * 1.05, current_price + max(2.5 * atr14, current_price * 0.07))
 
   # Chuẩn hóa làm tròn về đơn vị 50/100 VND
   s1 = round(s1, -2) if s1 >= 1000 else round(s1, 1)
@@ -887,7 +1176,33 @@ def analyze_technicals_and_scoring(
   )
 
   rs_info = calculate_relative_strength(dates_done, closes_done, get_vnindex_series())
-  supertrend_info = calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0)
+  stoch_rsi_info = calculate_stochastic_rsi(
+      closes,
+      rsi_period=STOCH_RSI_PERIOD,
+      stoch_period=STOCH_RSI_STOCH_PERIOD,
+      k_period=STOCH_RSI_SMOOTH_K,
+      d_period=STOCH_RSI_SMOOTH_D,
+  )
+  macd_info = calculate_macd(
+      closes,
+      fast=MACD_FAST_PERIOD,
+      slow=MACD_SLOW_PERIOD,
+      signal=MACD_SIGNAL_PERIOD,
+  )
+  ema50 = calculate_ema(closes, EMA_MEDIUM_PERIOD)
+  ema200 = calculate_ema(closes, EMA_LONG_PERIOD)
+  adx_info = calculate_adx(highs, lows, closes, period=14)
+  supertrend_tplus = calculate_supertrend(
+      highs, lows, closes,
+      period=TPLUS_SUPERTREND_PERIOD,
+      multiplier=TPLUS_SUPERTREND_MULTIPLIER,
+  )
+  supertrend_midterm = calculate_supertrend(
+      highs, lows, closes,
+      period=MIDTERM_SUPERTREND_PERIOD,
+      multiplier=MIDTERM_SUPERTREND_MULTIPLIER,
+  )
+  supertrend_info = supertrend_tplus
 
   position_holding = detect_candlestick_exit_signals(
       opens_done, highs_done, lows_done, closes_done, volumes_done, current_price, ma20, atr14,
@@ -909,7 +1224,10 @@ def analyze_technicals_and_scoring(
   upside2_val = max(0.0, r2_target - current_price)
   upside2 = round((upside2_val / current_price) * 100, 1) if current_price > 0 else 12.0
 
-  net_upside = max(0.0, (target_price - current_price) - (0.004 * current_price))
+  has_strong_tplus_flow = (vol_ratio >= 1.25 and buy_ratio >= 50 and day_change_pct > 0)
+  calc_target = r2_target if (upside < 4.0 and has_strong_tplus_flow and r2_target > resistance_level) else target_price
+
+  net_upside = max(0.0, (calc_target - current_price) - (0.004 * current_price))
   net_downside = (current_price - stop_price) + (0.004 * current_price)
   rr_ratio = round(net_upside / net_downside, 2) if net_downside > 0 else 1.0
 
@@ -1127,6 +1445,13 @@ def analyze_technicals_and_scoring(
       'positionSizing': position_sizing,
       'positionHolding': position_holding,
       'supertrend': supertrend_info,
+      'supertrendTPlus': supertrend_tplus,
+      'supertrendMidterm': supertrend_midterm,
+      'stochRsi': stoch_rsi_info,
+      'macd': macd_info,
+      'adx': adx_info,
+      'ema50': ema50,
+      'ema200': ema200,
       'tPlus': {
           'decision': tplus_decision,
           'type': tplus_type,

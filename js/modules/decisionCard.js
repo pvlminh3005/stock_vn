@@ -13,7 +13,7 @@
  * 4. Đồng bộ trực tiếp các mốc giá lên Đồ thị TradingView (Target, Vùng mua, Cắt lỗ)
  */
 
-import { formatVND, formatCompactNumber } from '../utils.js?v=4.0';
+import { formatVND } from '../utils.js?v=4.0';
 import { setChartPriceLines } from './chart.js?v=4.0';
 
 function safeSetText(id, text) {
@@ -278,9 +278,59 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
     }
   }
 
-  safeSetText('tplusBuyZoneVal', tplus.buyZone || `${formatVND(tplus.entryMin || 0)} - ${formatVND(tplus.entryMax || 0)} đ`);
-  safeSetText('tplusTPVal', tplus.takeProfit || `${formatVND(tplus.target || 0)} đ`);
-  safeSetText('tplusSLVal', `< ${formatVND(tplus.stopLoss || 0)} đ`);
+  // Tính toán % Chốt lời & % Cắt lỗ T+
+  let tpPctStr = tplus.takeProfitPctDisplay;
+  if (!tpPctStr) {
+    if (tplus.targetPct !== undefined) {
+      tpPctStr = `+${tplus.targetPct}%`;
+    } else if (tplus.target && currentPrice > 0) {
+      const p = (((tplus.target - currentPrice) / currentPrice) * 100).toFixed(1);
+      tpPctStr = (p >= 0 ? '+' : '') + p + '%';
+    } else {
+      tpPctStr = '';
+    }
+  }
+
+  let slPctStr = tplus.stopLossPctDisplay;
+  if (!slPctStr) {
+    if (tplus.stopLossPct !== undefined || tplus.downsidePct !== undefined) {
+      const d = tplus.stopLossPct !== undefined ? tplus.stopLossPct : tplus.downsidePct;
+      slPctStr = `-${d}%`;
+    } else if (tplus.stopLoss && currentPrice > 0) {
+      const d = (((currentPrice - tplus.stopLoss) / currentPrice) * 100).toFixed(1);
+      slPctStr = `-${d}%`;
+    } else {
+      slPctStr = '';
+    }
+  }
+
+  const tplusBuyZoneStr = tplus.buyZone || `${formatVND(tplus.entryMin || 0)} - ${formatVND(tplus.entryMax || 0)} đ`;
+  safeSetText('tplusBuyZoneVal', tplusBuyZoneStr);
+  safeSetText('tplusBuyZoneTooltipVal', tplusBuyZoneStr);
+
+  const tpEntryPctStr = tplus.takeProfitPctFromEntryDisplay || (tplus.upsideEntryR1Pct !== undefined ? `+${tplus.upsideEntryR1Pct}%` : '');
+
+  // Hiển thị ô Chốt lời (TP) - Giá sạch không kèm % cùng dòng
+  safeSetText('tplusTPPctBadge', tpPctStr || '+0%');
+  const tpCleanPrice = tplus.takeProfit || (tplus.target ? `${formatVND(tplus.target)} đ` : '--');
+  safeSetText('tplusTPVal', tpCleanPrice);
+  safeSetText('tplusTPTooltipPrice', tpCleanPrice);
+  safeSetText('tplusTPTooltipPct', tpPctStr || '+0%');
+  safeSetText('tplusTPTooltipEntryPct', tpEntryPctStr || tpPctStr || '+0%');
+  const tplusTPEl = document.getElementById('tplusTPVal');
+  if (tplusTPEl) {
+    tplusTPEl.title = `Mục tiêu chốt lời: ${tpCleanPrice} (Từ giá hiện tại: ${tpPctStr}${tpEntryPctStr ? ` | Từ nền mua: ${tpEntryPctStr}` : ''})`;
+  }
+
+  // Hiển thị ô Cắt lỗ (SL) - Giá sạch không kèm % cùng dòng
+  safeSetText('tplusSLPctBadge', slPctStr || '-0%');
+  const slCleanPrice = tplus.stopLoss ? `< ${formatVND(tplus.stopLoss)} đ` : (tplus.stopLossPriceDisplay || '--');
+  safeSetText('tplusSLVal', slCleanPrice);
+  safeSetText('tplusSLTooltipPrice', slCleanPrice);
+  safeSetText('tplusSLTooltipPct', slPctStr || '-0%');
+  const tplusSLEl = document.getElementById('tplusSLVal');
+  if (tplusSLEl) tplusSLEl.title = `Mốc cắt lỗ phòng thủ: ${slCleanPrice} (${slPctStr})`;
+
   safeSetText('tplusRRVal', `1 : ${tplus.netRR || 1.0}`);
   safeSetText('tplusNewReasonText', tpNew.reason || 'Đang phân tích điểm giải ngân...');
 
@@ -309,6 +359,8 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
   safeSetText('tplusIndVol', `Vol: x${ind.volRatio || 1.0} TB20`);
   safeSetText('tplusIndBuyRatio', `Mua CĐ: ${ind.buyRatio || 50}%`);
   safeSetText('tplusIndRSI', `RSI: ${ind.rsi || 50}`);
+  const stochRsi = ind.stochRsi || {};
+  safeSetText('tplusIndStochRSI', `StochRSI: ${stochRsi.display || (stochRsi.k ? `${stochRsi.k}/${stochRsi.d}` : '--')}`);
   safeSetText('tplusIndAlloc', `Giải ngân: ${tpNew.allocatedNowPct || 0}% NAV`);
 
   // =========================================================================
@@ -330,10 +382,43 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
     }
   }
 
-  safeSetText('midtermBuyZoneVal', midterm.buyZone || `${formatVND(midterm.entryMin || 0)} - ${formatVND(midterm.entryMax || 0)} đ`);
-  safeSetText('midtermTarget1Val', midterm.target1Display || `${formatVND(midterm.target || 0)} đ`);
-  safeSetText('midtermTarget2Val', midterm.target2Display || `${formatVND(midterm.targetHigh || 0)} đ`);
-  safeSetText('midtermRiskStopVal', midterm.riskThresholdDisplay || `< ${formatVND(midterm.stopLoss || 0)} đ`);
+  // Tính toán % Target 1, Target 2 & Cắt lỗ Trung hạn
+  const mTarget1Pct = midterm.target1PctDisplay || (midterm.marginOfSafetyPct !== undefined ? `+${midterm.marginOfSafetyPct}%` : (midterm.target && currentPrice > 0 ? `+${(((midterm.target - currentPrice) / currentPrice) * 100).toFixed(1)}%` : ''));
+  const mTarget2Pct = midterm.target2PctDisplay || (midterm.target2Pct !== undefined ? `+${midterm.target2Pct}%` : (midterm.targetHigh && currentPrice > 0 ? `+${(((midterm.targetHigh - currentPrice) / currentPrice) * 100).toFixed(1)}%` : ''));
+  const mStopPct = midterm.stopLossPctDisplay || (midterm.stopLossPct !== undefined ? `-${midterm.stopLossPct}%` : (midterm.stopLoss && currentPrice > 0 ? `-${(((currentPrice - midterm.stopLoss) / currentPrice) * 100).toFixed(1)}%` : ''));
+
+  safeSetText('midtermT1PctBadge', mTarget1Pct || '+0%');
+  safeSetText('midtermT2PctBadge', mTarget2Pct || '+0%');
+  safeSetText('midtermSLPctBadge', mStopPct || '-0%');
+
+  const mBuyZoneStr = midterm.buyZone || `${formatVND(midterm.entryMin || 0)} - ${formatVND(midterm.entryMax || 0)} đ`;
+  safeSetText('midtermBuyZoneVal', mBuyZoneStr);
+  safeSetText('midtermBuyZoneTooltipVal', mBuyZoneStr);
+
+  // Target 1 - Giá sạch không kèm % cùng dòng
+  const midT1Price = midterm.target ? `${formatVND(midterm.target)} đ` : (midterm.target1Display || '--');
+  safeSetText('midtermTarget1Val', midT1Price);
+  safeSetText('midtermT1TooltipPrice', midT1Price);
+  safeSetText('midtermT1TooltipPct', mTarget1Pct || '+0%');
+  const midT1El = document.getElementById('midtermTarget1Val');
+  if (midT1El) midT1El.title = `Target 1: ${midT1Price} (${mTarget1Pct})`;
+
+  // Target 2 - Giá sạch không kèm % cùng dòng
+  const midT2Price = midterm.targetHigh ? `${formatVND(midterm.targetHigh)} đ` : (midterm.target2Display || '--');
+  safeSetText('midtermTarget2Val', midT2Price);
+  safeSetText('midtermT2TooltipPrice', midT2Price);
+  safeSetText('midtermT2TooltipPct', mTarget2Pct || '+0%');
+  const midT2El = document.getElementById('midtermTarget2Val');
+  if (midT2El) midT2El.title = `Target 2: ${midT2Price} (${mTarget2Pct})`;
+
+  // Ngưỡng QTRR - Giá sạch không kèm % cùng dòng
+  const midSLPrice = midterm.stopLoss ? `< ${formatVND(midterm.stopLoss)} đ` : (midterm.riskThresholdDisplay || '--');
+  safeSetText('midtermRiskStopVal', midSLPrice);
+  safeSetText('midtermSLTooltipPrice', midSLPrice);
+  safeSetText('midtermSLTooltipPct', mStopPct || '-0%');
+  const midSLEl = document.getElementById('midtermRiskStopVal');
+  if (midSLEl) midSLEl.title = `Ngưỡng QTRR: ${midSLPrice} (${mStopPct})`;
+
   safeSetText('midtermNewReasonText', midNew.reason || 'Đang phân tích định giá nội tại BCTC...');
 
   // 2B. Đang nắm giữ Trung hạn
@@ -356,9 +441,13 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
   safeSetText('midtermHoldReasonText', midHold.reason || 'Đang phân tích chu kỳ tăng trưởng...');
 
   // Chỉ số con Trung hạn
+  const mInd = midterm.indicators || {};
   safeSetText('midtermIndPE', `P/E: ${midterm.pe ? midterm.pe.toFixed(1) : '--'}x`);
   safeSetText('midtermIndPB', `P/B: ${midterm.pb ? midterm.pb.toFixed(2) : '--'}x`);
   safeSetText('midtermIndROE', `ROE: ${midterm.roe ? midterm.roe.toFixed(1) : '--'}%`);
+  const macd = mInd.macd || {};
+  safeSetText('midtermIndMACD', `MACD: ${macd.display || (macd.macd !== undefined ? macd.macd : '--')}`);
+  safeSetText('midtermIndEMA200', `EMA200: ${mInd.ema200 ? `${formatVND(mInd.ema200)} đ` : '--'}`);
   const marginSign = (midterm.marginOfSafetyPct !== undefined && midterm.marginOfSafetyPct >= 0) ? '+' : '';
   safeSetText('midtermIndSafety', `Biên an toàn: ${marginSign}${midterm.marginOfSafetyPct !== undefined ? midterm.marginOfSafetyPct : 0}%`);
 
@@ -370,17 +459,79 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
   safeSetText('coreThesisRisk', thesis.risk || '3. Kịch bản quản trị: Đang thiết lập các mốc cắt lỗ & chốt lời...');
 
   // =========================================================================
-  // 8. ĐỒNG BỘ TRỰC QUAN CÁC ĐƯỜNG MỐC GIÁ LÊN CHART TRADINGVIEW
+  // 8. ĐỒNG BỘ TRỰC QUAN CÁC ĐƯỜNG MỐC GIÁ LÊN CHART TRADINGVIEW & LÀM NỔI BẬT CỘT
   // =========================================================================
+  const isMidTermHorizon = decisionData?.activeHorizon === 'midTerm' || rawData?.decisionEngine?.activeHorizon === 'midTerm';
+  const colTPlus = document.getElementById('colTPlus');
+  const colMidterm = document.getElementById('colMidterm');
+
+  if (colTPlus && colMidterm) {
+    if (isMidTermHorizon) {
+      colMidterm.classList.add('ring-2', 'ring-purple-500', 'border-purple-600/80', 'bg-purple-950/20');
+      colMidterm.classList.remove('border-indigo-900/40', 'bg-slate-950/70', 'opacity-85');
+      colTPlus.classList.remove('ring-2', 'ring-blue-500', 'border-blue-600/80', 'bg-blue-950/20');
+      colTPlus.classList.add('border-blue-900/30', 'opacity-85');
+    } else {
+      colTPlus.classList.add('ring-2', 'ring-blue-500', 'border-blue-600/80', 'bg-blue-950/20');
+      colTPlus.classList.remove('border-blue-900/30', 'opacity-85');
+      colMidterm.classList.remove('ring-2', 'ring-purple-500', 'border-purple-600/80', 'bg-purple-950/20');
+      colMidterm.classList.add('border-indigo-900/40', 'bg-slate-950/70', 'opacity-85');
+    }
+  }
+
   try {
-    setChartPriceLines({
-      target: tplus.target,
-      targetLabel: `Target T+: ${formatVND(tplus.target)}`,
-      buyZone: tplus.entryMin || tplus.entryMax,
-      buyZoneLabel: `Vùng mua: ${formatVND(tplus.entryMin || tplus.entryMax)}`,
-      stopLoss: tplus.stopLoss,
-      stopLossLabel: `Cắt lỗ: ${formatVND(tplus.stopLoss)}`,
-    });
+    if (isMidTermHorizon) {
+      const midT1Price = midterm.target || 0;
+      const midT2Price = midterm.targetHigh || 0;
+      const valBand = midterm.valuationBand || {};
+      const midBuyZone = valBand.fairLow || (midT1Price > 0 ? midT1Price * 0.9 : 0);
+      const midStop = midterm.stopLoss || 0;
+      const marginOfSafety = midterm.marginOfSafetyPct !== undefined ? midterm.marginOfSafetyPct : 0;
+      const marginSign = marginOfSafety >= 0 ? '+' : '';
+
+      setChartPriceLines({
+        target: midT1Price,
+        targetLabel: `Target 1 (Định giá): ${formatVND(midT1Price)} (${marginSign}${marginOfSafety}%)`,
+        target2: midT2Price,
+        target2Label: midT2Price ? `Target 2 (Đỉnh CK): ${formatVND(midT2Price)}` : '',
+        buyZone: midBuyZone,
+        buyZoneLabel: `Vùng gom tích sản: ${formatVND(midBuyZone)}`,
+        stopLoss: midStop,
+        stopLossLabel: `Ngưỡng QTRR Tuần: ${formatVND(midStop)}`,
+      });
+    } else {
+      const effectiveStopLoss = (tplus.trailingStop && tplus.trailingStop > tplus.stopLoss) ? tplus.trailingStop : tplus.stopLoss;
+      const isTrailing = tplus.trailingStop && tplus.trailingStop > tplus.stopLoss;
+      const isHitTarget1 = tplus.isHitTarget1;
+      let slLabel = `Cắt lỗ: ${formatVND(effectiveStopLoss)}`;
+      if (isHitTarget1) {
+        slLabel = `Hòa vốn (BE): ${formatVND(effectiveStopLoss)}`;
+      } else if (isTrailing) {
+        slLabel = `Trailing SL: ${formatVND(effectiveStopLoss)}`;
+      } else if (slPctStr) {
+        slLabel += ` (${slPctStr})`;
+      }
+
+      const target1Price = tplus.target1 || tplus.target;
+      const target2Price = tplus.target2;
+
+      const buyPrice = tplus.entryMin || tplus.entryMax;
+      let buyLabel = `Vùng mua: ${formatVND(buyPrice)}`;
+      if (tplus.isExtendedFromBase && tplus.pullbackMin && tplus.pullbackMax) {
+        buyLabel = `Mua Pullback: ${formatVND(tplus.pullbackMin)} - ${formatVND(tplus.pullbackMax)}`;
+      }
+
+      setChartPriceLines({
+        target: target1Price,
+        targetLabel: `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`,
+        target2: target2Price,
+        target2Label: target2Price ? `Target 2 (Trend): ${formatVND(target2Price)}` : '',
+        buyZone: buyPrice,
+        buyZoneLabel: buyLabel,
+        stopLoss: effectiveStopLoss,
+        stopLossLabel: slLabel,
+      });
+    }
   } catch (err) {
     console.warn("Lỗi vẽ đường giá trên TradingView Chart:", err);
   }

@@ -16,7 +16,6 @@ from backend.domain.valuation import get_fundamental_profile
 from backend.domain.technicals import analyze_technicals_and_scoring
 from backend.domain.regime import evaluate_market_regime
 from backend.domain.risk_engine import evaluate_securities_risk_engine
-from backend.domain.outlook import generate_multi_source_future_outlook
 from backend.domain.decision_engine import evaluate_unified_decision
 
 
@@ -170,6 +169,7 @@ def handle_stock_detail(ticker, resolution='1D'):
       technical_info=analysis,
       regime=market_regime,
       risk_engine_report=risk_engine_report,
+      resolution=resolution,
   )
 
   # Lịch sử VCI chỉ dùng nội bộ để định giá, không trả về giao diện

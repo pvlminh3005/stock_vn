@@ -1,7 +1,7 @@
 import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=4.0';
 import { getStockDetail, getChartData } from './api.js?v=4.0';
 import { initChart, updateChartData } from './modules/chart.js?v=4.0';
-import { renderFutureOutlook, renderNewsReferences, copyRiskReportMarkdown } from './modules/riskEngine.js?v=4.0';
+import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=4.0';
 import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.1';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
@@ -415,13 +415,39 @@ export async function loadStock(ticker) {
     if (resSelect) currentResolution = resSelect.value || '1D';
 
     const data = await getStockDetail(sym, currentResolution);
-    renderQuickHeader(data);
-    renderUnifiedDecisionHero(data.decisionEngine, data);
-    renderVerdictAndScores(data);
-    renderVisualMeters(data);
-    renderFundamentalsTab(data);
-    renderTechnicalsTab(data);
-    updateChartData(data.candles, currentResolution);
+
+    // 1. Cập nhật Quick Header
+    try {
+      renderQuickHeader(data);
+    } catch (errHeader) {
+      console.warn("Lỗi renderQuickHeader:", errHeader);
+    }
+
+    // 2. Cập nhật Biểu đồ nến trước để sẵn sàng canvas & trục giá
+    try {
+      if (data.candles && data.candles.length > 0) {
+        updateChartData(data.candles, currentResolution);
+      }
+    } catch (errChart) {
+      console.warn("Lỗi updateChartData:", errChart);
+    }
+
+    // 3. Cập nhật Động cơ ra quyết định & đồng bộ Price Lines lên biểu đồ
+    try {
+      renderUnifiedDecisionHero(data.decisionEngine, data);
+    } catch (errHero) {
+      console.warn("Lỗi renderUnifiedDecisionHero:", errHero);
+    }
+
+    // 4. Cập nhật các tab và thang đo
+    try {
+      renderVerdictAndScores(data);
+      renderVisualMeters(data);
+      renderFundamentalsTab(data);
+      renderTechnicalsTab(data);
+    } catch (errTabs) {
+      console.warn("Lỗi render tabs/scores:", errTabs);
+    }
   } catch (err) {
     console.error("Lỗi khi load mã:", err);
     if (DOM.alert) {
@@ -561,14 +587,7 @@ function initEvents() {
     tfSelect.addEventListener("change", async (e) => {
       currentResolution = e.target.value;
       if (!currentTicker) return;
-      try {
-        const chartRes = await getChartData(currentTicker, currentResolution);
-        if (chartRes && chartRes.candles) {
-          updateChartData(chartRes.candles, currentResolution);
-        }
-      } catch (err) {
-        console.error("Lỗi đổi khung thời gian biểu đồ:", err);
-      }
+      await loadStock(currentTicker);
     });
   }
 }
