@@ -1,8 +1,8 @@
 import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=4.0';
 import { getStockDetail, getChartData } from './api.js?v=4.0';
-import { initChart, updateChartData } from './modules/chart.js?v=4.0';
+import { initChart, updateChartData } from './modules/chart.js?v=4.3';
 import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=4.0';
-import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.1';
+import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.2';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';

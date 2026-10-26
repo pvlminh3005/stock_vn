@@ -332,6 +332,14 @@ class SuperTrendCloudPrimitive {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(labelText, x, boxY + boxHeight / 2);
+
+        // 4. Nếu có mốc Kháng cự động khi gãy mây (như _ KC: 11.1 trong AmiBroker)
+        if (s.kc) {
+          ctx.font = 'bold 9px ui-sans-serif, system-ui, sans-serif';
+          ctx.fillStyle = '#f87171';
+          ctx.fillText(`_ KC: ${formatStockPrice(s.kc)}`, x, boxY - 5);
+          ctx.font = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+        }
       }
     }
 
@@ -359,6 +367,7 @@ export function clearChartPriceLines() {
 export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPrice = null) {
   if (!config) return;
   const isMidTerm = cachedResolution === '1W' || cachedResolution === '1M';
+  const isProhibited = !!config.isProhibited;
 
   if (!currentPrice && cachedCandles && cachedCandles.length > 0) {
     currentPrice = cachedCandles[cachedCandles.length - 1].close;
@@ -366,8 +375,12 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
 
   // 1. Target 1
   const targetLabelEl = document.getElementById("stbSummaryTargetLabel");
+  const targetPctEl = document.getElementById("stbSummaryTargetPct");
+  const targetEl = document.getElementById("stbSummaryTarget");
   if (targetLabelEl) {
-    targetLabelEl.innerText = isMidTerm ? "TARGET 1 (FA)" : "TARGET 1 (T+)";
+    targetLabelEl.innerText = isProhibited 
+      ? "KHÁNG CỰ (HẠ TỶ TRỌNG)" 
+      : (isMidTerm ? "TARGET 1 (FA)" : "TARGET 1 (T+)");
   }
   const targetPrice = config.target;
   const targetPct = (targetPrice && currentPrice > 0)
@@ -375,22 +388,31 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
     : null;
   safeSetText("stbSummaryTarget", targetPrice ? formatStockPrice(targetPrice) : "--");
   safeSetText("stbSummaryTargetPct", targetPct ? (targetPct >= 0 ? `+${targetPct}%` : `${targetPct}%`) : "");
-  const targetEl = document.getElementById("stbSummaryTarget");
   if (targetEl) {
-    targetEl.title = targetPrice
-      ? `${isMidTerm ? 'Target 1 (Định giá hợp lý)' : 'Target 1 (T+ Chốt 50%)'}: ${formatStockPrice(targetPrice)} ${targetPct ? `(+${targetPct}%)` : ''}`
-      : '';
+    if (isProhibited) {
+      targetEl.className = "font-bold text-amber-400 text-xs mt-0.5";
+      if (targetPctEl) targetPctEl.className = "text-[10px] font-bold font-mono text-amber-400";
+      targetEl.title = targetPrice
+        ? `Kháng cự hạ tỷ trọng: ${formatStockPrice(targetPrice)} ${targetPct ? `(+${targetPct}%)` : ''}`
+        : '';
+    } else {
+      targetEl.className = "font-bold text-sky-400 text-xs mt-0.5";
+      if (targetPctEl) targetPctEl.className = "text-[10px] font-bold font-mono text-sky-400";
+      targetEl.title = targetPrice
+        ? `${isMidTerm ? 'Target 1 (Định giá hợp lý)' : 'Target 1 (T+ Chốt 50%)'}: ${formatStockPrice(targetPrice)} ${targetPct ? `(+${targetPct}%)` : ''}`
+        : '';
+    }
   }
 
   // 2. Target 2
   const target2Price = config.target2;
-  const target2Pct = (target2Price && currentPrice > 0)
-    ? (((target2Price - currentPrice) / currentPrice) * 100).toFixed(1)
-    : null;
   const t2Box = document.getElementById("stbSummaryTarget2Box");
   if (t2Box) {
-    if (target2Price && target2Price > 0) {
+    if (!isProhibited && target2Price && target2Price > 0) {
       t2Box.classList.remove("hidden");
+      const target2Pct = (target2Price && currentPrice > 0)
+        ? (((target2Price - currentPrice) / currentPrice) * 100).toFixed(1)
+        : null;
       const t2LabelEl = t2Box.querySelector("span:first-child");
       if (t2LabelEl) t2LabelEl.innerText = isMidTerm ? "TARGET 2 (ĐỈNH CK)" : "TARGET 2 (TREND)";
       safeSetText("stbSummaryTarget2", formatStockPrice(target2Price));
@@ -404,13 +426,14 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
     }
   }
 
-  // 3. Stop Loss / Trailing / Hòa vốn
+  // 3. Stop Loss / Trailing / Hòa vốn / Ngưỡng thoát vị thế
   const slPrice = config.stopLoss;
   const isBreakEven = config.stopLossLabel && config.stopLossLabel.includes("Hòa vốn");
   const isTrailing = config.stopLossLabel && config.stopLossLabel.includes("Trailing");
   const slLabelEl = document.getElementById("stbSummaryStopLossLabel");
   if (slLabelEl) {
-    if (isMidTerm) slLabelEl.innerText = "QTRR TUẦN (SL)";
+    if (isProhibited) slLabelEl.innerText = "NGƯỠNG THOÁT VỊ THẾ";
+    else if (isMidTerm) slLabelEl.innerText = "QTRR TUẦN (SL)";
     else if (isBreakEven) slLabelEl.innerText = "HÒA VỐN (BE)";
     else if (isTrailing) slLabelEl.innerText = "TRAILING SL";
     else slLabelEl.innerText = "CẮT LỖ (SL)";
@@ -424,7 +447,7 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
   const slEl = document.getElementById("stbSummaryStopLoss");
   if (slEl) {
     slEl.title = slPrice
-      ? `${isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ'))}: ${formatStockPrice(slPrice)} ${slPct ? `(-${slPct}%)` : ''}`
+      ? `${isProhibited ? 'Ngưỡng thoát vị thế bảo toàn vốn' : (isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ')))}: ${formatStockPrice(slPrice)} ${slPct ? `(-${slPct}%)` : ''}`
       : '';
   }
 }
@@ -443,16 +466,19 @@ export function setChartPriceLines(config = {}) {
     SparseDotted: 4
   };
 
-  // 1. Đường Target 1 (T+ / Chốt lời 50%) - Xanh dương nhạt / Sky
+  const isExit = !!config.isProhibited;
+
+  // 1. Đường Target 1 (T+ / Chốt lời 50%) - Xanh dương nhạt / Sky HOẶC Kháng cự hạ tỷ trọng (Amber)
   if (config.target && config.target > 0) {
     try {
+      const lineColor = isExit ? '#f59e0b' : '#38bdf8';
       const line = candleSeries.createPriceLine({
         price: config.target,
-        color: '#38bdf8',
+        color: lineColor,
         lineWidth: 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: config.targetLabel || 'Target 1 (T+)',
+        title: config.targetLabel || (isExit ? 'Kháng cự hạ tỷ trọng' : 'Target 1 (T+)'),
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -460,8 +486,8 @@ export function setChartPriceLines(config = {}) {
     }
   }
 
-  // 1B. Đường Target 2 (Mục tiêu Xu hướng / Trend) - Tím / Purple / Indigo
-  if (config.target2 && config.target2 > 0) {
+  // 1B. Đường Target 2 (Mục tiêu Xu hướng / Trend) - Tím / Purple / Indigo (Ẩn khi ở chế độ Cấm mua / Thoát vị thế)
+  if (!isExit && config.target2 && config.target2 > 0) {
     try {
       const line = candleSeries.createPriceLine({
         price: config.target2,
@@ -477,16 +503,18 @@ export function setChartPriceLines(config = {}) {
     }
   }
 
-  // 2. Đường Vùng Mua (Entry / Hỗ trợ) - Xanh lá / Emerald
+  // 2. Đường Vùng Mua (Entry / Hỗ trợ) - Xanh lá / Emerald HOẶC Slate Grey nếu isProhibited (Cấm bắt đáy)
   if (config.buyZone && config.buyZone > 0) {
     try {
+      const lineColor = isExit ? '#64748b' : '#10b981';
+      const lineStyle = isExit ? LineStyle.SparseDotted : LineStyle.Dashed;
       const line = candleSeries.createPriceLine({
         price: config.buyZone,
-        color: '#10b981',
+        color: lineColor,
         lineWidth: 1.5,
-        lineStyle: LineStyle.Dashed,
+        lineStyle: lineStyle,
         axisLabelVisible: true,
-        title: config.buyZoneLabel || 'Vùng mua',
+        title: config.buyZoneLabel || (isExit ? 'Hỗ trợ S1 (Cấm bắt đáy)' : 'Vùng mua'),
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -500,10 +528,10 @@ export function setChartPriceLines(config = {}) {
       const line = candleSeries.createPriceLine({
         price: config.stopLoss,
         color: '#f43f5e',
-        lineWidth: 1.5,
+        lineWidth: isExit ? 2 : 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: config.stopLossLabel || 'Cắt lỗ',
+        title: config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : 'Cắt lỗ'),
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -758,7 +786,7 @@ export function calculateADXSeries(candles, period = 14) {
  * - Mũi tên & Huy hiệu: MUA: [Giá] / BÁN: [Giá]
  * - Tích hợp bộ lọc ADX(14) để tránh bẫy Sideway biên hẹp (hiển thị CHỜ TREND khi ADX < 20)
  */
-export function calculateSuperTrend(candles, period = 10, multiplier = 1.8, resolution = '1D') {
+export function calculateSuperTrend(candles, period = 10, multiplier = 1.15, resolution = '1D') {
   if (!candles || candles.length === 0) {
     return { standardCandles: [], cloudData: [], markers: [], currentSignal: null, volColors: [], summary: null };
   }
@@ -849,72 +877,72 @@ export function calculateSuperTrend(candles, period = 10, multiplier = 1.8, reso
 
       if (trend[i] !== trend[i - 1]) {
         lastFlipIdx = i;
-        lastFlipPrice = c.close;
         lastFlipDate = c.time;
 
         if (trend[i] === 1) {
-          lastBuyPrice = c.close;
-          lastBuyIdx = i;
+          // Lật XANH (BULLISH): Kích hoạt mốc cản trên vừa bị bứt phá
+          const triggerPrice = (finalUpper[i - 1] > 0 && finalUpper[i - 1] <= c.high) ? finalUpper[i - 1] : c.close;
+          lastFlipPrice = triggerPrice;
+          lastBuyPrice = triggerPrice;
           hasTakenProfit = false;
 
           // Bộ lọc ADX(14) để tránh bẫy thị trường đi ngang (Sideway Trap):
-          // Nếu ADX < 20: Chuyển sang tín hiệu CHỜ TREND (WAIT_SIDEWAY), không mở vị thế mua đuổi
           const isSideway = adxSeries[i] < 20.0;
           if (isSideway) {
             signals.push({
               time: c.time,
               type: 'WAIT_SIDEWAY',
-              price: c.close,
+              price: triggerPrice,
               high: c.high,
               low: c.low,
-              text: 'CHỜ TREND: ' + formatStockPrice(c.close)
+              text: 'CHỜ TREND: ' + formatStockPrice(triggerPrice)
             });
             markers.push({
               time: c.time,
               position: 'belowBar',
               color: '#64748b',
               shape: 'arrowUp',
-              text: 'CHỜ TREND: ' + formatStockPrice(c.close),
+              text: 'CHỜ TREND: ' + formatStockPrice(triggerPrice),
               size: 2
             });
           } else {
-            // Huy hiệu MUA: Mũi tên xanh lá, chữ MUA: [Giá] bọc trong ô xanh lá chữ trắng
+            const buyLabel = 'XANH: ' + formatStockPrice(triggerPrice);
             signals.push({
               time: c.time,
               type: 'BUY',
-              price: c.close,
+              price: triggerPrice,
               high: c.high,
               low: c.low,
-              text: 'MUA: ' + formatStockPrice(c.close)
+              text: buyLabel
             });
             markers.push({
               time: c.time,
               position: 'belowBar',
               color: '#16a34a',
               shape: 'arrowUp',
-              text: 'MUA: ' + formatStockPrice(c.close),
+              text: buyLabel,
               size: 2
             });
           }
         } else {
-          // Tính hiệu suất chu kỳ lướt sóng vừa kết thúc
-          cycleProfitPct = lastBuyPrice > 0 ? ((c.close - lastBuyPrice) / lastBuyPrice) * 100 : 0;
-          const isProfitableExit = hasTakenProfit || (lastBuyPrice > 0 && c.close >= lastBuyPrice);
+          // Lật HỒNG (BEARISH): Kích hoạt mốc hỗ trợ dưới vừa bị xuyên thủng
+          const brokenSupport = (finalLower[i - 1] > 0 && finalLower[i - 1] >= c.low) ? finalLower[i - 1] : c.close;
+          lastFlipPrice = brokenSupport;
+          cycleProfitPct = lastBuyPrice > 0 ? ((brokenSupport - lastBuyPrice) / lastBuyPrice) * 100 : 0;
+          const isProfitableExit = hasTakenProfit || (lastBuyPrice > 0 && brokenSupport >= lastBuyPrice);
           const wasSidewayBuy = lastBuyIdx >= 0 && adxSeries[lastBuyIdx] < 20.0;
 
-          let exitType = isProfitableExit ? 'SELL_EXIT' : 'SELL';
-          let exitText = isProfitableExit ? ('THOÁT HẾT: ' + formatStockPrice(c.close)) : ('CẮT LỖ: ' + formatStockPrice(c.close));
-          if (wasSidewayBuy && !isProfitableExit) {
-            exitText = 'THOÁT: ' + formatStockPrice(c.close);
-          }
+          const kcPrice = Math.round(finalUpper[i]);
+          const exitText = 'HỒNG: ' + formatStockPrice(brokenSupport);
 
           signals.push({
             time: c.time,
-            type: exitType,
-            price: c.close,
+            type: isProfitableExit ? 'SELL_EXIT' : 'SELL',
+            price: brokenSupport,
             high: c.high,
             low: c.low,
-            text: exitText
+            text: exitText,
+            kc: kcPrice
           });
           markers.push({
             time: c.time,
@@ -1003,28 +1031,52 @@ export function calculateSuperTrend(candles, period = 10, multiplier = 1.8, reso
   const isCurrentSideway = adxSeries[n - 1] < 20.0;
   const lastWasSideway = lastBuyIdx >= 0 && adxSeries[lastBuyIdx] < 20.0;
 
+  const isViolatingStopLoss = lastTrend === 1 && lastBuyPrice > 0 && profitPct <= -7.0;
+  const isNearStopLoss = lastTrend === 1 && lastBuyPrice > 0 && profitPct <= -5.0 && profitPct > -7.0;
+
   let signalActionText = 'XANH VÀO (GIỮ MUA)';
+  let signalAction = 'BUY';
+  let signalColor = 'emerald';
+
   if (lastTrend === 1) {
-    if (hasTakenProfit) {
+    if (isViolatingStopLoss) {
+      signalActionText = 'VI PHẠM CẮT LỖ (ƯU TIÊN HẠ TỶ TRỌNG)';
+      signalAction = 'EXIT';
+      signalColor = 'rose';
+    } else if (isNearStopLoss) {
+      signalActionText = 'CẬN DẢI DỪNG LỖ (CHẶN BẢO VỆ VỐN)';
+      signalAction = 'DEFENSIVE';
+      signalColor = 'amber';
+    } else if (hasTakenProfit) {
       signalActionText = 'XANH VÀO (ĐÃ CHỐT LỜI 1 PHẦN)';
+      signalAction = 'HOLD';
+      signalColor = 'emerald';
     } else if (lastWasSideway || isCurrentSideway) {
       signalActionText = 'CHỜ XU HƯỚNG (ADX < 20)';
+      signalAction = 'WAIT';
+      signalColor = 'slate';
     }
   } else {
     signalActionText = 'HỒNG RA (CANH BÁN)';
+    signalAction = 'EXIT';
+    signalColor = 'pink';
   }
 
   const currentSignal = {
     direction: lastTrend === 1 ? 'BULLISH' : 'BEARISH',
-    action: lastTrend === 1 ? (lastWasSideway ? 'WAIT' : 'BUY') : 'EXIT',
+    action: signalAction,
     text: signalActionText,
-    color: lastTrend === 1 ? (lastWasSideway ? 'slate' : 'emerald') : 'pink'
+    color: signalColor
   };
 
   const unitLabel = resolution === '1W' ? 'tuần' : (resolution === '1M' ? 'tháng' : 'phiên');
   let summaryStatusText = '';
   if (lastTrend === 1) {
-    if (lastWasSideway || isCurrentSideway) {
+    if (isViolatingStopLoss) {
+      summaryStatusText = `vùng xanh nhưng đã vi phạm ngưỡng cắt lỗ (${profitPct.toFixed(1)}%), ưu tiên bảo vệ vốn / thoát vị thế`;
+    } else if (isNearStopLoss) {
+      summaryStatusText = `vùng xanh nhưng mấp mé dải dừng lỗ (${profitPct.toFixed(1)}%), theo dõi sát kỷ luật`;
+    } else if (lastWasSideway || isCurrentSideway) {
       summaryStatusText = `vùng xanh nhưng ADX ${adxSeries[n - 1].toFixed(1)} < 20 (sideway), chờ xác nhận xu hướng`;
     } else {
       summaryStatusText = `vùng xanh, tiếp tục nắm giữ ${holdingBars} ${unitLabel}`;
@@ -1035,7 +1087,11 @@ export function calculateSuperTrend(candles, period = 10, multiplier = 1.8, reso
 
   let summaryBadgeText = '';
   if (lastTrend === 1) {
-    if (hasTakenProfit) {
+    if (isViolatingStopLoss) {
+      summaryBadgeText = 'VÙNG XANH (VI PHẠM CẮT LỖ)';
+    } else if (isNearStopLoss) {
+      summaryBadgeText = 'VÙNG XANH (CẬN DẢI DỪNG LỖ)';
+    } else if (hasTakenProfit) {
       summaryBadgeText = 'VÙNG XANH (GỒNG LÃI)';
     } else if (lastWasSideway || isCurrentSideway) {
       summaryBadgeText = 'VÙNG XANH (CHỜ TREND)';
@@ -1056,7 +1112,7 @@ export function calculateSuperTrend(candles, period = 10, multiplier = 1.8, reso
       summaryLastSignalType = 'LỆNH MUA';
     }
   } else {
-    summaryLastSignalType = hasTakenProfit ? 'THOÁT HẾT VỊ THẾ' : (lastWasSideway ? 'THOÁT NHỊP QUAN SÁT' : 'LỆNH BÁN');
+    summaryLastSignalType = hasTakenProfit ? 'THOÁT HẾT VỊ THẾ' : (lastWasSideway ? 'THOÁT NHỊP QUAN SÁT' : 'LỆNH HỒNG (CANH BÁN)');
   }
 
   const summary = {
@@ -1095,7 +1151,7 @@ export function updateChartData(candles, resolution = '1D') {
     }
   });
 
-  const { standardCandles, cloudData, signals, currentSignal, volColors, summary } = calculateSuperTrend(candles, 10, 1.8, resolution);
+  const { standardCandles, cloudData, signals, currentSignal, volColors, summary } = calculateSuperTrend(candles, 10, 1.15, resolution);
 
   // 1. Áp dụng nến tự nhiên & Dải VÙNG MÂY bọc ngoài
   candleSeries.setData(standardCandles);
@@ -1112,7 +1168,19 @@ export function updateChartData(candles, resolution = '1D') {
       summaryCard.classList.remove("hidden");
       const tickerEl = document.getElementById("displayTicker") || document.getElementById("stockSymbol");
       safeSetText("stbSummaryTicker", tickerEl ? tickerEl.innerText : "--");
-      safeSetText("stbSummaryRecommendation", `Khuyến nghị: ${summary.statusText}`);
+      const recEl = document.getElementById("stbSummaryRecommendation");
+      if (recEl) {
+        recEl.innerText = `Khuyến nghị: ${summary.statusText}`;
+        if (currentSignal.color === 'rose' || currentSignal.action === 'EXIT') {
+          recEl.className = "font-bold text-xs text-rose-400";
+        } else if (currentSignal.color === 'amber' || currentSignal.action === 'DEFENSIVE') {
+          recEl.className = "font-bold text-xs text-amber-400";
+        } else if (summary.isBullish) {
+          recEl.className = "font-bold text-xs text-emerald-400";
+        } else {
+          recEl.className = "font-bold text-xs text-pink-400";
+        }
+      }
       safeSetText("stbSummaryLastOrder", `${summary.lastSignalType} GIÁ: ${formatStockPrice(summary.lastSignalPrice)}`);
 
       const profitEl = document.getElementById("stbSummaryProfit");
@@ -1132,9 +1200,14 @@ export function updateChartData(candles, resolution = '1D') {
       safeSetText("stbSummaryCurrentPrice", formatStockPrice(summary.currentPrice));
 
       // Cập nhật các ô Target 1, Target 2, Stop Loss
+      const defaultExit = !!summary.isViolatingStopLoss;
+      if (cachedPriceLinesConfig && summary.isViolatingStopLoss) {
+        cachedPriceLinesConfig.isProhibited = true;
+      }
       syncSummaryPriceCard(cachedPriceLinesConfig || {
         stopLoss: summary.trailingStop,
-        stopLossLabel: 'Trailing SL'
+        stopLossLabel: 'Trailing SL',
+        isProhibited: defaultExit
       }, summary.currentPrice);
     }
   } else {
@@ -1189,12 +1262,18 @@ export function updateChartData(candles, resolution = '1D') {
   // 3. Update SuperTrend Signal Badge
   const signalBadgeEl = document.getElementById("superTrendSignalBadge");
   if (signalBadgeEl && currentSignal) {
-    if (currentSignal.direction === 'BULLISH') {
+    if (currentSignal.color === 'rose' || currentSignal.action === 'EXIT') {
+      signalBadgeEl.className = "flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-950/90 border border-rose-500 text-rose-300 font-mono text-xs font-bold shadow-md shadow-rose-950/50";
+      signalBadgeEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-rose-400 animate-pulse"></i> <span>TÍN HIỆU: ${currentSignal.text}</span>`;
+    } else if (currentSignal.color === 'amber' || currentSignal.action === 'DEFENSIVE') {
+      signalBadgeEl.className = "flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-950/90 border border-amber-500 text-amber-300 font-mono text-xs font-bold shadow-md shadow-amber-950/50";
+      signalBadgeEl.innerHTML = `<i class="fa-solid fa-shield text-amber-400"></i> <span>TÍN HIỆU: ${currentSignal.text}</span>`;
+    } else if (currentSignal.direction === 'BULLISH') {
       signalBadgeEl.className = "flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-950/90 border border-emerald-500 text-emerald-300 font-mono text-xs font-bold shadow-md shadow-emerald-950/50";
-      signalBadgeEl.innerHTML = '<i class="fa-solid fa-circle-arrow-up text-emerald-400 animate-bounce"></i> <span>TÍN HIỆU: XANH VÀO (GIỮ MUA)</span>';
+      signalBadgeEl.innerHTML = `<i class="fa-solid fa-circle-arrow-up text-emerald-400 animate-bounce"></i> <span>TÍN HIỆU: ${currentSignal.text}</span>`;
     } else {
       signalBadgeEl.className = "flex items-center gap-1.5 px-3 py-1 rounded-lg bg-pink-950/90 border border-pink-500 text-pink-300 font-mono text-xs font-bold shadow-md shadow-pink-950/50";
-      signalBadgeEl.innerHTML = '<i class="fa-solid fa-circle-arrow-down text-pink-400 animate-bounce"></i> <span>TÍN HIỆU: HỒNG RA (CANH BÁN)</span>';
+      signalBadgeEl.innerHTML = `<i class="fa-solid fa-circle-arrow-down text-pink-400 animate-bounce"></i> <span>TÍN HIỆU: ${currentSignal.text}</span>`;
     }
   }
 

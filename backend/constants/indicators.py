@@ -11,9 +11,9 @@ Phân tầng thông số chỉ báo kỹ thuật theo trường phái Clean Arch
 TPLUS_TIMEFRAME = '1D'
 TPLUS_INTRADAY_TIMEFRAME = '1H'
 
-# SuperTrend T+ (bắt nhịp nhanh, trailing stop bám sát đệm lãi)
+# SuperTrend T+ (chuẩn Ribbon co thắt động AmiBroker: bắt nhịp nhanh, trailing stop bám sát đệm lãi)
 TPLUS_SUPERTREND_PERIOD = 10
-TPLUS_SUPERTREND_MULTIPLIER = 1.8
+TPLUS_SUPERTREND_MULTIPLIER = 1.15
 
 # Stochastic RSI T+ (14, 14, 3, 3) - Bắt điểm xoay đảo chiều T+2.5
 STOCH_RSI_PERIOD = 14

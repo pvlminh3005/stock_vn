@@ -50,7 +50,7 @@ def aggregate_monthly_candles(daily_data):
       res[k].append(m[k])
   return res
 
-def fetch_chart_data(ticker, days=120, resolution='1D'):
+def fetch_chart_data(ticker, days=120, resolution='1D', ssi_item=None):
   """Lấy nến kỹ thuật đầy đủ (t, o, h, l, c, v) từ Entrade API theo resolution."""
   now_ts = int(time.time())
   if resolution == '1M':
@@ -58,6 +58,9 @@ def fetch_chart_data(ticker, days=120, resolution='1D'):
     from_ts = now_ts - (days_1m * 86400)
     url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={from_ts}&to={now_ts}&symbol={ticker}&resolution=1D'
     raw_daily = fetch_json(url)
+    if ssi_item:
+      from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
+      raw_daily = merge_live_candle_to_chart_data(raw_daily, ssi_item, resolution='1D')
     return aggregate_monthly_candles(raw_daily)
   elif resolution == '1W':
     days = 730
@@ -71,6 +74,12 @@ def fetch_chart_data(ticker, days=120, resolution='1D'):
 
 def handle_chart_only(ticker, resolution='1D'):
   """Trả về dữ liệu nến phục vụ chuyển nhanh khung thời gian trên biểu đồ."""
+  from backend.data_providers.ssi_provider import get_ssi_board_data
+  from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
+
+  ssi_board = get_ssi_board_data()
+  ssi_item = ssi_board.get(ticker, {})
+
   if resolution == '1D':
     days = DAILY_HISTORY_DAYS
   elif resolution == '1W':
@@ -79,7 +88,8 @@ def handle_chart_only(ticker, resolution='1D'):
     days = 1825
   else:
     days = 120
-  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution)
+  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution, ssi_item=ssi_item)
+  chart_data = merge_live_candle_to_chart_data(chart_data, ssi_item, resolution=resolution)
   return {
       'ticker': ticker,
       'resolution': resolution,

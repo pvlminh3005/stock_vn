@@ -14,7 +14,7 @@
  */
 
 import { formatVND } from '../utils.js?v=4.0';
-import { setChartPriceLines } from './chart.js?v=4.0';
+import { setChartPriceLines } from './chart.js?v=4.3';
 
 function safeSetText(id, text) {
   const el = document.getElementById(id);
@@ -191,7 +191,7 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
       if (priceStatus.color === 'emerald') {
         priceStatusBadgeEl.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border shadow-md bg-emerald-950 text-emerald-300 border-emerald-600 animate-pulse';
       } else if (priceStatus.color === 'rose') {
-        priceStatusBadgeEl.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border shadow-md bg-rose-950 text-rose-300 border-rose-600 animate-bounce';
+        priceStatusBadgeEl.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border shadow-md bg-rose-950 text-rose-300 border-rose-600 animate-pulse';
       } else if (priceStatus.color === 'amber') {
         priceStatusBadgeEl.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border shadow-md bg-amber-950 text-amber-300 border-amber-600';
       } else {
@@ -480,6 +480,14 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
   }
 
   try {
+    const primarySrc = isMidTermHorizon ? midterm : tplus;
+    const isProhibited = overall.type === 'danger' || 
+      (primarySrc.hardRules && primarySrc.hardRules.triggeredCount > 0) || 
+      (priceStatus && priceStatus.color === 'rose') ||
+      (priceStatus && priceStatus.badge && priceStatus.badge.includes('CẤM MUA')) ||
+      (primarySrc.newEntry && primarySrc.newEntry.action === 'WAIT' && 
+       ['AVOID_RISK', 'TAIL_RISK', 'AVOID_ILLIQUID'].includes(primarySrc.newEntry.subtag));
+
     if (isMidTermHorizon) {
       const midT1Price = midterm.target || 0;
       const midT2Price = midterm.targetHigh || 0;
@@ -491,20 +499,29 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
 
       setChartPriceLines({
         target: midT1Price,
-        targetLabel: `Target 1 (Định giá): ${formatVND(midT1Price)} (${marginSign}${marginOfSafety}%)`,
-        target2: midT2Price,
-        target2Label: midT2Price ? `Target 2 (Đỉnh CK): ${formatVND(midT2Price)}` : '',
+        targetLabel: isProhibited 
+          ? `Kháng cự hạ tỷ trọng: ${formatVND(midT1Price)}` 
+          : `Target 1 (Định giá): ${formatVND(midT1Price)} (${marginSign}${marginOfSafety}%)`,
+        target2: isProhibited ? null : midT2Price,
+        target2Label: (!isProhibited && midT2Price) ? `Target 2 (Đỉnh CK): ${formatVND(midT2Price)}` : '',
         buyZone: midBuyZone,
-        buyZoneLabel: `Vùng gom tích sản: ${formatVND(midBuyZone)}`,
+        buyZoneLabel: isProhibited 
+          ? `Hỗ trợ tuần: ${formatVND(midBuyZone)} (Cấm bắt đáy)` 
+          : `Vùng gom tích sản: ${formatVND(midBuyZone)}`,
         stopLoss: midStop,
-        stopLossLabel: `Ngưỡng QTRR Tuần: ${formatVND(midStop)}`,
+        stopLossLabel: isProhibited 
+          ? `Ngưỡng thoát vị thế: ${formatVND(midStop)}` 
+          : `Ngưỡng QTRR Tuần: ${formatVND(midStop)}`,
+        isProhibited: isProhibited,
       });
     } else {
       const effectiveStopLoss = (tplus.trailingStop && tplus.trailingStop > tplus.stopLoss) ? tplus.trailingStop : tplus.stopLoss;
       const isTrailing = tplus.trailingStop && tplus.trailingStop > tplus.stopLoss;
       const isHitTarget1 = tplus.isHitTarget1;
       let slLabel = `Cắt lỗ: ${formatVND(effectiveStopLoss)}`;
-      if (isHitTarget1) {
+      if (isProhibited) {
+        slLabel = `Ngưỡng thoát vị thế: ${formatVND(effectiveStopLoss)}`;
+      } else if (isHitTarget1) {
         slLabel = `Hòa vốn (BE): ${formatVND(effectiveStopLoss)}`;
       } else if (isTrailing) {
         slLabel = `Trailing SL: ${formatVND(effectiveStopLoss)}`;
@@ -517,19 +534,24 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
 
       const buyPrice = tplus.entryMin || tplus.entryMax;
       let buyLabel = `Vùng mua: ${formatVND(buyPrice)}`;
-      if (tplus.isExtendedFromBase && tplus.pullbackMin && tplus.pullbackMax) {
+      if (isProhibited) {
+        buyLabel = `Hỗ trợ S1: ${formatVND(buyPrice)} (Cấm bắt đáy)`;
+      } else if (tplus.isExtendedFromBase && tplus.pullbackMin && tplus.pullbackMax) {
         buyLabel = `Mua Pullback: ${formatVND(tplus.pullbackMin)} - ${formatVND(tplus.pullbackMax)}`;
       }
 
       setChartPriceLines({
         target: target1Price,
-        targetLabel: `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`,
-        target2: target2Price,
-        target2Label: target2Price ? `Target 2 (Trend): ${formatVND(target2Price)}` : '',
+        targetLabel: isProhibited 
+          ? `Kháng cự hạ tỷ trọng: ${formatVND(target1Price)}` 
+          : `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`,
+        target2: isProhibited ? null : target2Price,
+        target2Label: (!isProhibited && target2Price) ? `Target 2 (Trend): ${formatVND(target2Price)}` : '',
         buyZone: buyPrice,
         buyZoneLabel: buyLabel,
         stopLoss: effectiveStopLoss,
         stopLossLabel: slLabel,
+        isProhibited: isProhibited,
       });
     }
   } catch (err) {

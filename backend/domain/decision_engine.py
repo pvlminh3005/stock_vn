@@ -947,13 +947,26 @@ def evaluate_unified_decision(
           'type': 'caution',
       }
   else:
-    if tplus_data['hardRules']['triggeredCount'] > 0 or midterm_data['hardRules']['triggeredCount'] > 0:
+    tail_risk = risk_engine_report.get('tailLockRisk', False) or tplus_data['hardRules']['triggeredCount'] > 0
+    if tail_risk:
       overall_signal = {
           'status': 'DANGER',
           'badge': 'CẢNH BÁO RỦI RO - BẢO VỆ VỐN / THOÁT VỊ THẾ',
           'type': 'danger',
       }
-    elif tplus_data['score'] >= 65 or tplus_data['newEntry']['action'] == 'BUY':
+    elif midterm_data['hardRules']['triggeredCount'] > 0 and tplus_data['newEntry']['action'] != 'BUY':
+      overall_signal = {
+          'status': 'DEFENSIVE',
+          'badge': 'THẬN TRỌNG - XU HƯỚNG TUẦN ĐIỀU CHỈNH / ĐỨNG NGOÀI',
+          'type': 'caution',
+      }
+    elif tplus_data['newEntry']['action'] == 'BUY':
+      overall_signal = {
+          'status': 'POSITIVE',
+          'badge': f"TÍCH CỰC - {tplus_data['newEntry']['badge']}",
+          'type': 'positive',
+      }
+    elif tplus_data['score'] >= 65:
       overall_signal = {
           'status': 'POSITIVE',
           'badge': 'TÍCH CỰC - ƯU TIÊN MUA GIA TĂNG / MUA MỚI KHI RUNG LẮC',
@@ -972,13 +985,33 @@ def evaluate_unified_decision(
           'type': 'caution',
       }
 
-  # 2. Tag trạng thái tức thời theo thị giá (Price Action Status Tag)
+  # 2. Tag trạng thái tức thời theo thị giá (Real-time Price Action Status Tag)
+  primary_src = midterm_data if is_midterm_or_longterm else tplus_data
+  is_hard_danger = overall_signal.get('type') == 'danger' or primary_src.get('hardRules', {}).get('triggeredCount', 0) > 0
+  is_entry_prohibited = is_hard_danger or primary_src.get('newEntry', {}).get('subtag') in ['AVOID_RISK', 'TAIL_RISK', 'AVOID_ILLIQUID']
+  is_entry_wait = primary_src.get('newEntry', {}).get('action') == 'WAIT'
+
   stop_loss_val = tplus_data.get('stopLoss', 0)
   resist_r1_val = tplus_data.get('target', 0)
   entry_min_val = tplus_data.get('entryMin', 0)
   entry_max_val = tplus_data.get('entryMax', 0)
 
-  if is_midterm_or_longterm:
+  if is_entry_prohibited:
+    hr_rules = primary_src.get('hardRules', {}).get('rules', [])
+    badge_title = '🚨 CẤM MUA MỚI (RỦI RO CAO)'
+    if hr_rules:
+      first_rule = hr_rules[0]
+      if 'KẸT SÀN' in first_rule or 'THANH KHOẢN' in first_rule or 'thanh khoản' in first_rule:
+        badge_title = '🚨 CẤM MUA MỚI (RỦI RO KẸT SÀN)'
+      elif 'DOWNTREND' in first_rule or 'Downtrend' in first_rule:
+        badge_title = '🚨 CẤM BẮT ĐÁY (DOWNTREND TOÀN DIỆN)'
+    price_status_tag = {
+        'status': 'PROHIBITED',
+        'badge': badge_title,
+        'advice': 'Hệ thống kích hoạt ngắt mạch bảo vệ vốn, tuyệt đối không giải ngân mới',
+        'color': 'rose',
+    }
+  elif is_midterm_or_longterm:
     mid_stop = midterm_data.get('stopLoss', 0)
     mid_target = midterm_data.get('target', 0)
     val_band = midterm_data.get('valuationBand', {})
@@ -999,12 +1032,20 @@ def evaluate_unified_decision(
           'color': 'emerald',
       }
     elif fair_low <= current_price <= mid_target and fair_low > 0:
-      price_status_tag = {
-          'status': 'IN_BUY_ZONE',
-          'badge': f'✅ VÙNG GIÁ TRỊ TÍCH LŨY ({fair_low:,.0f} - {mid_target:,.0f} đ)',
-          'advice': f'Biên an toàn +{midterm_data.get("marginOfSafetyPct", 0)}%, phù hợp gom tích sản',
-          'color': 'emerald',
-      }
+      if is_entry_wait:
+        price_status_tag = {
+            'status': 'WAIT_VALUATION',
+            'badge': f'👀 VÙNG QUAN SÁT TÍCH SẢN ({fair_low:,.0f} - {mid_target:,.0f} đ)',
+            'advice': f'Biên an toàn định giá +{midterm_data.get("marginOfSafetyPct", 0)}%, chờ nhịp cân bằng trước khi gom',
+            'color': 'blue',
+        }
+      else:
+        price_status_tag = {
+            'status': 'IN_BUY_ZONE',
+            'badge': f'✅ VÙNG GIÁ TRỊ TÍCH LŨY ({fair_low:,.0f} - {mid_target:,.0f} đ)',
+            'advice': f'Biên an toàn +{midterm_data.get("marginOfSafetyPct", 0)}%, phù hợp gom tích sản',
+            'color': 'emerald',
+        }
     else:
       price_status_tag = {
           'status': 'WAIT_PULLBACK',
@@ -1028,12 +1069,20 @@ def evaluate_unified_decision(
           'color': 'emerald',
       }
     elif entry_min_val <= current_price <= entry_max_val and entry_min_val > 0:
-      price_status_tag = {
-          'status': 'IN_BUY_ZONE',
-          'badge': f'✅ ĐẠT ĐIỂM MUA AN TOÀN ({entry_min_val:,.0f} - {entry_max_val:,.0f} đ)',
-          'advice': 'Giải ngân thăm dò 30% NAV, tuân thủ kỷ luật',
-          'color': 'emerald',
-      }
+      if is_entry_wait:
+        price_status_tag = {
+            'status': 'WAIT_CONFIRMATION',
+            'badge': f'👀 VÙNG QUAN SÁT HỖ TRỢ ({entry_min_val:,.0f} - {entry_max_val:,.0f} đ)',
+            'advice': 'Giá trong vùng hỗ trợ nhưng tín hiệu bứt phá chưa đủ, kiên nhẫn chờ nổ vol',
+            'color': 'amber',
+        }
+      else:
+        price_status_tag = {
+            'status': 'IN_BUY_ZONE',
+            'badge': f'✅ ĐẠT ĐIỂM MUA AN TOÀN ({entry_min_val:,.0f} - {entry_max_val:,.0f} đ)',
+            'advice': 'Giải ngân thăm dò 30% NAV, tuân thủ kỷ luật',
+            'color': 'emerald',
+        }
     elif current_price > entry_max_val and entry_max_val > 0:
       diff_pct = round(((current_price - entry_max_val) / entry_max_val) * 100, 1)
       price_status_tag = {
