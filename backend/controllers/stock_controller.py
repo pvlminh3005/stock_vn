@@ -8,7 +8,7 @@ hồ sơ tài chính chuẩn hóa VCI, phân tích kỹ thuật, tin tức và b
 import time
 
 from backend.constants.config import DAILY_HISTORY_DAYS
-from backend.utils.ohlc_helpers import format_candles
+from backend.utils.ohlc_helpers import format_candles, merge_live_candle_to_chart_data
 from backend.data_providers.ssi_provider import get_ssi_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data
 from backend.data_providers.news_provider import fetch_live_multi_sources
@@ -16,7 +16,6 @@ from backend.domain.valuation import get_fundamental_profile
 from backend.domain.technicals import analyze_technicals_and_scoring
 from backend.domain.regime import evaluate_market_regime
 from backend.domain.risk_engine import evaluate_securities_risk_engine
-from backend.domain.outlook import generate_multi_source_future_outlook
 from backend.domain.decision_engine import evaluate_unified_decision
 
 
@@ -28,7 +27,10 @@ def handle_stock_detail(ticker, resolution='1D'):
 
   # Toàn bộ phân tích (RSI, MA, ATR, hỗ trợ/kháng cự, kế hoạch T+) luôn chạy trên nến NGÀY;
   # resolution chỉ quyết định dữ liệu nến vẽ biểu đồ.
-  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D')
+  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', ssi_item=ssi_item)
+  # Ghép cây nến realtime tại thời điểm search từ SSI vào chuỗi nến ngày
+  chart_data = merge_live_candle_to_chart_data(chart_data, ssi_item, resolution='1D')
+
   t_list = chart_data.get('t', [])
   h_list = chart_data.get('h', [])
   l_list = chart_data.get('l', [])
@@ -103,7 +105,9 @@ def handle_stock_detail(ticker, resolution='1D'):
   if resolution == '1D':
     candles_series = format_candles(chart_data, resolution='1D')
   else:
-    candles_series = format_candles(fetch_chart_data(ticker, resolution=resolution), resolution=resolution)
+    alt_data = fetch_chart_data(ticker, resolution=resolution, ssi_item=ssi_item)
+    alt_data = merge_live_candle_to_chart_data(alt_data, ssi_item, resolution=resolution)
+    candles_series = format_candles(alt_data, resolution=resolution)
 
   # Cơ bản doanh nghiệp
   fundamental_info = get_fundamental_profile(ticker, current_price)
@@ -170,6 +174,7 @@ def handle_stock_detail(ticker, resolution='1D'):
       technical_info=analysis,
       regime=market_regime,
       risk_engine_report=risk_engine_report,
+      resolution=resolution,
   )
 
   # Lịch sử VCI chỉ dùng nội bộ để định giá, không trả về giao diện

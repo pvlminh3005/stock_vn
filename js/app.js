@@ -1,8 +1,8 @@
 import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=4.0';
 import { getStockDetail, getChartData } from './api.js?v=4.0';
-import { initChart, updateChartData } from './modules/chart.js?v=4.0';
-import { renderFutureOutlook, renderNewsReferences, copyRiskReportMarkdown } from './modules/riskEngine.js?v=4.0';
-import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.1';
+import { initChart, updateChartData } from './modules/chart.js?v=4.3';
+import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=4.0';
+import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.2';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';
@@ -84,6 +84,7 @@ function renderQuickHeader(data) {
   const price = data.price;
   const change = data.priceChange;
   const changePct = data.percentChange;
+  const vol = data.totalVolume || data.volume || data.technicals?.latestVol || 0;
 
   safeSetText("displayTicker", data.code);
   safeSetText("companyName", data.name);
@@ -91,6 +92,7 @@ function renderQuickHeader(data) {
   safeSetText("sectorBadge", `Ngành: ${data.fundamentals?.sector || 'Doanh nghiệp'}`);
   safeSetText("updateTime", `Phiên: ${formatDateVN(data.date)}`);
   safeSetText("currentPrice", formatVND(price) + " đ");
+  safeSetText("headerVolume", `${formatCompactNumber(vol)} CP`);
 
   const highPrice = data.highest || data.highPrice || data.ceiling || price;
   const lowPrice = data.lowest || data.lowPrice || data.floor || price;
@@ -252,246 +254,7 @@ function renderVisualMeters(data) {
   }
 }
 
-export function switchStrategyView(tabKey) {
-  const tabs = {
-    tplus: {
-      btn: "tabBtnTPlus",
-      panel: "cardTPlus",
-      activeClass: "strategy-tab-btn flex-1 min-w-0 px-3 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 whitespace-nowrap bg-blue-600 text-white shadow-md shadow-blue-900/40 border border-blue-400/30",
-    },
-    holding: {
-      btn: "tabBtnHolding",
-      panel: "cardHolding",
-      activeClass: "strategy-tab-btn flex-1 min-w-0 px-3 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 whitespace-nowrap bg-rose-700 text-white shadow-md shadow-rose-900/40 border border-rose-400/30",
-    },
-    midterm: {
-      btn: "tabBtnMidTerm",
-      panel: "cardMidTerm",
-      activeClass: "strategy-tab-btn flex-1 min-w-0 px-3 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 whitespace-nowrap bg-indigo-600 text-white shadow-md shadow-indigo-900/40 border border-indigo-400/30",
-    },
-  };
 
-  const inactiveClass = "strategy-tab-btn flex-1 min-w-0 px-3 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-slate-900/90 border border-transparent";
-
-  Object.keys(tabs).forEach(k => {
-    const btn = document.getElementById(tabs[k].btn);
-    const panel = document.getElementById(tabs[k].panel);
-    if (!btn || !panel) return;
-
-    if (k === tabKey) {
-      panel.classList.remove("hidden");
-      btn.className = tabs[k].activeClass;
-    } else {
-      panel.classList.add("hidden");
-      btn.className = inactiveClass;
-    }
-  });
-}
-window.switchStrategyView = switchStrategyView;
-
-function renderActionCards(tech, allData) {
-  const techObj = tech || {};
-  const data = allData || {};
-  const pos = techObj.positionSizing || {};
-
-  // A. Card T+
-  const tPlus = techObj.tPlus || {};
-  const cardT = document.getElementById("cardTPlus");
-  const badgeT = document.getElementById("badgeTPlus");
-  const tEntryEl = document.getElementById("tEntryVal");
-  const tRREl = document.getElementById("tRRVal");
-
-  safeSetText("badgeTPlus", tPlus.decision);
-  safeSetText("reasonTPlus", tPlus.reason);
-  safeSetText("tEntryVal", tPlus.entry || "--");
-  safeSetText("tTargetVal", tPlus.target || "--");
-  safeSetText("tTarget2Val", tPlus.target2 || "--");
-  safeSetText("tStopVal", tPlus.stop || "--");
-  safeSetText("tNavVal", pos.maxNavPct ? `${pos.maxNavPct}% NAV` : "--");
-
-  const rr = techObj.rrRatio !== undefined ? techObj.rrRatio : (tPlus.rrRatio || 2.0);
-  if (tRREl) {
-    if (rr >= 2.0) {
-      tRREl.innerHTML = `1 : ${rr} <span class="text-[10px] font-sans px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/80 font-bold">✓ Đạt</span>`;
-      tRREl.className = "text-emerald-400 font-bold font-mono text-sm sm:text-base block";
-    } else if (rr >= 1.5) {
-      tRREl.innerHTML = `1 : ${rr} <span class="text-[10px] font-sans px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800/80 font-bold">Tạm</span>`;
-      tRREl.className = "text-amber-400 font-bold font-mono text-sm sm:text-base block";
-    } else {
-      tRREl.innerHTML = `1 : ${rr} <span class="text-[10px] font-sans px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800/80 font-bold">⚠️ Kém</span>`;
-      tRREl.className = "text-rose-400 font-bold font-mono text-sm sm:text-base block";
-    }
-  }
-
-  if (tEntryEl) {
-    if (tPlus.type === "success") {
-      tEntryEl.className = "text-emerald-400 font-bold text-sm sm:text-base block";
-    } else if (tPlus.type === "danger") {
-      tEntryEl.className = "text-rose-400 font-bold text-xs sm:text-sm block";
-    } else {
-      tEntryEl.className = "text-amber-400 font-bold text-xs sm:text-sm block";
-    }
-  }
-
-  const isTailLock = (data.riskEngine && data.riskEngine.tailLockRisk) || (data.futureOutlook && data.futureOutlook.tailLockRisk);
-  if (cardT && badgeT) {
-    if (isTailLock) {
-      badgeT.className = "text-xs font-black px-3 py-1 rounded border text-rose-200 bg-rose-900 border-rose-500 uppercase tracking-wide animate-pulse";
-    } else if (tPlus.type === "success") {
-      badgeT.className = "text-xs font-black px-3 py-1 rounded border text-emerald-300 bg-emerald-950 border-emerald-700 uppercase tracking-wide";
-    } else if (tPlus.type === "danger") {
-      badgeT.className = "text-xs font-black px-3 py-1 rounded border text-rose-300 bg-rose-950 border-rose-700 uppercase tracking-wide";
-    } else {
-      badgeT.className = "text-xs font-black px-3 py-1 rounded border text-amber-300 bg-amber-950 border-amber-700 uppercase tracking-wide";
-    }
-  }
-
-  // B. Card Vị thế Đang Nắm Giữ (Chốt Lời Sớm & Chặn Lãi Trailing Stop)
-  const holding = techObj.positionHolding || {};
-  const badgeH = document.getElementById("badgeHolding");
-  const distDaysEl = document.getElementById("hDistDaysVal");
-
-  safeSetText("badgeHolding", holding.decision || "--");
-  safeSetText("reasonHolding", holding.guide || "--");
-  safeSetText("hActionVal", holding.action || "--");
-  safeSetText("hTrailingStopVal", holding.trailingStopDisplay || (holding.trailingStop ? `${formatVND(holding.trailingStop)} đ` : "--"));
-  safeSetText("hDistTrailingVal", holding.distToTrailingStop !== undefined ? `${holding.distToTrailingStop > 0 ? '+' : ''}${holding.distToTrailingStop}% so với giá hiện tại` : "--");
-  safeSetText("hCandlePatternVal", holding.candlePattern || "--");
-  if (distDaysEl) {
-    const dDays = holding.distributionDays || 0;
-    distDaysEl.innerText = `${dDays} phiên`;
-    distDaysEl.className = dDays >= 3 ? "text-rose-400 font-bold" : (dDays >= 2 ? "text-amber-400 font-bold" : "text-emerald-400 font-bold");
-  }
-
-  if (badgeH) {
-    if (holding.type === "danger") {
-      badgeH.className = "text-xs font-black px-3 py-1 rounded border text-rose-200 bg-rose-900 border-rose-500 uppercase tracking-wide";
-    } else if (holding.type === "warning") {
-      badgeH.className = "text-xs font-black px-3 py-1 rounded border text-amber-200 bg-amber-900 border-amber-500 uppercase tracking-wide";
-    } else if (holding.type === "success") {
-      badgeH.className = "text-xs font-black px-3 py-1 rounded border text-emerald-300 bg-emerald-950 border-emerald-700 uppercase tracking-wide";
-    } else if (holding.type === "info") {
-      badgeH.className = "text-xs font-black px-3 py-1 rounded border text-blue-300 bg-blue-950 border-blue-700 uppercase tracking-wide";
-    } else {
-      badgeH.className = "text-xs font-black px-3 py-1 rounded border text-slate-300 bg-slate-800 border-slate-700 uppercase tracking-wide";
-    }
-  }
-
-  // C. Card Trung & Dài Hạn
-  const midTerm = techObj.midTerm || {};
-  const badgeM = document.getElementById("badgeMidTerm");
-  safeSetText("badgeMidTerm", midTerm.decision);
-  safeSetText("reasonMidTerm", midTerm.reason);
-  safeSetText("mEntryVal", midTerm.entry || "--");
-  safeSetText("mTargetVal", midTerm.target || "--");
-  safeSetText("mStopVal", midTerm.stop || "--");
-  safeSetText("mBenchmarkPeVal", midTerm.bandLabel || "--");
-  const mBenchmarkBadge = document.getElementById("mBenchmarkBadge");
-  if (mBenchmarkBadge) mBenchmarkBadge.title = midTerm.valuationMethod || "";
-
-  if (badgeM) {
-    if (midTerm.type === "success") {
-      badgeM.className = "text-xs font-black px-3 py-1 rounded border text-emerald-300 bg-emerald-950 border-emerald-700 uppercase tracking-wide";
-    } else if (midTerm.type === "danger") {
-      badgeM.className = "text-xs font-black px-3 py-1 rounded border text-rose-300 bg-rose-950 border-rose-700 uppercase tracking-wide";
-    } else {
-      badgeM.className = "text-xs font-black px-3 py-1 rounded border text-blue-300 bg-blue-950 border-blue-700 uppercase tracking-wide";
-    }
-  }
-
-  // D. Cập nhật Mini Badges trên thanh Tab Switcher
-  const tBadgeEl = document.getElementById("tabBadgeTPlus");
-  const hBadgeEl = document.getElementById("tabBadgeHolding");
-  const mBadgeEl = document.getElementById("tabBadgeMidTerm");
-
-  const formatTabMiniBadge = (rawText) => {
-    if (!rawText) return "--";
-    let txt = String(rawText).replace(/\(.*?\)/g, "").trim();
-    if (txt.includes("/")) txt = txt.split("/")[0].trim();
-    if (txt.includes("-")) txt = txt.split("-")[0].trim();
-
-    const upper = txt.toUpperCase();
-    if (upper.includes("TIẾP TỤC GỒNG LÃI") || upper.includes("GỒNG LÃI")) return "GỒNG LÃI";
-    if (upper.includes("CHỐT LỜI SỚM") || upper.includes("CHỐT SỚM")) return "CHỐT SỚM 50%";
-    if (upper.includes("KHÓA LÃI") || upper.includes("CHỐT HẾT")) return "KHÓA LÃI";
-    if (upper.includes("HẠ TỶ TRỌNG") || upper.includes("GIẢM VỊ THẾ") || upper.includes("GIẢM TỶ TRỌNG")) return "HẠ TỶ TRỌNG";
-    if (upper.includes("THOÁT VỊ THẾ")) return "THOÁT VỊ THẾ";
-    if (upper.includes("BẢO TOÀN LÃI") || upper.includes("THOÁT HÀNG")) return "BẢO TOÀN LÃI";
-    if (upper.includes("XA NỀN")) return "XA NỀN";
-    if (upper.includes("ĐIỂM NỔ") || upper.includes("BREAKOUT")) return "MUA NỔ NỀN";
-    if (upper.includes("MUA MỚI")) return "MUA MỚI";
-    if (upper.includes("THEO DÕI")) return "THEO DÕI NỀN";
-    if (upper.includes("ĐỊNH GIÁ CAO")) return "ĐỊNH GIÁ CAO";
-    if (upper.includes("ĐỊNH GIÁ HẤP DẪN") || upper.includes("HẤP DẪN")) return "GIÁ HẤP DẪN";
-    if (upper.includes("TÍCH SẢN")) return "TÍCH SẢN";
-    return txt;
-  };
-
-  if (tBadgeEl && tPlus.decision) {
-    tBadgeEl.innerText = formatTabMiniBadge(tPlus.decision);
-  }
-  if (hBadgeEl && holding.decision) {
-    hBadgeEl.innerText = formatTabMiniBadge(holding.decision);
-    if (holding.hasWarning) {
-      hBadgeEl.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-600 font-bold shrink-0 animate-pulse";
-    } else {
-      hBadgeEl.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-bold shrink-0";
-    }
-  }
-  if (mBadgeEl && midTerm.decision) {
-    mBadgeEl.innerText = formatTabMiniBadge(midTerm.decision);
-  }
-
-  // E. UX Tự động ưu tiên Tab quan trọng nhất
-  if (holding.hasWarning) {
-    switchStrategyView("holding");
-  } else {
-    switchStrategyView("tplus");
-  }
-
-  // C. Bottom Line Banner & Data Confidence Score
-  const bottomLine = (data.riskEngine && data.riskEngine.bottomLine) || (data.futureOutlook && data.futureOutlook.bottomLine) || "--";
-  safeSetText("bottomLineText", bottomLine);
-
-  const eng = data.riskEngine || {};
-  const dcScore = typeof eng.dcScore === 'number' ? eng.dcScore : null;
-  const dcRating = eng.dcRating || "--";
-  const dcBadge = document.getElementById("dcBadge");
-  if (dcBadge) {
-    dcBadge.innerText = dcScore !== null ? `Độ tin cậy: ${dcScore}/100 (${dcRating})` : "Độ tin cậy: --";
-    dcBadge.title = (eng.dcDeductions && eng.dcDeductions.length) ? eng.dcDeductions.join("\n") : "Không có điểm trừ";
-    dcBadge.className = `text-[11px] font-mono px-2.5 py-0.5 rounded border font-bold ${dcScore === null ? 'bg-slate-800 text-slate-300 border-slate-700' :
-      (dcScore >= 80 ? 'bg-emerald-950 text-emerald-300 border-emerald-700' :
-        (dcScore >= 65 ? 'bg-blue-950 text-blue-300 border-blue-700' : 'bg-amber-950 text-amber-300 border-amber-700'))
-      }`;
-  }
-
-  // Regime thị trường (5 điều kiện) dùng làm cổng mở vị thế mới
-  const regime = eng.regime || {};
-  const regimeBadge = document.getElementById("regimeBadge");
-  if (regimeBadge) {
-    const regimeColors = {
-      RISK_ON: 'bg-emerald-950 text-emerald-300 border-emerald-700',
-      NEUTRAL: 'bg-blue-950 text-blue-300 border-blue-700',
-      DEFENSIVE: 'bg-amber-950 text-amber-300 border-amber-700',
-      NO_NEW_RISK: 'bg-rose-950 text-rose-300 border-rose-700',
-    };
-    regimeBadge.innerText = regime.regime ? `Regime: ${regime.regime} (${regime.score}/5)` : "Regime: --";
-    regimeBadge.title = regime.summary || "";
-    regimeBadge.className = `text-[11px] font-mono px-2.5 py-0.5 rounded border font-bold ${regimeColors[regime.regime] || 'bg-slate-800 text-slate-300 border-slate-700'}`;
-  }
-  const regimeList = document.getElementById("regimeConditionsList");
-  if (regimeList) {
-    regimeList.innerHTML = "";
-    (regime.conditions || []).forEach(c => {
-      const li = document.createElement("li");
-      const mark = c.met === true ? "✓" : (c.met === false ? "✗" : "?");
-      li.className = c.met === true ? "text-emerald-400/80" : (c.met === false ? "text-rose-400/80" : "text-slate-500");
-      li.textContent = `${mark} ${c.name}: ${c.detail}`;
-      regimeList.appendChild(li);
-    });
-  }
-}
 
 function renderFundamentalsTab(data) {
   const fa = data.fundamentals || {};
@@ -652,14 +415,39 @@ export async function loadStock(ticker) {
     if (resSelect) currentResolution = resSelect.value || '1D';
 
     const data = await getStockDetail(sym, currentResolution);
-    renderQuickHeader(data);
-    renderUnifiedDecisionHero(data.decisionEngine, data);
-    renderVerdictAndScores(data);
-    renderVisualMeters(data);
-    renderActionCards(data.technicals, data);
-    renderFundamentalsTab(data);
-    renderTechnicalsTab(data);
-    updateChartData(data.candles, currentResolution);
+
+    // 1. Cập nhật Quick Header
+    try {
+      renderQuickHeader(data);
+    } catch (errHeader) {
+      console.warn("Lỗi renderQuickHeader:", errHeader);
+    }
+
+    // 2. Cập nhật Biểu đồ nến trước để sẵn sàng canvas & trục giá
+    try {
+      if (data.candles && data.candles.length > 0) {
+        updateChartData(data.candles, currentResolution);
+      }
+    } catch (errChart) {
+      console.warn("Lỗi updateChartData:", errChart);
+    }
+
+    // 3. Cập nhật Động cơ ra quyết định & đồng bộ Price Lines lên biểu đồ
+    try {
+      renderUnifiedDecisionHero(data.decisionEngine, data);
+    } catch (errHero) {
+      console.warn("Lỗi renderUnifiedDecisionHero:", errHero);
+    }
+
+    // 4. Cập nhật các tab và thang đo
+    try {
+      renderVerdictAndScores(data);
+      renderVisualMeters(data);
+      renderFundamentalsTab(data);
+      renderTechnicalsTab(data);
+    } catch (errTabs) {
+      console.warn("Lỗi render tabs/scores:", errTabs);
+    }
   } catch (err) {
     console.error("Lỗi khi load mã:", err);
     if (DOM.alert) {
@@ -689,12 +477,12 @@ function setupAutocomplete() {
     }
 
     DOM.searchSuggestions.innerHTML = matches.map(s => `
-      <div class="p-2.5 hover:bg-slate-800 cursor-pointer flex items-center justify-between transition suggestion-item" data-ticker="${s.ticker}">
-        <div class="flex items-center gap-2 pointer-events-none">
-          <span class="font-mono font-bold text-blue-400">${s.ticker}</span>
-          <span class="text-slate-300 truncate max-w-[180px]">${s.name}</span>
+      <div class="p-2.5 px-3 hover:bg-slate-800/90 cursor-pointer flex items-center justify-between gap-3 transition suggestion-item" data-ticker="${s.ticker}" title="${s.ticker} - ${s.name}">
+        <div class="flex items-center gap-2.5 min-w-0 flex-1 pointer-events-none">
+          <span class="font-mono font-bold text-xs text-blue-400 bg-blue-950/80 border border-blue-800/60 px-2 py-0.5 rounded flex-shrink-0">${s.ticker}</span>
+          <span class="text-slate-200 text-xs truncate min-w-0 font-medium whitespace-nowrap">${s.name}</span>
         </div>
-        <span class="text-[10px] text-slate-500 font-mono pointer-events-none">${s.sector}</span>
+        <span class="text-[10px] text-slate-400 font-mono bg-slate-950/80 border border-slate-800 px-2 py-0.5 rounded flex-shrink-0 whitespace-nowrap pointer-events-none">${s.sector}</span>
       </div>
     `).join("");
 
@@ -721,7 +509,7 @@ function setupAutocomplete() {
   });
 }
 
-// ==================== 6. SỰ KIỆN GIAO DIỆN ====================
+// ==================== 6. SỰ KIỆN GIAO DIỆN & DIALOG BCTC ====================
 function initEvents() {
   DOM.tabBtns.forEach((btn, idx) => {
     btn?.addEventListener("click", () => switchTab(idx));
@@ -747,25 +535,51 @@ function initEvents() {
     }
   });
 
-  DOM.select?.addEventListener("change", (e) => {
-    const val = e.target.value;
-    if (val) {
-      if (DOM.input) DOM.input.value = val;
-      DOM.searchSuggestions?.classList.add("hidden");
-      loadStock(val);
-    }
-  });
+  // Điều khiển Dialog Modal Xem Chi Tiết BCTC & Chỉ Số Tài Chính
+  const financialModal = document.getElementById("financialModal");
+  const openModalBtns = document.querySelectorAll(".btn-open-financial-modal, #openFinancialModalBtn, #openFinancialModalBtnTab");
+  const closeModalBtns = document.querySelectorAll("#closeFinancialModalBtn, #closeFinancialModalBtn2");
 
-  document.querySelectorAll(".chip-btn").forEach(btn => {
+  function openFinancialModal() {
+    if (financialModal) {
+      financialModal.classList.remove("hidden");
+      document.body.classList.add("overflow-hidden");
+    }
+  }
+
+  function closeFinancialModal() {
+    if (financialModal) {
+      financialModal.classList.add("hidden");
+      document.body.classList.remove("overflow-hidden");
+    }
+  }
+
+  openModalBtns.forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
-      const t = btn.getAttribute("data-ticker");
-      if (t) {
-        if (DOM.input) DOM.input.value = t;
-        DOM.searchSuggestions?.classList.add("hidden");
-        loadStock(t);
+      openFinancialModal();
+    });
+  });
+
+  closeModalBtns.forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      closeFinancialModal();
+    });
+  });
+
+  if (financialModal) {
+    financialModal.addEventListener("click", (e) => {
+      if (e.target === financialModal) {
+        closeFinancialModal();
       }
     });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && financialModal && !financialModal.classList.contains("hidden")) {
+      closeFinancialModal();
+    }
   });
 
   const tfSelect = document.getElementById("chartTimeframeSelect");
@@ -773,14 +587,7 @@ function initEvents() {
     tfSelect.addEventListener("change", async (e) => {
       currentResolution = e.target.value;
       if (!currentTicker) return;
-      try {
-        const chartRes = await getChartData(currentTicker, currentResolution);
-        if (chartRes && chartRes.candles) {
-          updateChartData(chartRes.candles, currentResolution);
-        }
-      } catch (err) {
-        console.error("Lỗi đổi khung thời gian biểu đồ:", err);
-      }
+      await loadStock(currentTicker);
     });
   }
 }

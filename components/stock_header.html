@@ -1,4 +1,4 @@
-<!-- Quick Header: Stock Price, Exchange, Range & Live Info -->
+<!-- Quick Header: Stock Price, Exchange, Range, Volume & Live Info -->
 <div id="quickHeader"
   class="mt-4 p-4 md:p-5 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-4">
   <div class="flex items-center gap-3">
@@ -13,13 +13,22 @@
         <span id="sectorBadge" class="text-xs text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded">Ngành:
           ---</span>
         <span id="updateTime" class="text-xs text-slate-400 font-mono">Phiên: --/--/----</span>
+        <!-- Nút xem chi tiết BCTC & Chỉ số dạng Dialog tránh rối loạn nguồn trên UI -->
+        <button id="openFinancialModalBtn" type="button"
+          class="btn-open-financial-modal inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-blue-950/80 hover:bg-blue-900 text-blue-300 hover:text-white border border-blue-700/60 text-xs font-semibold shadow-sm transition hover:scale-105 active:scale-95 cursor-pointer">
+          <i class="fa-solid fa-file-invoice-dollar text-blue-400"></i>
+          <span>Chi tiết BCTC &amp; Chỉ số</span>
+          <i class="fa-solid fa-arrow-up-right-from-square text-[9px] opacity-70"></i>
+        </button>
       </div>
     </div>
   </div>
 
   <div class="flex items-center gap-4 sm:gap-6">
-    <!-- Bảng giá Cao nhất / Tham chiếu / Thấp nhất -->
+    <!-- Bảng giá Cao nhất / Tham chiếu / Thấp nhất / Khối lượng -->
     <div class="hidden sm:flex flex-col text-right font-mono text-xs space-y-0.5">
+      <div><span class="text-slate-500">Khối lượng:</span> <span id="headerVolume"
+          class="text-amber-300 font-semibold">-- CP</span></div>
       <div><span class="text-slate-500">Cao nhất:</span> <span id="priceHigh"
           class="text-emerald-400 font-semibold">--</span></div>
       <div><span class="text-slate-500">Tham chiếu:</span> <span id="priceRef"
@@ -30,7 +39,7 @@
 
     <!-- Giá khớp & Biến động -->
     <div class="text-right">
-      <div class="text-xs text-slate-400 mb-0.5">Giá khớp lệnh</div>
+      <div class="text-xs text-slate-400 mb-0.5">Thị giá hiện tại</div>
       <div id="currentPrice" class="text-2xl md:text-3xl font-extrabold font-mono text-blue-400">--</div>
       <div id="priceChangeBadge"
         class="inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded bg-slate-800 text-slate-400">--</div>
@@ -38,4 +47,28 @@
   </div>
 </div>
 
+<!-- KHỐI BANNER TỔNG QUAN TÍN HIỆU & TRẠNG THÁI THEO THỊ GIÁ (THEO WIREFRAME) -->
+<div id="overallSignalBanner"
+  class="mt-3 p-3.5 sm:p-4 rounded-xl border border-blue-900/60 bg-gradient-to-r from-blue-950/60 via-slate-900 to-indigo-950/60 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3">
+  <div class="flex items-center gap-3">
+    <div
+      class="w-9 h-9 rounded-lg bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 flex-shrink-0">
+      <i class="fa-solid fa-signal text-base"></i>
+    </div>
+    <div>
+      <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">TỔNG QUAN TÍN HIỆU:</div>
+      <div id="overallSignalText" class="text-sm sm:text-base font-black text-white tracking-wide mt-0.5">
+        VUI LÒNG CHỌN MÃ CHỨNG KHOÁN ĐỂ PHÂN TÍCH
+      </div>
+    </div>
+  </div>
 
+  <!-- Real-time Price Action Status Tag -->
+  <div class="flex items-center gap-2 self-start md:self-auto flex-wrap">
+    <span class="text-xs text-slate-400 font-mono hidden sm:inline">Đối chiếu thị giá:</span>
+    <div id="headerPriceStatusBadge"
+      class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border shadow-md bg-slate-800 text-slate-300 border-slate-700">
+      <i class="fa-solid fa-clock-rotate-left mr-1"></i> <span>Chờ nạp mã...</span>
+    </div>
+  </div>
+</div>

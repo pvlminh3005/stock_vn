@@ -27,105 +27,7 @@ for p in [ROOT_DIR, BACKEND_DIR]:
     sys.path.insert(0, p)
 
 # ==================== IMPORT FROM CLEAN ARCHITECTURE MODULES ====================
-from backend.constants import (
-    DB_PATH,
-    HEADERS,
-    SSI_HEADERS,
-    REGIME_LEVELS,
-    SECTOR_MAP,
-    FINANCIAL_SECTORS,
-    CYCLICAL_SECTORS,
-    PB_PRIMARY_SECTORS,
-    BADGE_COLOR_FINANCE,
-    BADGE_COLOR_COMPANY,
-    BADGE_COLOR_EVENT,
-    BADGE_COLOR_MACRO,
-    BADGE_COLOR_PRESS,
-    BADGE_COLOR_MARKET,
-    VOL_COLOR_INFLOW,
-    VOL_COLOR_DISTRIBUTION,
-    VOL_COLOR_WARNING,
-    VOL_COLOR_ACTIVE,
-    VOL_COLOR_NEUTRAL,
-    STATUS_COLOR_PERFECT,
-    STATUS_COLOR_MOMENTUM,
-    STATUS_COLOR_VALUE,
-    STATUS_COLOR_NEUTRAL,
-    STATUS_COLOR_RISK,
-    DECISION_TYPE_SUCCESS,
-    DECISION_TYPE_WARNING,
-    DECISION_TYPE_DANGER,
-    DECISION_TYPE_INFO,
-    DECISION_TYPE_NEUTRAL,
-)
-
-from backend.utils import (
-    safe_num,
-    percentile,
-    round_price,
-    vn_date,
-    vn_now,
-    is_trading_day,
-    is_trading_hours,
-    trading_minutes_elapsed,
-    fetch_json,
-    vnstock_call,
-    format_candles,
-    parse_quarter_key,
-    period_key,
-    expected_latest_report_period,
-    merge_live_session_bar,
-)
-
-from backend.db import (
-    init_db,
-    get_cached_fundamental,
-    save_cached_fundamental,
-)
-
-from backend.data_providers import (
-    get_ssi_board_data,
-    fetch_chart_data,
-    handle_chart_only,
-    fetch_vci_financial_history,
-    get_vci_financial_history,
-    summarize_vci_history,
-    fetch_live_multi_sources,
-)
-
-from backend.domain import (
-    classify_ocf_status,
-    fetch_from_vnstock,
-    compute_valuation_band,
-    apply_vci_overlay,
-    assess_financial_distress,
-    get_fundamental_profile,
-    calculate_fundamental_valuation,
-    get_vnindex_series,
-    calculate_relative_strength,
-    calculate_multi_timeframe_confluence,
-    calculate_rsi,
-    calculate_ema,
-    calculate_sma,
-    calculate_atr,
-    identify_structural_levels,
-    detect_candlestick_exit_signals,
-    calculate_weekly_levels,
-    classify_volume_signal,
-    analyze_technicals_and_scoring,
-    get_breadth_universe,
-    warm_up_market_data,
-    evaluate_market_regime,
-    calculate_market_fear_greed_index,
-    detect_governance_and_legal_risks,
-    compute_data_confidence,
-    evaluate_securities_risk_engine,
-    build_macro_context,
-    generate_multi_source_future_outlook,
-    evaluate_unified_decision,
-)
-
-
+from backend.domain.regime import warm_up_market_data
 from backend.controllers import (
     handle_stock_detail,
     handle_chart,
@@ -223,7 +125,7 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         return
       resolution = params.get('resolution', ['1D'])[0]
       try:
-        self.send_json(200, handle_chart_only(ticker, resolution=resolution))
+        self.send_json(200, handle_chart(ticker, resolution=resolution))
       except Exception as e:
         self.send_json(500, {'error': str(e)})
       return

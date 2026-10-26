@@ -14,74 +14,24 @@
       &amp; Volume)</p>
   </div>
 
-  <!-- Search & Quick Selection -->
-  <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 relative">
-    <div class="relative w-full sm:w-56">
-      <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+  <!-- Search Bar -->
+  <div class="flex items-center gap-2 relative w-full sm:w-auto">
+    <div class="relative w-full sm:w-72 md:w-80 lg:w-96">
+      <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
         <i class="fa-solid fa-magnifying-glass text-xs"></i>
       </div>
-      <input type="text" id="tickerInput" placeholder="Nhập mã (FPT, HPG, TCB)..." autocomplete="off"
-        class="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase font-mono tracking-wider transition">
-      <!-- Autocomplete suggestions dropdown -->
+      <input type="text" id="tickerInput" placeholder="Nhập mã CP (HPG, FPT, VCB, SSI)..." autocomplete="off"
+        class="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 uppercase font-mono tracking-wider transition shadow-inner">
+      <!-- Autocomplete suggestions dropdown (rộng rãi, chống tràn dòng) -->
       <div id="searchSuggestions"
-        class="hidden absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-40 divide-y divide-slate-800 text-xs">
+        class="hidden absolute top-full left-0 w-full sm:w-[420px] md:w-[460px] mt-1.5 bg-slate-900/98 border border-slate-700/80 rounded-xl shadow-2xl z-50 divide-y divide-slate-800/80 text-xs max-h-80 overflow-y-auto backdrop-blur-md">
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
-      <select id="tickerSelect" autocomplete="off"
-        class="bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-blue-500 font-mono transition">
-        <option value="">-- Chọn mã hot --</option>
-        <option value="FPT">FPT - Công nghệ FPT</option>
-        <option value="MWG">MWG - Thế Giới Di Động</option>
-        <option value="HPG">HPG - Thép Hòa Phát</option>
-        <option value="TCB">TCB - Techcombank</option>
-        <option value="MBB">MBB - MB Bank</option>
-        <option value="SSI">SSI - Chứng khoán SSI</option>
-        <option value="VCB">VCB - Vietcombank</option>
-        <option value="VNM">VNM - Vinamilk</option>
-        <option value="MSN">MSN - Masan Group</option>
-        <option value="DPG">DPG - Tập đoàn Đạt Phương</option>
-        <option value="DGW">DGW - Thế Giới Số</option>
-        <option value="VCG">VCG - Vinaconex</option>
-        <option value="PVD">PVD - Khoan Dầu Khí</option>
-        <option value="POW">POW - Điện lực Dầu khí</option>
-        <option value="STB">STB - Sacombank</option>
-      </select>
-
-      <button id="searchBtn"
-        class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 whitespace-nowrap shadow-lg shadow-blue-600/20">
-        <i class="fa-solid fa-sync" id="searchIcon"></i> Tra cứu
-      </button>
-    </div>
+    <button id="searchBtn" type="button"
+      class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 whitespace-nowrap shadow-lg shadow-blue-600/20 cursor-pointer">
+      <i class="fa-solid fa-sync" id="searchIcon"></i> Tra cứu
+    </button>
   </div>
 </div>
 
-<!-- Quick Ticker Chips Bar -->
-<div class="mt-3 flex items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1 text-xs">
-  <span class="text-slate-500 whitespace-nowrap text-[11px] font-medium mr-1">Gợi ý nhanh:</span>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="FPT">FPT</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="MWG">MWG</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="HPG">HPG</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="TCB">TCB</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="MBB">MBB</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="SSI">SSI</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="DPG">DPG</button>
-  <button
-    class="chip-btn px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-mono border border-slate-700/60 transition"
-    data-ticker="PVD">PVD</button>
-</div>
