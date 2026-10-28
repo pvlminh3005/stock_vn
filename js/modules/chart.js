@@ -1,4 +1,10 @@
 import { formatStockPrice, formatCompactNumber } from '../utils.js?v=4.0';
+import {
+  TPLUS_SUPERTREND_PERIOD,
+  TPLUS_SUPERTREND_MULTIPLIER,
+  ADX_PERIOD,
+  ADX_SIDEWAY_THRESHOLD
+} from '../constants/indicators.js?v=4.0';
 
 let chart = null;
 let candleSeries = null;
@@ -426,13 +432,17 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
     }
   }
 
-  // 3. Stop Loss / Trailing / Hòa vốn / Ngưỡng thoát vị thế
+  // 3. Stop Loss / Trailing / Hòa vốn / Ngưỡng thoát vị thế / Chặn lãi (Amber)
   const slPrice = config.stopLoss;
   const isBreakEven = config.stopLossLabel && config.stopLossLabel.includes("Hòa vốn");
   const isTrailing = config.stopLossLabel && config.stopLossLabel.includes("Trailing");
+  const isLockProfit = !!config.isLockProfit || (config.stopLossLabel && (config.stopLossLabel.includes("Chặn lãi") || config.stopLossLabel.includes("Chốt hết") || config.stopLossLabel.includes("Khóa lãi")));
   const slLabelEl = document.getElementById("stbSummaryStopLossLabel");
+  const slPctEl = document.getElementById("stbSummaryStopLossPct");
+  const slEl = document.getElementById("stbSummaryStopLoss");
   if (slLabelEl) {
     if (isProhibited) slLabelEl.innerText = "NGƯỠNG THOÁT VỊ THẾ";
+    else if (isLockProfit) slLabelEl.innerText = "HỖ TRỢ CHẶN LÃI (SL)";
     else if (isMidTerm) slLabelEl.innerText = "QTRR TUẦN (SL)";
     else if (isBreakEven) slLabelEl.innerText = "HÒA VỐN (BE)";
     else if (isTrailing) slLabelEl.innerText = "TRAILING SL";
@@ -444,10 +454,19 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
     : null;
   safeSetText("stbSummaryStopLoss", slPrice ? formatStockPrice(slPrice) : "--");
   safeSetText("stbSummaryStopLossPct", slPct ? `-${slPct}%` : "");
-  const slEl = document.getElementById("stbSummaryStopLoss");
   if (slEl) {
+    if (isProhibited) {
+      slEl.className = "font-bold text-rose-400 text-xs mt-0.5";
+      if (slPctEl) slPctEl.className = "text-[10px] font-bold font-mono text-rose-400";
+    } else if (isLockProfit) {
+      slEl.className = "font-bold text-amber-400 text-xs mt-0.5";
+      if (slPctEl) slPctEl.className = "text-[10px] font-bold font-mono text-amber-400";
+    } else {
+      slEl.className = "font-bold text-rose-400 text-xs mt-0.5";
+      if (slPctEl) slPctEl.className = "text-[10px] font-bold font-mono text-rose-400";
+    }
     slEl.title = slPrice
-      ? `${isProhibited ? 'Ngưỡng thoát vị thế bảo toàn vốn' : (isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ')))}: ${formatStockPrice(slPrice)} ${slPct ? `(-${slPct}%)` : ''}`
+      ? `${isProhibited ? 'Ngưỡng thoát vị thế bảo toàn vốn' : (isLockProfit ? 'Hỗ trợ Chặn Lãi / Chốt lời toàn bộ bảo toàn đệm lãi' : (isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ'))))}: ${formatStockPrice(slPrice)} ${slPct ? `(-${slPct}%)` : ''}`
       : '';
   }
 }
@@ -522,16 +541,18 @@ export function setChartPriceLines(config = {}) {
     }
   }
 
-  // 3. Đường Cắt Lỗ (Stop Loss) - Đỏ / Rose
+  // 3. Đường Cắt Lỗ (Stop Loss) / Chặn Lãi (Amber)
   if (config.stopLoss && config.stopLoss > 0) {
     try {
+      const isLockProfit = !!config.isLockProfit || (config.stopLossLabel && (config.stopLossLabel.includes("Chặn lãi") || config.stopLossLabel.includes("Chốt hết") || config.stopLossLabel.includes("Khóa lãi")));
+      const lineColor = isExit ? '#f43f5e' : (isLockProfit ? '#f59e0b' : '#f43f5e');
       const line = candleSeries.createPriceLine({
         price: config.stopLoss,
-        color: '#f43f5e',
-        lineWidth: isExit ? 2 : 1.5,
+        color: lineColor,
+        lineWidth: (isExit || isLockProfit) ? 2 : 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : 'Cắt lỗ'),
+        title: config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : (isLockProfit ? 'Hỗ trợ Chặn Lãi' : 'Cắt lỗ')),
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -786,13 +807,13 @@ export function calculateADXSeries(candles, period = 14) {
  * - Mũi tên & Huy hiệu: MUA: [Giá] / BÁN: [Giá]
  * - Tích hợp bộ lọc ADX(14) để tránh bẫy Sideway biên hẹp (hiển thị CHỜ TREND khi ADX < 20)
  */
-export function calculateSuperTrend(candles, period = 10, multiplier = 1.15, resolution = '1D') {
+export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, multiplier = TPLUS_SUPERTREND_MULTIPLIER, resolution = '1D') {
   if (!candles || candles.length === 0) {
     return { standardCandles: [], cloudData: [], markers: [], currentSignal: null, volColors: [], summary: null };
   }
 
   const n = candles.length;
-  const adxSeries = calculateADXSeries(candles, 14);
+  const adxSeries = calculateADXSeries(candles, ADX_PERIOD);
   const tr = new Array(n);
   const atr = new Array(n);
   const emaClose = new Array(n);
@@ -886,8 +907,8 @@ export function calculateSuperTrend(candles, period = 10, multiplier = 1.15, res
           lastBuyPrice = triggerPrice;
           hasTakenProfit = false;
 
-          // Bộ lọc ADX(14) để tránh bẫy thị trường đi ngang (Sideway Trap):
-          const isSideway = adxSeries[i] < 20.0;
+          // Bộ lọc ADX để tránh bẫy thị trường đi ngang (Sideway Trap):
+          const isSideway = adxSeries[i] < ADX_SIDEWAY_THRESHOLD;
           if (isSideway) {
             signals.push({
               time: c.time,
@@ -930,7 +951,7 @@ export function calculateSuperTrend(candles, period = 10, multiplier = 1.15, res
           lastFlipPrice = brokenSupport;
           cycleProfitPct = lastBuyPrice > 0 ? ((brokenSupport - lastBuyPrice) / lastBuyPrice) * 100 : 0;
           const isProfitableExit = hasTakenProfit || (lastBuyPrice > 0 && brokenSupport >= lastBuyPrice);
-          const wasSidewayBuy = lastBuyIdx >= 0 && adxSeries[lastBuyIdx] < 20.0;
+          const wasSidewayBuy = lastBuyIdx >= 0 && adxSeries[lastBuyIdx] < ADX_SIDEWAY_THRESHOLD;
 
           const kcPrice = Math.round(finalUpper[i]);
           const exitText = 'HỒNG: ' + formatStockPrice(brokenSupport);
@@ -1151,7 +1172,7 @@ export function updateChartData(candles, resolution = '1D') {
     }
   });
 
-  const { standardCandles, cloudData, signals, currentSignal, volColors, summary } = calculateSuperTrend(candles, 10, 1.15, resolution);
+  const { standardCandles, cloudData, signals, currentSignal, volColors, summary } = calculateSuperTrend(candles, TPLUS_SUPERTREND_PERIOD, TPLUS_SUPERTREND_MULTIPLIER, resolution);
 
   // 1. Áp dụng nến tự nhiên & Dải VÙNG MÂY bọc ngoài
   candleSeries.setData(standardCandles);

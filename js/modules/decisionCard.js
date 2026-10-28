@@ -26,7 +26,7 @@ function safeSetHtml(id, html) {
   if (el) el.innerHTML = (html !== undefined && html !== null) ? html : '--';
 }
 
-let activeFilter = 'all';           // 'all' | 'newEntry' | 'holding'
+let activeFilter = 'newEntry';      // Mặc định luôn là 'newEntry' (Chưa có hàng / Mua mới)
 let userCostPrice = null;           // Nhập giá vốn tùy chọn
 let cachedDecisionData = null;
 let cachedRawData = null;
@@ -66,6 +66,7 @@ function setupPositionControls() {
       const val = parseFloat(e.target.value);
       userCostPrice = (!isNaN(val) && val > 0) ? val : null;
       updateCostPnL();
+      syncChartPriceLines();
     });
   }
 
@@ -134,6 +135,7 @@ function updateFilterUI() {
   }
 
   updateCostPnL();
+  syncChartPriceLines();
 }
 
 function updateCostPnL() {
@@ -156,6 +158,10 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
   if (!decisionData) return;
   cachedDecisionData = decisionData;
   cachedRawData = rawData;
+  activeFilter = 'newEntry'; // Luôn mặc định là "Chưa có hàng (Mua mới)" khi nạp mã mới
+  userCostPrice = null;      // Reset giá vốn người dùng khi sang mã mới
+  const costInput = document.getElementById('userCostInput');
+  if (costInput) costInput.value = '';
 
   setupPositionControls();
   updateFilterUI();
@@ -479,14 +485,37 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
     }
   }
 
+  // Gọi đồng bộ đường giá trực tiếp lên Chart TradingView
+  syncChartPriceLines();
+}
+
+/**
+ * Đồng bộ đường giá khuyến nghị lên đồ thị TradingView theo đúng vị thế người dùng
+ * - Chưa có hàng (Mua mới / Tất cả): Vùng mua, Target 1, Target 2, Cắt lỗ gốc (SL)
+ * - Đang nắm giữ: Ẩn đường vùng mua; Đổi đường phòng thủ thành Hỗ trợ Chặn Lãi (Amber) bảo toàn lợi nhuận; Focus Target 2
+ */
+export function syncChartPriceLines() {
+  if (!cachedDecisionData) return;
   try {
+    const de = cachedDecisionData;
+    const rawData = cachedRawData;
+    const tplus = de.tPlus || {};
+    const midterm = de.midTerm || {};
+    const overall = de.overallSignal || {};
+    const priceStatus = de.priceStatusTag || {};
+    const currentPrice = de.currentPrice || (rawData && rawData.price) || 0;
+
+    const isMidTermHorizon = de.activeHorizon === 'midTerm' || rawData?.decisionEngine?.activeHorizon === 'midTerm';
     const primarySrc = isMidTermHorizon ? midterm : tplus;
+
     const isProhibited = overall.type === 'danger' || 
       (primarySrc.hardRules && primarySrc.hardRules.triggeredCount > 0) || 
       (priceStatus && priceStatus.color === 'rose') ||
       (priceStatus && priceStatus.badge && priceStatus.badge.includes('CẤM MUA')) ||
       (primarySrc.newEntry && primarySrc.newEntry.action === 'WAIT' && 
        ['AVOID_RISK', 'TAIL_RISK', 'AVOID_ILLIQUID'].includes(primarySrc.newEntry.subtag));
+
+    const isHoldingMode = activeFilter === 'holding';
 
     if (isMidTermHorizon) {
       const midT1Price = midterm.target || 0;
@@ -497,6 +526,8 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
       const marginOfSafety = midterm.marginOfSafetyPct !== undefined ? midterm.marginOfSafetyPct : 0;
       const marginSign = marginOfSafety >= 0 ? '+' : '';
 
+      const isMidLock = isHoldingMode && ((userCostPrice && currentPrice > userCostPrice) || (midT1Price > 0 && currentPrice >= midT1Price * 0.98));
+
       setChartPriceLines({
         target: midT1Price,
         targetLabel: isProhibited 
@@ -504,55 +535,109 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
           : `Target 1 (Định giá): ${formatVND(midT1Price)} (${marginSign}${marginOfSafety}%)`,
         target2: isProhibited ? null : midT2Price,
         target2Label: (!isProhibited && midT2Price) ? `Target 2 (Đỉnh CK): ${formatVND(midT2Price)}` : '',
-        buyZone: midBuyZone,
+        buyZone: (isHoldingMode || isProhibited) ? null : midBuyZone,
         buyZoneLabel: isProhibited 
           ? `Hỗ trợ tuần: ${formatVND(midBuyZone)} (Cấm bắt đáy)` 
           : `Vùng gom tích sản: ${formatVND(midBuyZone)}`,
         stopLoss: midStop,
         stopLossLabel: isProhibited 
           ? `Ngưỡng thoát vị thế: ${formatVND(midStop)}` 
-          : `Ngưỡng QTRR Tuần: ${formatVND(midStop)}`,
+          : (isMidLock ? `Hỗ trợ Chặn Lãi Tuần: ${formatVND(midStop)}` : `Ngưỡng QTRR Tuần: ${formatVND(midStop)}`),
         isProhibited: isProhibited,
+        isLockProfit: isMidLock,
       });
     } else {
-      const effectiveStopLoss = (tplus.trailingStop && tplus.trailingStop > tplus.stopLoss) ? tplus.trailingStop : tplus.stopLoss;
-      const isTrailing = tplus.trailingStop && tplus.trailingStop > tplus.stopLoss;
-      const isHitTarget1 = tplus.isHitTarget1;
-      let slLabel = `Cắt lỗ: ${formatVND(effectiveStopLoss)}`;
-      if (isProhibited) {
-        slLabel = `Ngưỡng thoát vị thế: ${formatVND(effectiveStopLoss)}`;
-      } else if (isHitTarget1) {
-        slLabel = `Hòa vốn (BE): ${formatVND(effectiveStopLoss)}`;
-      } else if (isTrailing) {
-        slLabel = `Trailing SL: ${formatVND(effectiveStopLoss)}`;
-      } else if (slPctStr) {
-        slLabel += ` (${slPctStr})`;
+      const rawSL = tplus.stopLoss || 0;
+      const trailingSL = tplus.trailingStop || 0;
+      const isHitTarget1 = tplus.isHitTarget1 || (tplus.target1 && currentPrice >= tplus.target1 * 0.98);
+
+      const target1Price = tplus.target1 || tplus.target || 0;
+      const target2Price = tplus.target2 || 0;
+
+      const tpPctStr = tplus.targetPct ? `+${tplus.targetPct}%` : '';
+      const slPctStr = tplus.stopLossPct ? `-${tplus.stopLossPct}%` : '';
+
+      if (isHoldingMode) {
+        // =========================================================================
+        // CHẾ ĐỘ: ĐANG NẮM GIỮ (HOLDING)
+        // =========================================================================
+        // 1. Ẩn hoàn toàn đường vùng mua (buyZone = null) để đồ thị thoáng đãng
+        // 2. Mốc Hỗ trợ Chặn Lãi / Trailing Stop:
+        const hasProfit = (userCostPrice && currentPrice > userCostPrice) || isHitTarget1 || (trailingSL > rawSL);
+        const lockStopPrice = (trailingSL && trailingSL > rawSL) ? trailingSL : (tplus.support || rawSL);
+
+        let holdingSLLabel = `Cắt lỗ: ${formatVND(rawSL)}`;
+        let isLockProfit = false;
+
+        if (isProhibited) {
+          holdingSLLabel = `Ngưỡng thoát vị thế: ${formatVND(lockStopPrice || rawSL)}`;
+        } else if (hasProfit) {
+          isLockProfit = true;
+          if (isHitTarget1) {
+            holdingSLLabel = `Hòa vốn (BE) / Chặn lãi: ${formatVND(lockStopPrice)}`;
+          } else {
+            holdingSLLabel = `Hỗ trợ Chặn Lãi: ${formatVND(lockStopPrice)}`;
+          }
+        } else {
+          holdingSLLabel = `Ngưỡng QTRR: ${formatVND(rawSL)}`;
+        }
+
+        // Target cho người nắm giữ:
+        let primaryTarget = target1Price;
+        let primaryTargetLabel = `Target 1 (T+): ${formatVND(target1Price)}`;
+        let secTarget = target2Price;
+        let secTargetLabel = target2Price ? `Target 2 (Trend): ${formatVND(target2Price)}` : '';
+
+        if (isHitTarget1 && target2Price > 0) {
+          primaryTarget = target2Price;
+          primaryTargetLabel = `Target 2 (Gồng lãi): ${formatVND(target2Price)}`;
+          secTarget = null;
+          secTargetLabel = '';
+        }
+
+        setChartPriceLines({
+          target: isProhibited ? target1Price : primaryTarget,
+          targetLabel: isProhibited ? `Kháng cự hạ tỷ trọng: ${formatVND(target1Price)}` : primaryTargetLabel,
+          target2: isProhibited ? null : secTarget,
+          target2Label: secTargetLabel,
+          buyZone: null, // Không vẽ đường vùng mua khi đang nắm giữ
+          buyZoneLabel: '',
+          stopLoss: lockStopPrice || rawSL,
+          stopLossLabel: holdingSLLabel,
+          isProhibited: isProhibited,
+          isLockProfit: isLockProfit,
+        });
+      } else {
+        // =========================================================================
+        // CHẾ ĐỘ: CHƯA CÓ HÀNG (MUA MỚI - MẶC ĐỊNH) HOẶC TẤT CẢ
+        // =========================================================================
+        const buyPrice = tplus.entryMin || tplus.entryMax || tplus.support || 0;
+        let buyLabel = `Vùng mua: ${formatVND(buyPrice)}`;
+        if (isProhibited) {
+          buyLabel = `Hỗ trợ S1: ${formatVND(buyPrice)} (Cấm bắt đáy)`;
+        } else if (tplus.isExtendedFromBase && tplus.pullbackMin && tplus.pullbackMax) {
+          buyLabel = `Mua Pullback: ${formatVND(tplus.pullbackMin)} - ${formatVND(tplus.pullbackMax)}`;
+        }
+
+        let defaultSLLabel = isProhibited 
+          ? `Ngưỡng thoát vị thế: ${formatVND(rawSL)}` 
+          : `Cắt lỗ (SL): ${formatVND(rawSL)}${slPctStr ? ` (${slPctStr})` : ''}`;
+
+        setChartPriceLines({
+          target: target1Price,
+          targetLabel: isProhibited 
+            ? `Kháng cự hạ tỷ trọng: ${formatVND(target1Price)}` 
+            : `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`,
+          target2: isProhibited ? null : target2Price,
+          target2Label: (!isProhibited && target2Price) ? `Target 2 (Trend): ${formatVND(target2Price)}` : '',
+          buyZone: buyPrice,
+          buyZoneLabel: buyLabel,
+          stopLoss: rawSL,
+          stopLossLabel: defaultSLLabel,
+          isProhibited: isProhibited,
+          isLockProfit: false,
+        });
       }
-
-      const target1Price = tplus.target1 || tplus.target;
-      const target2Price = tplus.target2;
-
-      const buyPrice = tplus.entryMin || tplus.entryMax;
-      let buyLabel = `Vùng mua: ${formatVND(buyPrice)}`;
-      if (isProhibited) {
-        buyLabel = `Hỗ trợ S1: ${formatVND(buyPrice)} (Cấm bắt đáy)`;
-      } else if (tplus.isExtendedFromBase && tplus.pullbackMin && tplus.pullbackMax) {
-        buyLabel = `Mua Pullback: ${formatVND(tplus.pullbackMin)} - ${formatVND(tplus.pullbackMax)}`;
-      }
-
-      setChartPriceLines({
-        target: target1Price,
-        targetLabel: isProhibited 
-          ? `Kháng cự hạ tỷ trọng: ${formatVND(target1Price)}` 
-          : `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`,
-        target2: isProhibited ? null : target2Price,
-        target2Label: (!isProhibited && target2Price) ? `Target 2 (Trend): ${formatVND(target2Price)}` : '',
-        buyZone: buyPrice,
-        buyZoneLabel: buyLabel,
-        stopLoss: effectiveStopLoss,
-        stopLossLabel: slLabel,
-        isProhibited: isProhibited,
-      });
     }
   } catch (err) {
     console.warn("Lỗi vẽ đường giá trên TradingView Chart:", err);

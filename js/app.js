@@ -3,6 +3,8 @@ import { getStockDetail, getChartData } from './api.js?v=4.0';
 import { initChart, updateChartData } from './modules/chart.js?v=4.3';
 import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=4.0';
 import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.2';
+import { initPortfolioBundle } from './modules/portfolioBundle.js?v=4.0';
+import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=4.0';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';
@@ -408,6 +410,7 @@ export async function loadStock(ticker) {
   if (!ticker) return;
   const sym = ticker.trim().toUpperCase();
   currentTicker = sym;
+  setActiveTopTPlusTicker(sym);
   showLoading(sym);
 
   try {
@@ -600,6 +603,12 @@ function initApp() {
   setupAutocomplete();
   initEvents();
   initTooltipBoundaryProtection();
+  initPortfolioBundle((ticker) => {
+    loadStock(ticker);
+  });
+  initTopTPlusBar((ticker) => {
+    loadStock(ticker);
+  });
 }
 
 if (document.readyState === "loading") {

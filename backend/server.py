@@ -36,6 +36,10 @@ from backend.controllers import (
     handle_search,
     handle_screener,
     handle_top_tplus,
+    start_screener_worker,
+    handle_portfolio_bundle,
+    handle_portfolio_alternatives,
+    handle_portfolio_sectors,
 )
 
 
@@ -184,7 +188,47 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         self.send_json(500, {'error': str(e)})
       return
 
-    # 7. Trang chủ HTML & Components
+    # 7. API: Gói danh mục đầu tư theo vốn & Mã thay thế
+    if path == '/api/portfolio-bundle':
+      cap = params.get('capital', ['20000000'])[0]
+      style = params.get('style', ['balanced'])[0]
+      try:
+        self.send_json(200, handle_portfolio_bundle(capital=cap, style=style))
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/portfolio-alternatives':
+      sym = params.get('symbol', [''])[0]
+      sector = params.get('sector', [''])[0]
+      max_budget = params.get('budget', ['10000000'])[0]
+      exclude_sector = params.get('exclude_sector', [None])[0]
+      target_sector = params.get('target_sector', [None])[0]
+      try:
+        self.send_json(200, handle_portfolio_alternatives(
+            current_symbol=sym,
+            sector=sector,
+            max_budget=max_budget,
+            exclude_sector=exclude_sector,
+            target_sector=target_sector,
+        ))
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/portfolio-sectors':
+      max_budget = params.get('budget', ['10000000'])[0]
+      exclude_sector = params.get('exclude_sector', [None])[0]
+      try:
+        self.send_json(200, handle_portfolio_sectors(
+            max_budget=max_budget,
+            exclude_sector=exclude_sector,
+        ))
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    # 8. Trang chủ HTML & Components
     if path in ['/', '', '/index.html']:
       index_file = os.path.join(ROOT_DIR, 'index.html')
       html_content = render_template_html(index_file)
@@ -208,6 +252,7 @@ class ReusableTCPServer(socketserver.TCPServer):
 if __name__ == '__main__':
   PORT = get_configured_port(8000)
   threading.Thread(target=warm_up_market_data, daemon=True).start()
+  threading.Thread(target=start_screener_worker, daemon=True).start()
   print(
       f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT} (PORT={PORT})'
   )

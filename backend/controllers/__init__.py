@@ -13,6 +13,12 @@ from backend.controllers.screener_controller import (
     handle_search,
     handle_screener,
     handle_top_tplus,
+    start_screener_worker,
+)
+from backend.controllers.portfolio_controller import (
+    handle_portfolio_bundle,
+    handle_portfolio_alternatives,
+    handle_portfolio_sectors,
 )
 
 __all__ = [
@@ -23,4 +29,8 @@ __all__ = [
     'handle_search',
     'handle_screener',
     'handle_top_tplus',
+    'start_screener_worker',
+    'handle_portfolio_bundle',
+    'handle_portfolio_alternatives',
+    'handle_portfolio_sectors',
 ]

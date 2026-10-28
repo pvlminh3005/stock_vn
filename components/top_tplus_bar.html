@@ -1,0 +1,61 @@
+<!-- THANH TOP 8 CƠ HỘI LƯỚT SÓNG T+ (VSR SMART SCREENER - PHỄU ĐỊNH LƯỢNG 2 TẦNG) -->
+<div id="topTPlusSection" class="p-3.5 sm:p-4 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl backdrop-blur space-y-3">
+  <!-- Header: Tiêu đề, Badge Trạng thái & Nút làm mới -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 flex-shrink-0 shadow-inner">
+        <i class="fa-solid fa-bolt text-sm"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <h3 class="text-xs sm:text-sm font-black text-white tracking-wide uppercase flex items-center gap-1.5">
+            <span>TOP 8 CƠ HỘI LƯỚT SÓNG T+</span>
+            <span class="text-[10px] font-mono px-2 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/60 font-bold">
+              VSR Smart Screener
+            </span>
+          </h3>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+          <span>Đèn Xanh Hành Động (3 Khóa An Toàn T+2.5):</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40"><i class="fa-solid fa-circle-dot text-[8px] animate-pulse"></i> 🟢 Mua ngay</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-amber-300 font-semibold bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">⏳ Chờ sau 13:45</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-rose-300 font-semibold bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/40">⛔ Đã chạy xa</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 self-start sm:self-auto text-xs font-mono">
+      <!-- Đồng hồ đếm ngược từng giây đến lượt quét tiếp theo -->
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300 shadow-inner">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span class="text-slate-500 font-sans hidden sm:inline">Quét lại:</span>
+        <span id="topTPlusCountdown" class="text-blue-400 font-bold font-mono">03:00</span>
+      </div>
+      <div class="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400">
+        <i class="fa-solid fa-clock-rotate-left text-slate-500 text-[10px]"></i>
+        <span id="topTPlusUpdateTime">Quét tự động 3 phút...</span>
+      </div>
+      <button id="btnRefreshTopTPlus" type="button"
+        class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
+        title="Làm mới danh sách cơ hội T+ ngay lập tức">
+        <i class="fa-solid fa-arrows-rotate text-[10px]" id="refreshTopTPlusIcon"></i>
+        <span>Làm mới</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Danh sách 8 Card Cơ Hội T+ (Scroll Ngang Mượt Mà) -->
+  <div id="topTPlusListContainer" class="flex items-stretch gap-2.5 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-700">
+    <!-- Skeleton Loading ban đầu -->
+    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 min-w-[210px] flex-1 animate-pulse space-y-2">
+      <div class="h-4 bg-slate-800 rounded w-1/2"></div>
+      <div class="h-3 bg-slate-800/60 rounded w-3/4"></div>
+      <div class="h-5 bg-slate-800/40 rounded w-full"></div>
+    </div>
+    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 min-w-[210px] flex-1 animate-pulse space-y-2 hidden sm:block">
+      <div class="h-4 bg-slate-800 rounded w-1/2"></div>
+      <div class="h-3 bg-slate-800/60 rounded w-3/4"></div>
+      <div class="h-5 bg-slate-800/40 rounded w-full"></div>
+    </div>
+  </div>
+</div>
