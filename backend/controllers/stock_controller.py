@@ -56,8 +56,9 @@ def handle_stock_detail(ticker, resolution='1D'):
         'companyNameVi', ssi_item.get('clientName', f'Cổ phiếu {ticker}')
     )
     exchange = ssi_item.get('exchange', 'HOSE').upper()
-    ceiling = ssi_item.get('ceiling', round(current_price * 1.07))
-    floor = ssi_item.get('floor', round(current_price * 0.93))
+    band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
+    ceiling = ssi_item.get('ceiling') or round(current_price * (1 + band))
+    floor = ssi_item.get('floor') or round(current_price * (1 - band))
     ref_price = ssi_item.get('refPrice', prev_c)
     highest_price = ssi_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
     lowest_price = ssi_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
@@ -74,8 +75,9 @@ def handle_stock_detail(ticker, resolution='1D'):
         'companyNameVi', ssi_item.get('clientName', f'Cổ phiếu {ticker}')
     )
     exchange = ssi_item.get('exchange', 'HOSE').upper()
-    ceiling = ssi_item.get('ceiling', round(ref_price * 1.07))
-    floor = ssi_item.get('floor', round(ref_price * 0.93))
+    band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
+    ceiling = ssi_item.get('ceiling') or round(ref_price * (1 + band))
+    floor = ssi_item.get('floor') or round(ref_price * (1 - band))
     highest_price = ssi_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
     lowest_price = ssi_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
     total_vol = ssi_item.get('stockVol', v_list[-1] if v_list else 0)
@@ -88,9 +90,10 @@ def handle_stock_detail(ticker, resolution='1D'):
     pct_change = round((price_change / prev_c) * 100, 2) if prev_c else 0
     company_name = f'Cổ phiếu {ticker}'
     exchange = 'HOSE'
+    band = 0.07
     ref_price = prev_c
-    ceiling = round(ref_price * 1.07)
-    floor = round(ref_price * 0.93)
+    ceiling = round(ref_price * (1 + band))
+    floor = round(ref_price * (1 - band))
     highest_price = (h_list[-1] * scale) if h_list else current_price
     lowest_price = (l_list[-1] * scale) if l_list else current_price
     total_vol = v_list[-1] if v_list else 0

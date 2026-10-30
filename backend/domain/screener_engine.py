@@ -132,10 +132,10 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
 
     tech = analyze_technicals_and_scoring(chart, ssi_item, p, {}, ticker=symbol, exchange=exchange, regime=regime)
 
-    s1 = tech.get('support', round(p * 0.96, -2))
-    r1 = tech.get('resistance', round(p * 1.08, -2))
-    r2 = tech.get('resistance2', round(p * 1.15, -2))
     atr = tech.get('atr14', round(p * 0.02, 1))
+    s1 = tech.get('support', round(p - 1.5 * atr, -2))
+    r1 = tech.get('resistance', round(p + 2.0 * atr, -2))
+    r2 = tech.get('resistance2', round(p + 3.5 * atr, -2))
     st = tech.get('supertrend', {})
     is_bullish = st.get('isBullish', False)
     is_flip_buy = st.get('isFlipBuy', False)

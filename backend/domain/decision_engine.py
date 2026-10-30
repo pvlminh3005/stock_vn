@@ -69,9 +69,12 @@ def evaluate_tplus_strategy(
   is_adx_sideway = adx_info.get('isSideway', False)
   is_adx_trending = adx_info.get('isTrending', False)
 
-  support_s1 = tech.get('support', round(current_price * 0.96, -2))
-  resist_r1 = tech.get('resistance', round(current_price * 1.08, -2))
-  resist_r2 = tech.get('resistance2', round(current_price * 1.15, -2))
+  fallback_s1 = round(current_price - 1.5 * atr14, -2) if atr14 > 0 else round(current_price * 0.96, -2)
+  fallback_r1 = round(current_price + 2.0 * atr14, -2) if atr14 > 0 else round(current_price * 1.08, -2)
+  fallback_r2 = round(current_price + 3.5 * atr14, -2) if atr14 > 0 else round(current_price * 1.15, -2)
+  support_s1 = tech.get('support', fallback_s1)
+  resist_r1 = tech.get('resistance', fallback_r1)
+  resist_r2 = tech.get('resistance2', fallback_r2)
 
   # Cắt lỗ T+ bám sát cấu trúc nến & ATR
   structural_stop = support_s1 - (0.5 * atr14)

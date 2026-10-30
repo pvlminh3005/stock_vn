@@ -279,6 +279,13 @@ function renderSlotCard(slotNum, s) {
   safeSetText(`slot${slotNum}BuyZone`, s.buyZone || '--');
   safeSetText(`slot${slotNum}StopLoss`, formatVND(s.stopLoss) + ' đ');
   safeSetText(`slot${slotNum}Target1`, formatVND(s.target1) + ' đ');
+
+  // Cập nhật nhãn % Cắt lỗ và Mục tiêu động theo dữ liệu kỹ thuật thực tế
+  const slPct = s.stopLossPct !== undefined ? s.stopLossPct : (s.stopLoss && s.price ? Math.round(((s.stopLoss - s.price) / s.price) * 1000) / 10 : -5.0);
+  const tgPct = s.target1Pct !== undefined ? s.target1Pct : (s.target1 && s.price ? Math.round(((s.target1 - s.price) / s.price) * 1000) / 10 : 7.0);
+  safeSetText(`slot${slotNum}StopLossPct`, `(${slPct > 0 ? '+' : ''}${slPct}%)`);
+  safeSetText(`slot${slotNum}Target1Pct`, `(${tgPct > 0 ? '+' : ''}${tgPct}%)`);
+
   safeSetText(`slot${slotNum}RR`, s.riskReward || '2.0');
 }
 
@@ -529,26 +536,88 @@ function handleCustomStockSwap(symbol) {
     .catch(() => alert(`Không thể tra cứu mã ${symbol}`));
 }
 
-function applyNewStockToSlot(stockInfo) {
+async function applyNewStockToSlot(stockInfo) {
   if (!currentBundleData || !currentBundleData.slots) return;
+
+  // Đóng modal ngay lập tức để trải nghiệm mượt mà
+  const modal = document.getElementById('swapStockModal');
+  if (modal) modal.classList.add('hidden');
 
   const slotBudget = (currentCapital * (currentBundleData.regime?.allocationRate || 75) / 100) / 2;
   const p = stockInfo.price;
   const lots = Math.max(1, Math.floor(slotBudget / (p * 100)));
   const qty = lots * 100;
   const totalCost = qty * p;
-
   const role = activeSwapSlot === 0 ? 'Trụ Cân Bằng / Nền Tảng' : 'Động Lực Tăng Trưởng / T+';
-  const stopLoss = Math.round(p * 0.945 / 100) * 100;
-  const target1 = Math.round(p * 1.075 / 100) * 100;
-  const target2 = Math.round(p * 1.140 / 100) * 100;
-  const buyZoneMin = Math.round(p * 0.985 / 100) * 100;
-  const buyZoneMax = Math.round(p * 1.010 / 100) * 100;
+
+  let s1 = 0;
+  let r1 = 0;
+  let r2 = 0;
+  let atr = p * 0.02;
+  let distToS1 = 0;
+  let isExtended = false;
+  let buyZone = '';
+  let action = (stockInfo.percentChange || 0) <= 1.5 ? 'VÙNG GOM AN TOÀN' : 'CANH RUNG LẮC MUA';
+  let actionColor = (stockInfo.percentChange || 0) <= 1.5 ? 'emerald' : 'blue';
+  let advice = 'Giải ngân theo vùng gom khuyến nghị.';
+
+  // Truy vấn kỹ thuật thực tế từ API /api/stock để lấy Fractal Pivot S1/R1 và ATR
+  try {
+    const res = await fetch(`/api/stock?ticker=${encodeURIComponent(stockInfo.symbol)}`);
+    if (res.ok) {
+      const detail = await res.json();
+      const tech = detail.technicals || {};
+      s1 = Number(tech.support) || 0;
+      r1 = Number(tech.resistance) || 0;
+      r2 = Number(tech.resistance2) || 0;
+      atr = Number(tech.atr14) || (p * 0.02);
+      distToS1 = s1 > 0 ? Math.round(((p - s1) / s1) * 1000) / 10 : 0;
+      isExtended = distToS1 > 4.0;
+
+      if (isExtended) {
+        const pbMin = Math.round(Math.max(s1, p - 0.5 * (p - s1)) / 100) * 100;
+        const pbMax = Math.round(Math.max(s1, p - 0.25 * (p - s1)) / 100) * 100;
+        buyZone = `${formatVND(pbMin)} - ${formatVND(pbMax)} đ (Vùng Pullback)`;
+        action = '⏳ CHỜ RETEST / KHÔNG MUA ĐUỔI';
+        actionColor = 'amber';
+        advice = `Giá đã tăng cách nền ${distToS1}%, không mua đuổi đỉnh ngắn hạn. Đặt lệnh chờ tại vùng Pullback.`;
+      } else {
+        const entryMax = Math.round(Math.min(s1 + 0.4 * atr, p * 1.005) / 100) * 100;
+        buyZone = `${formatVND(s1 || Math.round(p * 0.985 / 100) * 100)} - ${formatVND(entryMax || Math.round(p * 1.01 / 100) * 100)} đ`;
+        action = 'VÙNG GOM AN TOÀN';
+        actionColor = 'emerald';
+        advice = `Giá đang nằm trong vùng nền tích lũy an toàn (cách nền ${distToS1}%).`;
+      }
+    }
+  } catch (e) {
+    console.warn('Không thể nạp kỹ thuật chuyên sâu cho mã đổi:', e);
+  }
+
+  // Nếu không nạp được S1/R1 từ API, ước tính linh hoạt theo biên độ sàn thực tế
+  const exch = stockInfo.exchange || 'HOSE';
+  const band = exch === 'HOSE' ? 0.07 : (exch === 'HNX' ? 0.10 : 0.15);
+
+  const stopLoss = s1 > 0 ? Math.round(Math.min(s1 - 0.5 * atr, p - 1.5 * atr) / 100) * 100 : Math.round(p * (1 - band * 0.65) / 100) * 100;
+  const target1 = r1 > 0 ? Math.round(r1 / 100) * 100 : Math.round(p * (1 + band * 0.95) / 100) * 100;
+  const target2 = r2 > 0 ? Math.round(r2 / 100) * 100 : Math.round(p * (1 + band * 1.8) / 100) * 100;
+
+  const stopLossPct = Math.round(((stopLoss - p) / p) * 1000) / 10;
+  const target1Pct = Math.round(((target1 - p) / p) * 1000) / 10;
+  const target2Pct = Math.round(((target2 - p) / p) * 1000) / 10;
+  const downside = Math.max(1, p - stopLoss);
+  const upside = Math.max(1, target1 - p);
+  const riskReward = Math.round((upside / downside) * 10) / 10;
+
+  if (!buyZone) {
+    const bzMin = s1 > 0 ? s1 : Math.round((p - atr * 0.8) / 100) * 100;
+    const bzMax = Math.round(Math.min(p * 1.005, bzMin + atr * 0.4) / 100) * 100;
+    buyZone = `${formatVND(bzMin)} - ${formatVND(bzMax)} đ`;
+  }
 
   const updatedSlot = {
     symbol: stockInfo.symbol,
     name: stockInfo.name,
-    exchange: stockInfo.exchange || 'HOSE',
+    exchange: exch,
     sector: stockInfo.sector || 'Doanh nghiệp',
     price: p,
     change: stockInfo.change || 0,
@@ -557,15 +626,19 @@ function applyNewStockToSlot(stockInfo) {
     quantity: qty,
     totalCost,
     costPercent: Math.round((totalCost / currentCapital) * 1000) / 10,
-    buyZone: `${formatVND(buyZoneMin)} - ${formatVND(buyZoneMax)} đ`,
+    buyZone,
     stopLoss,
-    stopLossPct: -5.5,
+    stopLossPct,
     target1,
-    target1Pct: 7.5,
+    target1Pct,
     target2,
-    target2Pct: 14.0,
-    riskReward: 2.1,
-    action: (stockInfo.percentChange || 0) <= 1.5 ? 'VÙNG GOM AN TOÀN' : 'CANH RUNG LẮC MUA',
+    target2Pct,
+    riskReward,
+    action,
+    actionColor,
+    advice,
+    distToS1,
+    isExtended,
   };
 
   currentBundleData.slots[activeSwapSlot] = updatedSlot;
@@ -584,8 +657,4 @@ function applyNewStockToSlot(stockInfo) {
   };
 
   renderBundleUI(currentBundleData);
-
-  // Đóng modal
-  const modal = document.getElementById('swapStockModal');
-  if (modal) modal.classList.add('hidden');
 }

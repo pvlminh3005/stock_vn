@@ -209,10 +209,10 @@ def _enrich_stock_technicals(stock_summary, ssi_board, regime):
   try:
     chart = fetch_chart_data(sym, days=120, resolution='1D', ssi_item=item)
     tech = analyze_technicals_and_scoring(chart, item, p, {}, ticker=sym, exchange=exchange, regime=regime)
-    s1 = tech.get('support', round(p * 0.96, -2))
-    r1 = tech.get('resistance', round(p * 1.08, -2))
-    r2 = tech.get('resistance2', round(p * 1.15, -2))
     atr = tech.get('atr14', round(p * 0.02, 1))
+    s1 = tech.get('support', round(p - 1.5 * atr, -2))
+    r1 = tech.get('resistance', round(p + 2.0 * atr, -2))
+    r2 = tech.get('resistance2', round(p + 3.5 * atr, -2))
     dist_s1 = round(((p - s1) / s1) * 100.0, 1) if s1 > 0 else 0.0
     is_extended = dist_s1 > 4.0
 
@@ -258,24 +258,31 @@ def _enrich_stock_technicals(stock_summary, ssi_board, regime):
         'riskReward': rr_ratio,
     }
   except Exception as e:
-    stop_loss = round(p * 0.945, -2)
-    target1 = round(p * 1.075, -2)
-    target2 = round(p * 1.140, -2)
+    max_band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
+    stop_loss = round(p * (1 - max_band * 0.65), -2)
+    target1 = round(p * (1 + max_band * 0.95), -2)
+    target2 = round(p * (1 + max_band * 1.8), -2)
+    sl_pct = round(((stop_loss - p) / p) * 100.0, 1)
+    t1_pct = round(((target1 - p) / p) * 100.0, 1)
+    t2_pct = round(((target2 - p) / p) * 100.0, 1)
+    rr = round(abs(target1 - p) / max(1.0, abs(p - stop_loss)), 1)
+    bz_min = round(p * (1 - max_band * 0.2), -2)
+    bz_max = round(p * (1 + max_band * 0.1), -2)
     return {
         **stock_summary,
         'distToS1': 0.0,
         'isExtended': False,
-        'buyZone': f'{round(p * 0.985, -2):,.0f} - {round(p * 1.010, -2):,.0f} đ',
+        'buyZone': f'{bz_min:,.0f} - {bz_max:,.0f} đ',
         'action': 'VÙNG GOM AN TOÀN' if stock_summary.get('percentChange', 0) <= 1.5 else 'CANH RUNG LẮC MUA',
         'actionColor': 'emerald' if stock_summary.get('percentChange', 0) <= 1.5 else 'blue',
         'advice': 'Giải ngân theo vùng gom khuyến nghị.',
         'stopLoss': stop_loss,
-        'stopLossPct': -5.5,
+        'stopLossPct': sl_pct,
         'target1': target1,
-        'target1Pct': 7.5,
+        'target1Pct': t1_pct,
         'target2': target2,
-        'target2Pct': 14.0,
-        'riskReward': 1.8,
+        'target2Pct': t2_pct,
+        'riskReward': rr,
     }
 
 
@@ -413,6 +420,22 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
     
     total_cost = qty * p
 
+    exch = stock_info.get('exchange', 'HOSE')
+    band = 0.07 if exch == 'HOSE' else (0.10 if exch == 'HNX' else 0.15)
+    default_sl = round(p * (1 - band * 0.65), -2)
+    default_tg1 = round(p * (1 + band * 0.95), -2)
+    default_tg2 = round(p * (1 + band * 1.8), -2)
+    sl = stock_info.get('stopLoss', default_sl)
+    tg1 = stock_info.get('target1', default_tg1)
+    tg2 = stock_info.get('target2', default_tg2)
+    sl_pct = stock_info.get('stopLossPct', round(((sl - p) / p) * 100.0, 1))
+    tg1_pct = stock_info.get('target1Pct', round(((tg1 - p) / p) * 100.0, 1))
+    tg2_pct = stock_info.get('target2Pct', round(((tg2 - p) / p) * 100.0, 1))
+    rr = stock_info.get('riskReward', round(abs(tg1 - p) / max(1.0, abs(p - sl)), 1))
+
+    bz_min = round(p * (1 - band * 0.2), -2)
+    bz_max = round(p * (1 + band * 0.1), -2)
+
     return {
         'symbol': stock_info['symbol'],
         'name': stock_info['name'],
@@ -426,14 +449,14 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
         'quantity': qty,
         'totalCost': total_cost,
         'costPercent': round((total_cost / capital) * 100, 1),
-        'buyZone': stock_info.get('buyZone', f'{round(p * 0.985, -2):,.0f} - {round(p * 1.010, -2):,.0f} đ'),
-        'stopLoss': stock_info.get('stopLoss', round(p * 0.945, -2)),
-        'stopLossPct': stock_info.get('stopLossPct', -5.5),
-        'target1': stock_info.get('target1', round(p * 1.075, -2)),
-        'target1Pct': stock_info.get('target1Pct', 7.5),
-        'target2': stock_info.get('target2', round(p * 1.140, -2)),
-        'target2Pct': stock_info.get('target2Pct', 14.0),
-        'riskReward': stock_info.get('riskReward', 1.8),
+        'buyZone': stock_info.get('buyZone', f'{bz_min:,.0f} - {bz_max:,.0f} đ'),
+        'stopLoss': sl,
+        'stopLossPct': sl_pct,
+        'target1': tg1,
+        'target1Pct': tg1_pct,
+        'target2': tg2,
+        'target2Pct': tg2_pct,
+        'riskReward': rr,
         'action': stock_info.get('action', 'VÙNG GOM AN TOÀN'),
         'actionColor': stock_info.get('actionColor', 'emerald'),
         'advice': stock_info.get('advice', ''),
@@ -524,8 +547,15 @@ def get_alternative_candidates(current_symbol, sector, max_budget=10_000_000, ex
     qty = max(100, lots * 100)
     summary['suggestedQty'] = qty
     summary['totalCost'] = qty * price
-    summary['stopLoss'] = round(price * 0.945, -2)
-    summary['target1'] = round(price * 1.075, -2)
+    # Ước tính mức cắt lỗ / chốt lời dựa theo biên độ sàn và giá thực tế
+    exch = summary.get('exchange', 'HOSE')
+    band = 0.07 if exch == 'HOSE' else (0.10 if exch == 'HNX' else 0.15)
+    sl = round(price * (1 - band * 0.65), -2)
+    tg1 = round(price * (1 + band * 0.95), -2)
+    summary['stopLoss'] = sl
+    summary['target1'] = tg1
+    summary['stopLossPct'] = round(((sl - price) / price) * 100.0, 1)
+    summary['target1Pct'] = round(((tg1 - price) / price) * 100.0, 1)
 
     alternatives.append(summary)
 

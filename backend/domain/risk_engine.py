@@ -342,6 +342,7 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
   downside = technical_info.get('downside', 4.0)
   rr_ratio = technical_info.get('rrRatio', 2.0)
   ma20 = technical_info.get('ma20', current_price)
+  atr14 = technical_info.get('atr14', round(current_price * 0.02, 1))
 
   pos_sizing = technical_info.get('positionSizing', {})
   max_nav = pos_sizing.get('maxNavPct', 25.0)
@@ -454,8 +455,10 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
     if ta_score >= 75 and current_price >= ma20 and buy_ratio >= 55 and rs_score >= 60:
       action_status = 'Mở vị thế thăm dò'
       status_color = 'emerald'
+      buy_zone_low = round(max(support_level, current_price - atr14 * 0.6), -2)
+      buy_zone_high = round(min(current_price * 1.002, buy_zone_low + atr14 * 0.5), -2)
       core_warning = (
-          f'Quản trị vị thế: Giải ngân thăm dò tối đa {pilot_nav}% NAV quanh {current_price*0.985:,.0f} - {current_price*0.995:,.0f} đ '
+          f'Quản trị vị thế: Giải ngân thăm dò tối đa {pilot_nav}% NAV quanh vùng gom {buy_zone_low:,.0f} - {buy_zone_high:,.0f} đ '
           f'(tổng vị thế tối đa {max_nav}% NAV). {mtf_desc} Cắt lỗ tuyệt đối nếu thủng {support_level:,.0f} đ.'
       )
     elif current_price >= ma20 and 46 <= rsi <= 68:
