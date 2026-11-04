@@ -606,6 +606,84 @@ function initEvents() {
   }
 }
 
+// ==================== 0. BẢO VỆ MÃ PIN TRUY CẬP ====================
+async function initAuthProtection() {
+  const overlay = document.getElementById("authPinOverlay");
+  const form = document.getElementById("authPinForm");
+  const input = document.getElementById("authPinInput");
+  const errorEl = document.getElementById("authPinError");
+
+  function showOverlay() {
+    if (overlay) {
+      overlay.classList.remove("hidden");
+      if (input) setTimeout(() => input.focus(), 150);
+    }
+  }
+
+  function hideOverlay() {
+    if (overlay) overlay.classList.add("hidden");
+  }
+
+  window.addEventListener("unauthorizedAccess", () => {
+    showOverlay();
+  });
+
+  // Tự động xác thực nếu có param ?auth=PIN hoặc ?pin=PIN từ link Telegram
+  const urlParams = new URLSearchParams(window.location.search);
+  const queryAuth = urlParams.get("auth") || urlParams.get("pin");
+
+  try {
+    const verifyUrl = queryAuth ? `/api/auth/verify?pin=${encodeURIComponent(queryAuth)}` : `/api/auth/verify`;
+    const res = await fetch(verifyUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authenticated) {
+        hideOverlay();
+        return true;
+      }
+    }
+  } catch (e) {
+    // Không thể kết nối hoặc chưa xác thực
+  }
+
+  // Chưa xác thực -> Hiện màn hình khóa
+  showOverlay();
+
+  if (form && !form.dataset.bound) {
+    form.dataset.bound = "true";
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const val = (input?.value || "").trim();
+      if (!val) return;
+      if (errorEl) errorEl.classList.add("hidden");
+
+      try {
+        const res = await fetch(`/api/auth/verify?pin=${encodeURIComponent(val)}`);
+        const data = await res.json();
+        if (data.authenticated) {
+          hideOverlay();
+          initApp();
+        } else {
+          if (errorEl) {
+            errorEl.innerText = data.error || "Mã PIN không chính xác";
+            errorEl.classList.remove("hidden");
+          }
+          if (input) {
+            input.value = "";
+            input.focus();
+          }
+        }
+      } catch (err) {
+        if (errorEl) {
+          errorEl.innerText = "Lỗi kết nối máy chủ";
+          errorEl.classList.remove("hidden");
+        }
+      }
+    });
+  }
+  return false;
+}
+
 // ==================== 7. KHỞI CHẠY ỨNG DỤNG ====================
 function initApp() {
   if (DOM.input) DOM.input.value = '';
@@ -635,8 +713,15 @@ function initApp() {
   }
 }
 
+async function startApp() {
+  const authed = await initAuthProtection();
+  if (authed) {
+    initApp();
+  }
+}
+
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initApp);
+  document.addEventListener("DOMContentLoaded", startApp);
 } else {
-  initApp();
+  startApp();
 }

@@ -1,13 +1,22 @@
+async function safeFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.dispatchEvent(new Event('unauthorizedAccess'));
+    throw new Error('Yêu cầu mã PIN bảo vệ để truy cập hệ thống');
+  }
+  return res;
+}
+
 // API lấy danh sách Top 10 lướt sóng T+ theo ngày
 export async function getTop10Stocks() {
-  const res = await fetch('/api/top-tplus');
+  const res = await safeFetch('/api/top-tplus');
   if (!res.ok) throw new Error(`Lỗi tải Top 10: ${res.status}`);
   return await res.json();
 }
 
 // API lấy kết quả Stock Screener định lượng chuẩn 5 tiêu chí lướt sóng
 export async function getScreenerStocks() {
-  const res = await fetch('/api/screener');
+  const res = await safeFetch('/api/screener');
   if (!res.ok) throw new Error(`Lỗi tải dữ liệu Screener: ${res.status}`);
   return await res.json();
 }
@@ -15,7 +24,7 @@ export async function getScreenerStocks() {
 // API lấy chi tiết dữ liệu kỹ thuật, cơ bản & tin tức của 1 mã
 export async function getStockDetail(ticker, resolution = '1D') {
   const symbol = ticker.trim().toUpperCase();
-  const res = await fetch(`/api/stock?ticker=${symbol}&resolution=${resolution}`);
+  const res = await safeFetch(`/api/stock?ticker=${symbol}&resolution=${resolution}`);
   if (!res.ok) throw new Error(`Lỗi phản hồi máy chủ: ${res.status}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -25,7 +34,7 @@ export async function getStockDetail(ticker, resolution = '1D') {
 // API chỉ lấy dữ liệu nến khi người dùng chuyển khung thời gian biểu đồ
 export async function getChartData(ticker, resolution = '1D') {
   const symbol = ticker.trim().toUpperCase();
-  const res = await fetch(`/api/chart?ticker=${symbol}&resolution=${resolution}`);
+  const res = await safeFetch(`/api/chart?ticker=${symbol}&resolution=${resolution}`);
   if (!res.ok) throw new Error(`Lỗi tải biểu đồ: ${res.status}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -34,7 +43,7 @@ export async function getChartData(ticker, resolution = '1D') {
 
 // API lấy gói danh mục tối ưu theo số vốn
 export async function getPortfolioBundle(capital = 20000000, style = 'balanced') {
-  const res = await fetch(`/api/portfolio-bundle?capital=${encodeURIComponent(capital)}&style=${encodeURIComponent(style)}`);
+  const res = await safeFetch(`/api/portfolio-bundle?capital=${encodeURIComponent(capital)}&style=${encodeURIComponent(style)}`);
   if (!res.ok) throw new Error(`Lỗi lấy gói danh mục: ${res.status}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -50,7 +59,7 @@ export async function getPortfolioAlternatives(symbol, sector, budget, excludeSe
   if (targetSector) {
     url += `&target_sector=${encodeURIComponent(targetSector)}`;
   }
-  const res = await fetch(url);
+  const res = await safeFetch(url);
   if (!res.ok) throw new Error(`Lỗi tải mã thay thế: ${res.status}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -63,7 +72,7 @@ export async function getPortfolioSectors(budget, excludeSector = '') {
   if (excludeSector) {
     url += `&exclude_sector=${encodeURIComponent(excludeSector)}`;
   }
-  const res = await fetch(url);
+  const res = await safeFetch(url);
   if (!res.ok) throw new Error(`Lỗi tải danh mục ngành: ${res.status}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error);

@@ -15,4 +15,6 @@ services:
         sync: false
       - key: APP_PUBLIC_URL
         sync: false
+      - key: APP_ACCESS_PIN
+        sync: false
 

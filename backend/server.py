@@ -132,10 +132,60 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     except (BrokenPipeError, ConnectionResetError):
       pass
 
+  def check_pin_authenticated(self, params):
+    """Kiểm tra xác thực mã PIN bảo vệ (nếu biến APP_ACCESS_PIN được cấu hình)."""
+    pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
+    if not pin_required:
+      return True
+
+    # 1. Kiểm tra tham số URL (?auth=PIN hoặc ?pin=PIN)
+    query_pin = params.get('auth', [''])[0].strip() or params.get('pin', [''])[0].strip()
+    if query_pin == pin_required:
+      return True
+
+    # 2. Kiểm tra Header X-Access-Pin
+    header_pin = self.headers.get('X-Access-Pin', '').strip()
+    if header_pin == pin_required:
+      return True
+
+    # 3. Kiểm tra Cookie stock_rt_auth
+    cookie_header = self.headers.get('Cookie', '')
+    if cookie_header:
+      for item in cookie_header.split(';'):
+        if '=' in item:
+          k, v = item.strip().split('=', 1)
+          if k == 'stock_rt_auth' and v == pin_required:
+            return True
+
+    return False
+
   def do_GET(self):
     parsed = urllib.parse.urlparse(self.path)
     path = parsed.path
     params = urllib.parse.parse_qs(parsed.query)
+
+    # 0. API: Xác thực mã PIN nội bộ
+    if path == '/api/auth/verify':
+      pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
+      if not pin_required:
+        self.send_json(200, {'authenticated': True, 'pinRequired': False})
+        return
+      input_pin = params.get('pin', [''])[0].strip() or params.get('auth', [''])[0].strip()
+      if input_pin == pin_required:
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Set-Cookie', f'stock_rt_auth={pin_required}; Path=/; Max-Age=315360000; SameSite=Lax')
+        self.end_headers()
+        self.wfile.write(json.dumps({'authenticated': True, 'success': True}).encode('utf-8'))
+      else:
+        self.send_json(401, {'authenticated': False, 'error': 'Mã PIN không chính xác'})
+      return
+
+    # Chốt chặn bảo vệ: Nếu là yêu cầu API mà chưa xác thực mã PIN thì từ chối truy cập
+    if path.startswith('/api/'):
+      if not self.check_pin_authenticated(params):
+        self.send_json(401, {'error': 'UNAUTHORIZED', 'message': 'Yêu cầu mã PIN bảo vệ để truy cập hệ thống'})
+        return
 
     # 1. API: Nến Biểu đồ nhanh
     if path == '/api/chart':
@@ -262,6 +312,13 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
       self.send_response(200)
       self.send_header('Content-Type', 'text/html; charset=utf-8')
       self.send_header('Content-Length', str(len(encoded)))
+      
+      # Tự động set cookie đăng nhập vĩnh viễn nếu mở từ link Telegram (?auth=PIN)
+      pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
+      query_pin = params.get('auth', [''])[0].strip() or params.get('pin', [''])[0].strip()
+      if pin_required and query_pin == pin_required:
+        self.send_header('Set-Cookie', f'stock_rt_auth={pin_required}; Path=/; Max-Age=315360000; SameSite=Lax')
+
       self.end_headers()
       self.wfile.write(encoded)
       return

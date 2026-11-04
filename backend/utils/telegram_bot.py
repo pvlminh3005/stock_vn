@@ -119,7 +119,9 @@ def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
   sector = stock.get('sector', '')
 
   sign = '+' if change_pct >= 0 else ''
-  deep_link = f'{base_url}/?ticker={symbol}'
+  access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
+  auth_param = f"&auth={access_pin}" if access_pin else ""
+  deep_link = f'{base_url}/?ticker={symbol}{auth_param}'
 
   sector_tag = f" <i>(Sóng {sector})</i>" if sector else ""
 
@@ -169,8 +171,14 @@ def format_session_digest(title: str, stocks: list, regime: str, public_url: str
 
   msg += "\n👉 <i>Bấm nút bên dưới để xem chi tiết danh mục và biểu đồ kỹ thuật.</i>"
 
+  access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
+  auth_param = f"?auth={access_pin}" if access_pin else ""
+  home_link = f"{base_url}/{auth_param}".rstrip('/')
+  if not home_link:
+    home_link = base_url
+
   buttons = [
-      {'text': '🌐 Mở Stock RT Live Web', 'url': base_url}
+      {'text': '🌐 Mở Stock RT Live Web', 'url': home_link}
   ]
   return msg, buttons
 
