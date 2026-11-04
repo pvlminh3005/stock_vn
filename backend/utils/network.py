@@ -33,5 +33,8 @@ def vnstock_call(fn, *args, **kwargs):
   except SystemExit as e:
     print('vnstock vượt hạn mức API (đã chặn SystemExit):', str(e)[:120])
   except Exception as e:
-    print(f'Lỗi gọi vnstock {getattr(fn, "__name__", fn)}:', str(e)[:120])
+    err_msg = str(e)
+    # Không log cảnh báo với các tính năng vnstock đã khai tử hoặc yêu cầu gói bản quyền Pro (vượt quyền cấp Khách)
+    if 'không thuộc quyền của cấp Khách' not in err_msg and 'đã ngừng hỗ trợ' not in err_msg:
+      print(f'Lỗi gọi vnstock {getattr(fn, "__name__", fn)}:', err_msg[:120])
   return None

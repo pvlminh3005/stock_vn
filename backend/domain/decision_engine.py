@@ -203,17 +203,34 @@ def evaluate_tplus_strategy(
   entry_b_min = round(max(ema9, current_price), -2)
   entry_b_max = round(entry_b_min * 1.015, -2)
 
-  # Trailing stop linh hoạt & Mốc Hòa Vốn (Break-even Stop):
-  # 1. Khi giá chạm hoặc tiệm cận Target 1 (R1): Tự động dời mốc cắt lỗ lên điểm hòa vốn (entry_max + 0.4% phí)
-  # 2. Khi mây SuperTrend xanh dâng cao: Bám mép dưới mây (st_band) để khóa trọn lãi
+  # Multi-tier Take Profit Stages (Chốt lời Đa tầng):
+  # - Stage 0: Đang tích lũy / hướng tới TP1 (Target 1 - R1)
+  # - Stage 1: Đã chạm/vượt TP1 (R1) -> Đã chốt 50%, 50% còn lại gồng lãi hướng tới TP2 (Target 2 - R2)
+  # - Stage 2: Đã chạm/vượt TP2 (R2) -> Chốt lời toàn bộ phần vị thế còn lại
+  is_hit_target2 = bool((target2_val > target1_val and current_price >= target2_val * 0.98) or (upside_entry_r1_pct >= 15.0 and rsi >= 72))
+  is_hit_target1 = bool(current_price >= target1_val * 0.98 or upside_r1_pct <= 0.5)
+  if is_hit_target2:
+    tp_stage = 2
+  elif is_hit_target1:
+    tp_stage = 1
+  else:
+    tp_stage = 0
+
+  # Trailing stop đa tầng (Dynamic Ratchet Trailing Stop) - chỉ nâng lên, không hạ xuống:
+  # 1. Khi ở Stage 2: Khóa lãi đỉnh cao sát cản R2 / EMA9 (bảo toàn 90% lãi cao nhất)
+  # 2. Khi ở Stage 1: Kéo ngay mức dừng lên mốc Hòa vốn (Break-even: entry_max + 0.4% phí) và bám EMA9
+  # 3. Khi ở Stage 0: Bám mép mây SuperTrend xanh hoặc mốc phòng thủ ban đầu S1 - 1.5*ATR
   holding_tech = tech.get('positionHolding', {})
   base_trailing = holding_tech.get('trailingStop', stop_loss_price)
   break_even_price = round(entry_a_max * 1.004, -2)
-  is_hit_target1 = current_price >= target1_val * 0.98
+  ema9_stop = round(ema9 * 0.985, -2) if ema9 > 0 else 0
 
-  if is_hit_target1:
-    trailing_stop = max(base_trailing, st_band, break_even_price)
-    trailing_stop_display = f'{trailing_stop:,.0f} đ (Hòa vốn / Khóa lãi)'
+  if tp_stage == 2:
+    trailing_stop = max(base_trailing, st_band, break_even_price, ema9_stop)
+    trailing_stop_display = f'{trailing_stop:,.0f} đ (Đạt TP2 / Khóa lãi đỉnh)'
+  elif tp_stage == 1:
+    trailing_stop = max(base_trailing, st_band, break_even_price, ema9_stop)
+    trailing_stop_display = f'{trailing_stop:,.0f} đ (Đạt TP1 / Bám EMA9 & Hòa vốn)'
   elif st_bullish and st_band > stop_loss_price:
     trailing_stop = max(base_trailing, st_band)
     trailing_stop_display = f'{trailing_stop:,.0f} đ (Bám mây SuperTrend)'
@@ -277,33 +294,91 @@ def evaluate_tplus_strategy(
       )
       new_alloc = pilot_nav_pct
   elif stoch_bull_cross and dist_to_s1 <= 3.8 and buy_ratio >= 48:
-    new_action = 'BUY'
-    new_badge = 'BẮT NẢY STOCH RSI (CẮT VÀNG %K LÊN %D)'
-    new_subtag = 'BUY_ON_STOCH_CROSS'
-    new_reason = (
-        f"Chỉ báo Stochastic RSI kích hoạt tín hiệu cắt vàng %K ({stoch_k:.0f}) vượt %D ({stoch_d:.0f}) "
-        f"tại vùng đảo chiều sát nền S1 ({support_s1:,.0f} đ). Mua CĐ {buy_ratio}%, Net R:R 1:{rr_ratio}. "
-        f"Mở vị thế thăm dò đánh nhịp xoay chuyển động lượng T+."
-    )
-    new_alloc = pilot_nav_pct
+    if rr_ratio < 1.2:
+      new_action = 'WAIT'
+      new_badge = f'QUAN SÁT (R:R BẤT LỢI 1:{rr_ratio:.2f} < 1.2)'
+      new_subtag = 'WAIT_POOR_RR'
+      new_reason = (
+          f"Chỉ báo Stochastic RSI nảy hồi từ vùng quá bán, nhưng tỷ lệ Lợi nhuận/Rủi ro quá thấp "
+          f"(Net R:R 1:{rr_ratio:.2f}, kỳ vọng TP1 +{upside_r1_pct:.1f}% vs Cắt lỗ -{downside_pct:.1f}%). "
+          f"Kỷ luật bảo toàn vốn: Tuyệt đối không mua mới khi R:R < 1.2."
+      )
+      new_alloc = 0.0
+    elif not st_bullish or current_price < ma20:
+      new_action = 'WAIT'
+      new_badge = 'QUAN SÁT (ĐANG VÙNG HỒNG / BẮT NẢY RỦI RO CAO)'
+      new_subtag = 'WAIT_BEARISH_TREND'
+      new_reason = (
+          f"Chỉ báo Stochastic RSI có tín hiệu nảy hồi kỹ thuật từ vùng quá bán, nhưng cổ phiếu vẫn đang nằm trong VÙNG HỒNG "
+          f"(Downtrend dưới MA20 {ma20:,.0f} đ, dải cản SuperTrend {st_band:,.0f} đ). "
+          f"Tránh bắt dao rơi ngược xu hướng chính, nhà đầu tư theo xu hướng nên ĐỨNG NGOÀI CHỜ TREND."
+      )
+      new_alloc = 0.0
+    else:
+      new_action = 'BUY'
+      new_badge = 'BẮT NẢY ĐỘNG LƯỢNG T+ (STOCHASTIC RSI ĐẢO CHIỀU)'
+      new_subtag = 'BUY_ON_STOCH_CROSS'
+      new_reason = (
+          f"Chỉ báo Stochastic RSI đảo chiều từ vùng quá bán sát nền hỗ trợ S1 ({support_s1:,.0f} đ). "
+          f"Lực mua chủ động {buy_ratio}%, Net R:R 1:{rr_ratio:.2f} đạt chuẩn. Mở vị thế thăm dò Bước 1 theo nhịp xoay chuyển động lượng T+."
+      )
+      new_alloc = pilot_nav_pct
   elif has_bull_div or (rsi < 35 and dist_to_s1 <= 3.0 and buy_ratio >= 48):
-    new_action = 'BUY'
-    new_badge = 'BẮT NẢY KỸ THUẬT (REVERSAL)'
-    new_subtag = 'BUY_ON_REVERSAL'
-    new_reason = (
-        f"{div_detail or f'RSI vào vùng quá bán ({rsi})'} sát hỗ trợ cứng S1 ({support_s1:,.0f} đ). "
-        f"Lực cầu hấp thụ tốt (mua chủ động {buy_ratio}%), Net R:R 1:{rr_ratio}. Mở vị thế thăm dò bắt nhịp hồi T+."
-    )
-    new_alloc = pilot_nav_pct
+    if rr_ratio < 1.2:
+      new_action = 'WAIT'
+      new_badge = f'QUAN SÁT (R:R BẤT LỢI 1:{rr_ratio:.2f} < 1.2)'
+      new_subtag = 'WAIT_POOR_RR'
+      new_reason = (
+          f"{div_detail or f'RSI vào vùng quá bán ({rsi})'} sát hỗ trợ S1 ({support_s1:,.0f} đ), "
+          f"nhưng Net R:R 1:{rr_ratio:.2f} chưa đạt chuẩn tối thiểu 1:1.2. Đứng ngoài chờ thiết lập nền giá an toàn."
+      )
+      new_alloc = 0.0
+    elif not st_bullish or current_price < ma20:
+      new_action = 'WAIT'
+      new_badge = 'QUAN SÁT (ĐANG VÙNG HỒNG / BẮT NẢY RỦI RO CAO)'
+      new_subtag = 'WAIT_BEARISH_TREND'
+      new_reason = (
+          f"{div_detail or f'RSI vào vùng quá bán ({rsi})'} nhưng cổ phiếu vẫn trong VÙNG HỒNG dưới MA20 ({ma20:,.0f} đ). "
+          f"Tránh bắt đáy ngược trend khi chưa có xác nhận dòng tiền lớn."
+      )
+      new_alloc = 0.0
+    else:
+      new_action = 'BUY'
+      new_badge = 'BẮT NẢY KỸ THUẬT (REVERSAL)'
+      new_subtag = 'BUY_ON_REVERSAL'
+      new_reason = (
+          f"{div_detail or f'RSI vào vùng quá bán ({rsi})'} sát hỗ trợ cứng S1 ({support_s1:,.0f} đ). "
+          f"Lực cầu hấp thụ tốt (mua chủ động {buy_ratio}%), Net R:R 1:{rr_ratio:.2f}. Mở vị thế thăm dò bắt nhịp hồi T+."
+      )
+      new_alloc = pilot_nav_pct
   elif vol_ratio >= TPLUS_VOLUME_RATIO_MIN and buy_ratio >= TPLUS_BUY_RATIO_MIN and day_change_pct > 0.5:
-    new_action = 'BUY'
-    new_badge = 'MUA BÙNG NỔ (BREAKOUT)'
-    new_subtag = 'BUY_ON_BREAKOUT'
-    new_reason = (
-        f"Dòng tiền lớn xác nhận với khối lượng x{vol_ratio} TB20 (chuẩn > {TPLUS_VOLUME_RATIO_MIN}x), "
-        f"lực mua chủ động chiếm {buy_ratio}%, giá tăng {day_change_pct:+.2f}% giữ trên EMA9 ({ema9:,.0f} đ). Đạt chuẩn đánh sóng T+."
-    )
-    new_alloc = pilot_nav_pct
+    if rr_ratio < 1.2:
+      new_action = 'WAIT'
+      new_badge = f'QUAN SÁT (BREAKOUT R:R MỎNG 1:{rr_ratio:.2f})'
+      new_subtag = 'WAIT_POOR_RR'
+      new_reason = (
+          f"Dòng tiền vào đột biến x{vol_ratio} TB20 nhưng khoảng cách đến cản R1 ({resist_r1:,.0f} đ) quá gần, "
+          f"Net R:R chỉ 1:{rr_ratio:.2f}. Tránh mua đuổi giá cao sát kháng cự."
+      )
+      new_alloc = 0.0
+    elif not st_bullish and current_price < ma20:
+      new_action = 'WAIT'
+      new_badge = 'QUAN SÁT (BÙNG NỔ NGƯỢC TREND VÙNG HỒNG)'
+      new_subtag = 'WAIT_BEARISH_TREND'
+      new_reason = (
+          f"Dòng tiền nổ khối lượng x{vol_ratio} TB20 nhưng cổ phiếu vẫn đang kẹt dưới MA20 ({ma20:,.0f} đ) trong Vùng Hồng. "
+          f"Đứng ngoài chờ giá vượt hẳn dải cản {st_band:,.0f} đ xác nhận bẻ trend."
+      )
+      new_alloc = 0.0
+    else:
+      new_action = 'BUY'
+      new_badge = 'MUA BÙNG NỔ (BREAKOUT)'
+      new_subtag = 'BUY_ON_BREAKOUT'
+      new_reason = (
+          f"Dòng tiền lớn xác nhận với khối lượng x{vol_ratio} TB20 (chuẩn > {TPLUS_VOLUME_RATIO_MIN}x), "
+          f"lực mua chủ động chiếm {buy_ratio}%, giá tăng {day_change_pct:+.2f}% giữ trên EMA9 ({ema9:,.0f} đ). Đạt chuẩn đánh sóng T+."
+      )
+      new_alloc = pilot_nav_pct
   elif (current_price >= ema9 or current_price >= ma20) and dist_to_s1 <= 3.5 and 45 <= rsi <= 66 and buy_ratio >= 50 and rr_ratio >= 1.4:
     new_action = 'BUY'
     new_badge = 'MUA NỀN (PULLBACK T+)'
@@ -355,6 +430,25 @@ def evaluate_tplus_strategy(
     hold_subtag = 'CUT_LOSS_TPLUS'
     hold_reason = f'Giá đã xuyên thủng ngưỡng phòng thủ T+ ({stop_loss_price:,.0f} đ, -{downside_pct}%). Kỷ luật thoát toàn bộ vị thế.'
     hold_alloc = 0.0
+  elif tp_stage >= 1 and current_price < trailing_stop and trailing_stop > stop_loss_price:
+    # Giá quay đầu thủng mốc chặn lãi Trailing Stop sau khi đã có đệm lãi hoặc đạt TP1
+    hold_action = 'SELL'
+    hold_badge = 'KHÓA LÃI BẢO VỆ THÀNH QUẢ'
+    hold_subtag = 'LOCK_PROFIT_EXIT'
+    hold_reason = f'Giá ({current_price:,.0f} đ) đã đóng cửa thủng mốc chặn lãi Trailing Stop ({trailing_stop:,.0f} đ). Kỷ luật khóa trọn lợi nhuận, thoát toàn bộ vị thế còn lại.'
+    hold_alloc = 0.0
+  elif tp_stage == 2 or (current_price >= target2_val and target2_val > 0):
+    hold_action = 'SELL'
+    hold_badge = 'CHỐT LỜI TP2 TOÀN BỘ (ĐẠT MỤC TIÊU TREND)'
+    hold_subtag = 'TAKE_PROFIT_ALL'
+    hold_reason = f'Giá đã chạm ngưỡng mục tiêu Target 2 ({target2_val:,.0f} đ, +{target2_pct}%). Khuyến nghị chốt lời toàn bộ phần vị thế còn lại để bảo toàn trọn vẹn thành quả.'
+    hold_alloc = 0.0
+  elif tp_stage == 1:
+    hold_action = 'HOLD'
+    hold_badge = 'ĐÃ ĐẠT TP1 - GỒNG LÃI TP2 (BÁM EMA9)'
+    hold_subtag = 'HOLD_TPLUS_TP2'
+    hold_reason = f"Đã đạt mục tiêu chốt lời 50% TP1 ({target1_val:,.0f} đ). 50% vị thế còn lại tiếp tục gồng lãi hướng tới TP2 ({target2_val:,.0f} đ), chặn lãi tự động dâng lên {trailing_stop_display}."
+    hold_alloc = round(max_nav_pct * 0.5, 1)
   elif st_flip_sell:
     hold_action = 'SELL'
     hold_badge = 'THOÁT HÀNG / BẢO TOÀN LÃI (HỒNG RA)'
@@ -448,7 +542,11 @@ def evaluate_tplus_strategy(
       'upsidePct': target1_pct,
       'trailingStop': trailing_stop,
       'trailingStopDisplay': trailing_stop_display,
+      'ratchetTrailingStop': trailing_stop,
+      'tpStage': tp_stage,
       'isHitTarget1': is_hit_target1,
+      'isHitTarget2': is_hit_target2,
+      'breakEvenPrice': break_even_price,
       'sellPartialDisplay': f'Chốt 50% quanh {target1_val:,.0f} đ',
       'netRR': rr_ratio,
       'distSupportPct': dist_to_s1,
@@ -968,6 +1066,14 @@ def evaluate_unified_decision(
           'status': 'POSITIVE',
           'badge': f"TÍCH CỰC - {tplus_data['newEntry']['badge']}",
           'type': 'positive',
+      }
+    elif tplus_data['newEntry']['action'] == 'WAIT':
+      st_bull = tplus_data.get('indicators', {}).get('supertrend', {}).get('isBullish', False)
+      badge_str = tplus_data['newEntry'].get('badge', 'QUAN SÁT TÍN HIỆU')
+      overall_signal = {
+          'status': 'DEFENSIVE' if not st_bull else 'NEUTRAL',
+          'badge': badge_str if any(k in badge_str for k in ['QUAN SÁT', 'CHỜ', 'CẤM', 'THẬN TRỌNG']) else f"QUAN SÁT - {badge_str}",
+          'type': 'caution' if not st_bull else 'neutral',
       }
     elif tplus_data['score'] >= 65:
       overall_signal = {

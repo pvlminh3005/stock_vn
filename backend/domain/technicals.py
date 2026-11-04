@@ -378,11 +378,11 @@ def calculate_stochastic_rsi(
   is_bearish_cross = (k_prev >= d_prev and k_curr < d_curr and k_curr >= 55.0)
 
   if is_bullish_cross:
-    status = 'CẮT VÀNG %K LÊN %D (BẮT NẢY T+)'
+    status = 'QUÁ BÁN ĐẢO CHIỀU T+ (BẮT NẢY HỒI KỸ THUẬT)'
   elif is_oversold:
     status = 'VÙNG QUÁ BÁN T+ (<20)'
   elif is_bearish_cross:
-    status = 'CẮT XUỐNG %D (CHỐT LỜI T+)'
+    status = 'ĐẢO CHIỀU GIẢM T+ (CẢNH BÁO CHỐT LỜI)'
   elif is_overbought:
     status = 'VÙNG QUÁ MUA T+ (>80)'
   elif k_curr > d_curr:

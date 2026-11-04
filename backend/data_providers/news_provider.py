@@ -8,7 +8,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup
-from vnstock import Company
+from vnstock import Company, status
 
 from backend.constants.colors import (
     BADGE_COLOR_COMPANY,
@@ -64,34 +64,9 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
 
   news_records = []
 
-  # 1. Tin doanh nghiệp gắn mã (FiinGroup/VCI) kèm ngày đăng thực tế
-  def trace_company_news():
-    items = []
-    try:
-      news_df = vnstock_call(lambda: Company(symbol=ticker, source='VCI').news())
-      if news_df is not None and not news_df.empty:
-        if 'public_date' in news_df.columns:
-          news_df = news_df.sort_values('public_date', ascending=False)
-        for _, n in news_df.head(3).iterrows():
-          title = str(n.get('news_title') or '').strip()
-          if not title:
-            continue
-          link = n.get('news_source_link')
-          items.append({
-              'source': 'Tin Doanh Nghiệp (FiinGroup/VCI)',
-              'badge': 'TIN DOANH NGHIỆP',
-              'badgeColor': BADGE_COLOR_COMPANY,
-              'title': title,
-              'date': str(n.get('public_date') or '')[:10],
-              'url': link if isinstance(link, str) and link.startswith('http') else f'https://s.cafef.vn/hose/{ticker}-cong-ty.chn',
-              'tickerSpecific': True,
-          })
-    except Exception:
-      pass
-    return items
-
-  # 2. CafeF: chỉ nhận kết quả tìm kiếm có nhắc đúng mã
+  # 1. CafeF Doanh nghiệp: thu thập các tin tức báo chí mới nhất có nhắc đúng mã cổ phiếu
   def trace_cafef():
+    items = []
     try:
       url = f'https://cafef.vn/tim-kiem.chn?keywords={ticker}'
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
@@ -106,7 +81,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
           link = a.get('href', '')
           if not link.startswith('http'):
             link = 'https://cafef.vn' + link
-          return {
+          items.append({
               'source': 'CafeF Doanh Nghiệp',
               'badge': 'TIN TỨC BÁO CHÍ',
               'badgeColor': BADGE_COLOR_COMPANY,
@@ -114,14 +89,20 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
               'date': '',
               'url': link,
               'tickerSpecific': True,
-          }
+          })
+          if len(items) >= 3:
+            break
     except Exception:
       pass
-    return None
+    return items
 
-  # 3. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX qua VCI): sự kiện mới nhất theo ngày công bố
+  # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX): sự kiện mới nhất theo ngày công bố
   def trace_events():
     try:
+      # vnstock 5.x yêu cầu tài khoản bản quyền/Pro cho Company.events()
+      s = status()
+      if not s.get('authenticated', False) and s.get('tier') == 'guest':
+        return None
       events = vnstock_call(lambda: Company(symbol=ticker, source='VCI').events())
       if events is not None and not events.empty:
         if 'public_date' in events.columns:
@@ -198,24 +179,21 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
       pass
     return None
 
-  # Thực thi crawl song song 5 luồng
-  with ThreadPoolExecutor(max_workers=5) as ex:
-    f_company = ex.submit(trace_company_news)
+  # Thực thi crawl song song 4 luồng
+  with ThreadPoolExecutor(max_workers=4) as ex:
     f_cafef = ex.submit(trace_cafef)
     f_events = ex.submit(trace_events)
     f_vne = ex.submit(trace_vne)
     f_gov = ex.submit(trace_gov)
 
-    company_items = f_company.result()
-    cafef_item = f_cafef.result()
+    cafef_items = f_cafef.result()
     events_item = f_events.result()
     vne_item = f_vne.result()
     gov_item = f_gov.result()
 
-  # 1. Tin doanh nghiệp gắn mã
-  news_records.extend(company_items)
-  if cafef_item and all(cafef_item['title'] != r['title'] for r in news_records):
-    news_records.append(cafef_item)
+  # 1. Tin doanh nghiệp gắn mã từ CafeF
+  if cafef_items:
+    news_records.extend(cafef_items)
 
   # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX)
   if events_item:

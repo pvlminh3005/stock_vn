@@ -234,6 +234,22 @@ function renderSlotCard(slotNum, s) {
   safeSetText(`slot${slotNum}Name`, s.name || s.symbol);
   safeSetText(`slot${slotNum}Price`, formatVND(s.price) + ' đ');
 
+  // Trend Badge (Vùng Xanh / Vùng Hồng)
+  const trendEl = document.getElementById(`slot${slotNum}TrendBadge`);
+  if (trendEl) {
+    trendEl.classList.remove('hidden');
+    if (s.isBullish || (s.trendLabel && s.trendLabel.includes('XANH'))) {
+      trendEl.innerText = 'VÙNG XANH (UPTREND)';
+      trendEl.className = 'text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/60';
+    } else if (s.isBearish || (s.trendLabel && s.trendLabel.includes('HỒNG'))) {
+      trendEl.innerText = 'VÙNG HỒNG (DOWNTREND)';
+      trendEl.className = 'text-[11px] font-bold px-1.5 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-700/60';
+    } else {
+      trendEl.innerText = 'SIDEWAY';
+      trendEl.className = 'text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700';
+    }
+  }
+
   const chgEl = document.getElementById(`slot${slotNum}Change`);
   if (chgEl) {
     const isUp = (s.change || 0) >= 0;
@@ -244,7 +260,7 @@ function renderSlotCard(slotNum, s) {
   const actionEl = document.getElementById(`slot${slotNum}ActionBadge`);
   if (actionEl) {
     actionEl.innerText = s.action || 'VÙNG GOM AN TOÀN';
-    if (s.isExtended || s.actionColor === 'amber' || (s.action && s.action.includes('KHÔNG MUA ĐUỔI'))) {
+    if (s.isExtended || s.actionColor === 'amber' || (s.action && (s.action.includes('KHÔNG MUA ĐUỔI') || s.action.includes('QUAN SÁT')))) {
       actionEl.className = 'text-[11px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800';
     } else if (s.actionColor === 'emerald' || (s.percentChange <= 1.5)) {
       actionEl.className = 'text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800';

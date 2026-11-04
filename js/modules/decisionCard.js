@@ -14,7 +14,7 @@
  */
 
 import { formatVND } from '../utils.js?v=4.0';
-import { setChartPriceLines } from './chart.js?v=4.3';
+import { setChartPriceLines } from './chart.js?v=4.5';
 
 function safeSetText(id, text) {
   const el = document.getElementById(id);
@@ -27,6 +27,7 @@ function safeSetHtml(id, html) {
 }
 
 let activeFilter = 'newEntry';      // Mặc định luôn là 'newEntry' (Chưa có hàng / Mua mới)
+let activeHorizon = 'tplus';        // 'tplus' | 'midterm' | 'both'
 let userCostPrice = null;           // Nhập giá vốn tùy chọn
 let cachedDecisionData = null;
 let cachedRawData = null;
@@ -70,7 +71,65 @@ function setupPositionControls() {
     });
   }
 
+  // Khởi tạo Horizon Toggle
+  const btnTPlus = document.getElementById('toggleHorizonTPlus');
+  const btnMidterm = document.getElementById('toggleHorizonMidterm');
+  const btnBoth = document.getElementById('toggleHorizonBoth');
+
+  if (btnTPlus) {
+    btnTPlus.addEventListener('click', () => {
+      activeHorizon = 'tplus';
+      updateHorizonUI();
+    });
+  }
+  if (btnMidterm) {
+    btnMidterm.addEventListener('click', () => {
+      activeHorizon = 'midterm';
+      updateHorizonUI();
+    });
+  }
+  if (btnBoth) {
+    btnBoth.addEventListener('click', () => {
+      activeHorizon = 'both';
+      updateHorizonUI();
+    });
+  }
+
   controlsInitialized = true;
+}
+
+function updateHorizonUI() {
+  const btnTPlus = document.getElementById('toggleHorizonTPlus');
+  const btnMidterm = document.getElementById('toggleHorizonMidterm');
+  const btnBoth = document.getElementById('toggleHorizonBoth');
+  const colTPlus = document.getElementById('colTPlus');
+  const colMidterm = document.getElementById('colMidterm');
+
+  const activeBtnClass = 'px-2.5 py-1 rounded-md font-bold transition flex items-center gap-1 bg-blue-600 text-white shadow cursor-pointer';
+  const inactiveBtnClass = 'px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer';
+
+  if (btnTPlus && btnMidterm && btnBoth) {
+    btnTPlus.className = activeHorizon === 'tplus' ? activeBtnClass : inactiveBtnClass;
+    btnMidterm.className = activeHorizon === 'midterm' ? activeBtnClass : inactiveBtnClass;
+    btnBoth.className = activeHorizon === 'both' ? activeBtnClass : inactiveBtnClass;
+  }
+
+  if (colTPlus && colMidterm) {
+    if (activeHorizon === 'tplus') {
+      colTPlus.classList.remove('hidden');
+      colTPlus.classList.add('lg:col-span-2');
+      colMidterm.classList.add('hidden');
+      colMidterm.classList.remove('lg:col-span-2');
+    } else if (activeHorizon === 'midterm') {
+      colMidterm.classList.remove('hidden');
+      colMidterm.classList.add('lg:col-span-2');
+      colTPlus.classList.add('hidden');
+      colTPlus.classList.remove('lg:col-span-2');
+    } else {
+      colTPlus.classList.remove('hidden', 'lg:col-span-2');
+      colMidterm.classList.remove('hidden', 'lg:col-span-2');
+    }
+  }
 }
 
 function updateFilterUI() {
@@ -165,6 +224,7 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
 
   setupPositionControls();
   updateFilterUI();
+  updateHorizonUI();
 
   const de = decisionData;
   const tplus = de.tPlus || {};
@@ -339,6 +399,63 @@ export function renderUnifiedDecisionHero(decisionData, rawData) {
 
   safeSetText('tplusRRVal', `1 : ${tplus.netRR || 1.0}`);
   safeSetText('tplusNewReasonText', tpNew.reason || 'Đang phân tích điểm giải ngân...');
+
+  // =========================================================================
+  // VÉ LỆNH QUYẾT ĐỊNH NGAY TRONG 3 GIÂY (INSTANT ORDER TICKET)
+  // =========================================================================
+  const isBearish = de.tPlus?.indicators?.supertrend?.direction === 'BEARISH' || (rawData?.technicals?.supertrendTPlus?.isBearish);
+  const isBuy = de.primaryAction === 'BUY' && !isBearish && (tplus.netRR >= 1.2);
+  const isProhibited = priceStatus.status === 'PROHIBITED' || de.overallSignal?.type === 'danger';
+
+  const ticketContainer = document.getElementById('instantOrderTicket');
+  const actionText = document.getElementById('instantActionText');
+  const actionBadge = document.getElementById('instantActionBadge');
+  const trendAlert = document.getElementById('instantTrendAlert');
+  const regimeAlert = document.getElementById('instantRegimeAlert');
+
+  if (isBearish) {
+    if (trendAlert) trendAlert.classList.remove('hidden');
+    if (actionText) actionText.innerText = '🛑 ĐỨNG NGOÀI (VÙNG HỒNG / DOWNTREND)';
+    if (actionBadge) actionBadge.className = 'px-3.5 py-1 rounded-xl text-xs sm:text-sm font-black font-mono uppercase tracking-wider shadow-lg inline-flex items-center gap-1.5 bg-rose-950 text-rose-300 border border-rose-600';
+    if (ticketContainer) ticketContainer.className = 'p-4 sm:p-5 rounded-2xl border-2 transition-all duration-300 shadow-xl space-y-3.5 bg-slate-950/90 border-rose-600/60';
+  } else if (isProhibited) {
+    if (trendAlert) trendAlert.classList.add('hidden');
+    if (actionText) actionText.innerText = '🚨 CẤM MUA MỚI (RỦI RO KẸT HÀNG)';
+    if (actionBadge) actionBadge.className = 'px-3.5 py-1 rounded-xl text-xs sm:text-sm font-black font-mono uppercase tracking-wider shadow-lg inline-flex items-center gap-1.5 bg-rose-950 text-rose-300 border border-rose-600';
+    if (ticketContainer) ticketContainer.className = 'p-4 sm:p-5 rounded-2xl border-2 transition-all duration-300 shadow-xl space-y-3.5 bg-slate-950/90 border-rose-600/60';
+  } else if (isBuy) {
+    if (trendAlert) trendAlert.classList.add('hidden');
+    if (actionText) actionText.innerText = '🟢 ĐẠT ĐIỂM MUA AN TOÀN';
+    if (actionBadge) actionBadge.className = 'px-3.5 py-1 rounded-xl text-xs sm:text-sm font-black font-mono uppercase tracking-wider shadow-lg inline-flex items-center gap-1.5 bg-emerald-950 text-emerald-300 border border-emerald-600';
+    if (ticketContainer) ticketContainer.className = 'p-4 sm:p-5 rounded-2xl border-2 transition-all duration-300 shadow-xl space-y-3.5 bg-slate-950/90 border-emerald-500/60 ring-1 ring-emerald-500/30';
+  } else {
+    if (trendAlert) trendAlert.classList.add('hidden');
+    if (actionText) actionText.innerText = '🟡 QUAN SÁT (CHỜ RETEST / R:R KÉM)';
+    if (actionBadge) actionBadge.className = 'px-3.5 py-1 rounded-xl text-xs sm:text-sm font-black font-mono uppercase tracking-wider shadow-lg inline-flex items-center gap-1.5 bg-amber-950 text-amber-300 border border-amber-600';
+    if (ticketContainer) ticketContainer.className = 'p-4 sm:p-5 rounded-2xl border-2 transition-all duration-300 shadow-xl space-y-3.5 bg-slate-950/90 border-amber-500/60';
+  }
+
+  // Cảnh báo Regime Phòng Thủ
+  const regNameCurrent = (rawData && rawData.technicals && rawData.technicals.regime && rawData.technicals.regime.regime) || 'NEUTRAL';
+  if (regimeAlert) {
+    if (regNameCurrent === 'DEFENSIVE' || regNameCurrent === 'NO_NEW_RISK') {
+      regimeAlert.classList.remove('hidden');
+    } else {
+      regimeAlert.classList.add('hidden');
+    }
+  }
+
+  // Cập nhật 4 thông số vé lệnh
+  safeSetText('instantActionReason', de.actionReason || tpNew.reason || 'Đang cập nhật phân tích...');
+  safeSetText('instantPriceStatusTag', priceStatus.badge || '👀 ĐANG ĐỐI CHIẾU THỊ GIÁ');
+  safeSetText('instantBuyZone', tplusBuyZoneStr);
+  const allocPct = de.positionSizing?.allocatedNowPct || tpNew.allocatedNowPct || (isBuy ? 20 : 0);
+  safeSetText('instantAllocPct', `${allocPct}% NAV`);
+  safeSetText('instantTPPrice', tpCleanPrice);
+  safeSetText('instantTPPct', tpPctStr || '+0%');
+  safeSetText('instantSLPrice', slCleanPrice);
+  safeSetText('instantSLPct', slPctStr || '-0%');
+  safeSetText('instantRRSub', `Net R/R: 1 : ${de.scenarios?.netRR || tplus.netRR || 1.0}`);
 
   // 1B. Đang nắm giữ T+
   const tpHold = tplus.holding || {};
@@ -573,8 +690,10 @@ export function syncChartPriceLines() {
           holdingSLLabel = `Ngưỡng thoát vị thế: ${formatVND(lockStopPrice || rawSL)}`;
         } else if (hasProfit) {
           isLockProfit = true;
-          if (isHitTarget1) {
-            holdingSLLabel = `Hòa vốn (BE) / Chặn lãi: ${formatVND(lockStopPrice)}`;
+          if (tplus.tpStage === 2) {
+            holdingSLLabel = `Đã đạt TP2 / Khóa lãi đỉnh: ${formatVND(lockStopPrice)}`;
+          } else if (tplus.tpStage === 1 || isHitTarget1) {
+            holdingSLLabel = `Đã đạt TP1 / Chặn lãi bám EMA9: ${formatVND(lockStopPrice)}`;
           } else {
             holdingSLLabel = `Hỗ trợ Chặn Lãi: ${formatVND(lockStopPrice)}`;
           }
@@ -588,7 +707,12 @@ export function syncChartPriceLines() {
         let secTarget = target2Price;
         let secTargetLabel = target2Price ? `Target 2 (Trend): ${formatVND(target2Price)}` : '';
 
-        if (isHitTarget1 && target2Price > 0) {
+        if (tplus.tpStage === 2) {
+          primaryTarget = target2Price || target1Price;
+          primaryTargetLabel = `Target 2 (Đã hoàn tất): ${formatVND(primaryTarget)}`;
+          secTarget = null;
+          secTargetLabel = '';
+        } else if (isHitTarget1 && target2Price > 0) {
           primaryTarget = target2Price;
           primaryTargetLabel = `Target 2 (Gồng lãi): ${formatVND(target2Price)}`;
           secTarget = null;

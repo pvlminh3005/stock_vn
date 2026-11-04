@@ -213,10 +213,42 @@ def _enrich_stock_technicals(stock_summary, ssi_board, regime):
     s1 = tech.get('support', round(p - 1.5 * atr, -2))
     r1 = tech.get('resistance', round(p + 2.0 * atr, -2))
     r2 = tech.get('resistance2', round(p + 3.5 * atr, -2))
+    st = tech.get('supertrend', {})
+    is_bullish = st.get('isBullish', False)
+    is_bearish = st.get('isBearish', False)
+    trend = tech.get('trend', 'SIDEWAY')
+    ma20 = tech.get('ma20', p)
+
     dist_s1 = round(((p - s1) / s1) * 100.0, 1) if s1 > 0 else 0.0
     is_extended = dist_s1 > 4.0
 
-    if is_extended:
+    stop_loss = round(s1 - 0.5 * atr, -2)
+    if stop_loss >= p:
+      stop_loss = round(p - 1.0 * atr, -2)
+
+    target1 = r1
+    target2 = r2
+    # Nếu cản R1 quá gần giá hiện tại (<2.5%), mục tiêu sóng T+ tính theo R2
+    primary_target = target2 if (((target1 - p) / p) < 0.025 and target2 > p) else target1
+    downside = max(1.0, p - stop_loss)
+    upside = max(0.1, primary_target - p)
+    rr_ratio = round(upside / downside, 1)
+
+    is_buy_eligible = True
+    if is_bearish or (trend == 'DOWNTREND' and p < ma20):
+      is_buy_eligible = False
+      action = 'QUAN SÁT (ĐANG VÙNG HỒNG)'
+      action_color = 'amber'
+      advice = f'Cổ phiếu đang trong Vùng Hồng (Downtrend dưới MA20 {ma20:,.0f} đ). Đứng ngoài chờ bẻ trend.'
+      buy_zone = f'{s1:,.0f} - {r1:,.0f} đ (Vùng cản)'
+    elif rr_ratio < 1.2:
+      is_buy_eligible = False
+      action = f'QUAN SÁT (R:R BẤT LỢI 1:{rr_ratio:.1f})'
+      action_color = 'amber'
+      advice = f'Biên lợi nhuận mỏng so với rủi ro cắt lỗ (Net R:R 1:{rr_ratio:.1f} < 1.2). Chờ tích lũy nền giá an toàn hơn.'
+      buy_zone = f'{s1:,.0f} - {p:,.0f} đ'
+    elif is_extended:
+      is_buy_eligible = False
       pb_min = round(max(s1, p - 0.5 * (p - s1)), -2)
       pb_max = round(max(s1, p - 0.25 * (p - s1)), -2)
       buy_zone = f'{pb_min:,.0f} - {pb_max:,.0f} đ (Vùng Pullback)'
@@ -230,13 +262,6 @@ def _enrich_stock_technicals(stock_summary, ssi_board, regime):
       action_color = 'emerald'
       advice = f'Giá đang nằm trong vùng nền tích lũy an toàn (cách nền {dist_s1}%).'
 
-    stop_loss = round(min(s1 - 0.5 * atr, p - 1.5 * atr), -2)
-    target1 = r1
-    target2 = r2
-    downside = max(1.0, p - stop_loss)
-    upside = max(0.1, target1 - p)
-    rr_ratio = round(upside / downside, 1)
-
     return {
         **stock_summary,
         'support': s1,
@@ -245,6 +270,10 @@ def _enrich_stock_technicals(stock_summary, ssi_board, regime):
         'atr': atr,
         'distToS1': dist_s1,
         'isExtended': is_extended,
+        'isBullish': is_bullish,
+        'isBearish': is_bearish,
+        'trendLabel': 'VÙNG XANH (UPTREND)' if is_bullish else ('VÙNG HỒNG (DOWNTREND)' if is_bearish else 'SIDEWAY'),
+        'isBuyEligible': is_buy_eligible,
         'buyZone': buy_zone,
         'action': action,
         'actionColor': action_color,
@@ -356,57 +385,47 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
     momentum_candidates = eligible_stocks[5:10] if len(eligible_stocks) > 5 else eligible_stocks
 
   # 4. Chọn cặp đôi tối ưu theo Style & Quy tắc Khác Ngành (Sector Diversification)
-  stock1 = None
-  stock2 = None
+  # Hàm sàng lọc chuyên sâu: Ưu tiên mã thỏa mãn VÙNG XANH (Uptrend) và R:R >= 1.2
+  def _pick_candidate(candidates, exclude_sym=None, exclude_sec=None):
+    tested = []
+    for s in candidates:
+      if exclude_sym and s['symbol'] == exclude_sym:
+        continue
+      if exclude_sec and s.get('sector') == exclude_sec:
+        continue
+      en = _enrich_stock_technicals(s, ssi_board, regime)
+      tested.append(en)
+      if en.get('isBuyEligible', False):
+        return en
+    # Nếu không có mã nào đạt tuyệt đối isBuyEligible, chọn mã có R:R tốt nhất
+    if tested:
+      tested.sort(key=lambda x: -x.get('riskReward', 0))
+      return tested[0]
+    return None
+
+  stock1_ready = None
+  stock2_ready = None
 
   if style == 'defensive':
     core_candidates.sort(key=lambda s: -s['tradedValue'])
-    stock1 = core_candidates[0] if core_candidates else eligible_stocks[0]
-    # Tìm mã thứ 2 khác ngành
-    for s in core_candidates[1:]:
-      if s['sector'] != stock1['sector']:
-        stock2 = s
-        break
+    stock1_ready = _pick_candidate(core_candidates) or _pick_candidate(eligible_stocks)
+    stock2_ready = _pick_candidate(core_candidates, exclude_sym=stock1_ready['symbol'], exclude_sec=stock1_ready['sector'])
   elif style == 'momentum':
     momentum_candidates.sort(key=lambda s: -s['percentChange'])
-    stock1 = momentum_candidates[0] if momentum_candidates else eligible_stocks[0]
-    for s in momentum_candidates[1:]:
-      if s['sector'] != stock1['sector']:
-        stock2 = s
-        break
+    stock1_ready = _pick_candidate(momentum_candidates) or _pick_candidate(eligible_stocks)
+    stock2_ready = _pick_candidate(momentum_candidates, exclude_sym=stock1_ready['symbol'], exclude_sec=stock1_ready['sector'])
   else:  # 'balanced' (Khuyên dùng: 1 Core + 1 Momentum)
-    # Ưu tiên các mã chưa tăng quá nóng (percentChange <= 2.5%) để đảm bảo sát nền hỗ trợ an toàn
     safe_core = [s for s in core_candidates if s.get('percentChange', 0) <= 2.5]
-    stock1 = safe_core[0] if safe_core else (core_candidates[0] if core_candidates else eligible_stocks[0])
-    
-    # Ưu tiên mã Momentum khác ngành với stock1
-    safe_momentum = [s for s in momentum_candidates if s.get('percentChange', 0) <= 3.0]
-    for s in (safe_momentum or momentum_candidates):
-      if s['symbol'] != stock1['symbol'] and s['sector'] != stock1['sector']:
-        stock2 = s
-        break
+    stock1_ready = _pick_candidate(safe_core or core_candidates) or _pick_candidate(eligible_stocks)
+    stock2_ready = _pick_candidate(momentum_candidates, exclude_sym=stock1_ready['symbol'], exclude_sec=stock1_ready['sector'])
 
   # Dự phòng nếu chưa tìm được mã thứ 2
-  if not stock2:
-    for s in eligible_stocks:
-      if s['symbol'] != stock1['symbol']:
-        stock2 = s
-        break
+  if not stock2_ready:
+    stock2_ready = _pick_candidate(eligible_stocks, exclude_sym=stock1_ready['symbol'])
 
   # Dự phòng cuối cùng nếu chỉ có 1 mã hợp lệ
-  if not stock2:
-    stock2 = stock1
-
-  # 5. Phân tích nến song song cho đúng 2 mã được chọn (Zero-lag, chỉ tốn ~200-300ms)
-  try:
-    with ThreadPoolExecutor(max_workers=2) as pool:
-      enriched_list = list(pool.map(
-          lambda s: _enrich_stock_technicals(s, ssi_board, regime),
-          [stock1, stock2]
-      ))
-    stock1_ready, stock2_ready = enriched_list[0], enriched_list[1]
-  except Exception as e:
-    stock1_ready, stock2_ready = stock1, stock2
+  if not stock2_ready:
+    stock2_ready = stock1_ready
 
   # 6. Tính toán Sizing & Làm tròn Lô chẵn 100
   def _calculate_slot_position(stock_info, budget, role_title):
@@ -462,10 +481,17 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
         'advice': stock_info.get('advice', ''),
         'distToS1': stock_info.get('distToS1', 0.0),
         'isExtended': stock_info.get('isExtended', False),
+        'isBullish': stock_info.get('isBullish', True),
+        'isBearish': stock_info.get('isBearish', False),
+        'trendLabel': stock_info.get('trendLabel', 'VÙNG XANH (UPTREND)'),
+        'isBuyEligible': stock_info.get('isBuyEligible', True),
     }
 
-  slot1 = _calculate_slot_position(stock1_ready, slot_budget, 'Trụ Cân Bằng / Nền Tảng')
-  slot2 = _calculate_slot_position(stock2_ready, slot_budget, 'Động Lực Tăng Trưởng / T+')
+  role1 = 'Đột Phá T+ (Dòng Tiền)' if style == 'momentum' else ('Phòng Thủ Cốt Lõi' if style == 'defensive' else 'Trụ Cân Bằng / Nền Tảng')
+  role2 = 'Động Lực Sóng Ngành T+' if style == 'momentum' else ('Tích Sản Bền Vững' if style == 'defensive' else 'Động Lực Tăng Trưởng / T+')
+
+  slot1 = _calculate_slot_position(stock1_ready, slot_budget, role1)
+  slot2 = _calculate_slot_position(stock2_ready, slot_budget, role2)
 
   total_invested = slot1['totalCost'] + slot2['totalCost']
   # Nếu tổng vượt quá vốn người dùng, tự động giảm bớt 100 CP ở mã có tỷ trọng cao hơn
