@@ -134,6 +134,12 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
   def check_pin_authenticated(self, params):
     """Kiểm tra xác thực mã PIN bảo vệ (nếu biến APP_ACCESS_PIN được cấu hình)."""
+    # 0. Miễn phí xác thực khi chạy trên máy cục bộ (localhost / 127.0.0.1)
+    host = self.headers.get('Host', '').split(':')[0].lower()
+    client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''
+    if host in ['localhost', '127.0.0.1'] or client_ip in ['127.0.0.1', '::1']:
+      return True
+
     pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
     if not pin_required:
       return True
@@ -166,6 +172,12 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
     # 0. API: Xác thực mã PIN nội bộ
     if path == '/api/auth/verify':
+      host = self.headers.get('Host', '').split(':')[0].lower()
+      client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''
+      if host in ['localhost', '127.0.0.1'] or client_ip in ['127.0.0.1', '::1']:
+        self.send_json(200, {'authenticated': True, 'isLocalhost': True})
+        return
+
       pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
       if not pin_required:
         self.send_json(200, {'authenticated': True, 'pinRequired': False})

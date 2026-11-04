@@ -624,6 +624,13 @@ async function initAuthProtection() {
     if (overlay) overlay.classList.add("hidden");
   }
 
+  // 0. Miễn phí xác thực khi chạy trên localhost / 127.0.0.1
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    hideOverlay();
+    return true;
+  }
+
   window.addEventListener("unauthorizedAccess", () => {
     showOverlay();
   });
