@@ -149,7 +149,7 @@ function renderCards(opportunities) {
 
     // Tỷ trọng khuyến nghị
     const allocBadge = isBreakout
-      ? `<span class="text-[10px] font-semibold text-amber-300 bg-amber-950/60 border border-amber-700/40 px-1.5 py-0.5 rounded">100% Size</span>`
+      ? `<span class="text-[10px] font-semibold text-amber-300 bg-amber-950/60 border border-amber-700/40 px-1.5 py-0.5 rounded">20-30% Thăm dò</span>`
       : `<span class="text-[10px] font-semibold text-cyan-300 bg-cyan-950/60 border border-cyan-700/40 px-1.5 py-0.5 rounded">30-50% Thăm dò</span>`;
 
     // Khung border active hoặc mặc định

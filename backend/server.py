@@ -26,6 +26,22 @@ for p in [ROOT_DIR, BACKEND_DIR]:
   if p not in sys.path:
     sys.path.insert(0, p)
 
+# Tự động nạp file .env nội bộ (nếu có) để đọc config bảo mật
+env_path = os.path.join(ROOT_DIR, '.env')
+if os.path.isfile(env_path):
+  try:
+    with open(env_path, 'r', encoding='utf-8') as f:
+      for line in f:
+        line = line.strip()
+        if line and not line.startswith('#') and '=' in line:
+          k, v = line.split('=', 1)
+          k = k.strip()
+          v = v.strip().strip("'\"")
+          if k and k not in os.environ:
+            os.environ[k] = v
+  except Exception:
+    pass
+
 # ==================== IMPORT FROM CLEAN ARCHITECTURE MODULES ====================
 from backend.domain.regime import warm_up_market_data
 from backend.controllers import (
@@ -40,6 +56,7 @@ from backend.controllers import (
     handle_portfolio_bundle,
     handle_portfolio_alternatives,
     handle_portfolio_sectors,
+    handle_telegram_test,
 )
 
 
@@ -228,7 +245,16 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         self.send_json(500, {'error': str(e)})
       return
 
-    # 8. Trang chủ HTML & Components
+    # 8. API: Kiểm tra kết nối Telegram Bot & Gửi thử nghiệm
+    if path == '/api/telegram/test':
+      sym = params.get('ticker', ['SSI'])[0]
+      try:
+        self.send_json(200, handle_telegram_test(ticker=sym))
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    # 9. Trang chủ HTML & Components
     if path in ['/', '', '/index.html']:
       index_file = os.path.join(ROOT_DIR, 'index.html')
       html_content = render_template_html(index_file)

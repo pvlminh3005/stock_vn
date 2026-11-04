@@ -14,6 +14,7 @@ from backend.controllers.screener_controller import (
     handle_screener,
     handle_top_tplus,
     start_screener_worker,
+    handle_telegram_test,
 )
 from backend.controllers.portfolio_controller import (
     handle_portfolio_bundle,
@@ -30,6 +31,7 @@ __all__ = [
     'handle_screener',
     'handle_top_tplus',
     'start_screener_worker',
+    'handle_telegram_test',
     'handle_portfolio_bundle',
     'handle_portfolio_alternatives',
     'handle_portfolio_sectors',

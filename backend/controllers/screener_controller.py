@@ -6,11 +6,17 @@ Bộ lọc cổ phiếu và tìm kiếm:
 - /api/top-tplus: VSR Smart Screener Top 8 Cơ hội Lướt Sóng T+ (Phễu 2 tầng)
 """
 
+import os
 import threading
 import time
 
 from backend.data_providers.ssi_provider import get_ssi_board_data
 from backend.domain.screener_engine import build_top_tplus_opportunities, is_market_hours
+from backend.utils.telegram_bot import (
+    send_telegram_message,
+    format_breakout_alert,
+    format_session_digest,
+)
 
 _TOP_TPLUS_CACHE = {
     'timestamp': 0,
@@ -20,9 +26,86 @@ _CACHE_LOCK = threading.Lock()
 _WORKER_STARTED = False
 _CACHE_TTL_SEC = 180  # 3 phút
 
+# Bộ nhớ tạm kiểm soát trùng lặp cảnh báo Telegram theo ngày
+_ALERT_TRACKER = {
+    'date': '',
+    'sent_symbols': set(),
+    'sent_digests': set(),
+}
+
+
+def _evaluate_telegram_alerts(screener_data):
+  """
+  Đánh giá và gửi cảnh báo Telegram theo 4 khung giờ vàng tối ưu cho TTCK Việt Nam:
+  1. 10:15 - 10:45: Sóng sớm bùng nổ T0 (tối đa 2 mã khỏe nhất, chưa gửi hôm nay).
+  2. 11:35 - 12:00: Bản tin trưa tóm tắt kết phiên sáng (1 tin duy nhất).
+  3. 14:05 - 14:25: Điểm mua chuẩn Giờ Vàng sau khi hấp thụ T+2.5.
+  4. 14:50 - 15:15: Tổng kết đóng cửa ATC & Xác nhận tín hiệu ngày mai.
+  """
+  if not screener_data:
+    return
+
+  now_vn = time.gmtime(time.time() + 7 * 3600)
+  today_str = time.strftime('%Y-%m-%d', now_vn)
+  is_weekday = now_vn.tm_wday < 5
+
+  if not is_weekday:
+    return
+
+  # Tự động reset danh sách gửi khi sang ngày mới
+  if _ALERT_TRACKER['date'] != today_str:
+    _ALERT_TRACKER['date'] = today_str
+    _ALERT_TRACKER['sent_symbols'].clear()
+    _ALERT_TRACKER['sent_digests'].clear()
+
+  mins = now_vn.tm_hour * 60 + now_vn.tm_min
+  opps = screener_data.get('topOpportunities', [])
+  regime = screener_data.get('marketRegime', 'TÍCH CỰC')
+
+  # ==================== MỐC 1: 10:15 - 10:45 (SÓNG SỚM BÙNG NỔ T0) ====================
+  if 615 <= mins <= 645:
+    candidates = [
+        s for s in opps
+        if (s.get('tag') == 'BREAKOUT_T0' or str(s.get('badge', '')).startswith('⚡'))
+        and s.get('symbol') not in _ALERT_TRACKER['sent_symbols']
+    ]
+    for stock in candidates[:2]:
+      sym = stock.get('symbol')
+      msg, btns = format_breakout_alert(stock)
+      if send_telegram_message(msg, buttons=btns):
+        _ALERT_TRACKER['sent_symbols'].add(sym)
+
+  # ==================== MỐC 2: 11:35 - 12:00 (BẢN TIN TRƯA KẾT PHIÊN SÁNG) ====================
+  elif 695 <= mins <= 720:
+    if 'MIDDAY' not in _ALERT_TRACKER['sent_digests']:
+      msg, btns = format_session_digest('Bản Tin Trưa - Kết Phiên Sáng', opps, regime)
+      if send_telegram_message(msg, buttons=btns):
+        _ALERT_TRACKER['sent_digests'].add('MIDDAY')
+
+  # ==================== MỐC 3: 14:05 - 14:25 (ĐIỂM MUA GIỜ VÀNG CHIỀU) ====================
+  elif 845 <= mins <= 865:
+    candidates = [
+        s for s in opps
+        if s.get('symbol') not in _ALERT_TRACKER['sent_symbols']
+        and s.get('buy_ratio', 50) >= 55.0
+        and s.get('pct_change', 0) > 0.5
+    ]
+    for stock in candidates[:2]:
+      sym = stock.get('symbol')
+      msg, btns = format_breakout_alert(stock)
+      if send_telegram_message(msg, buttons=btns):
+        _ALERT_TRACKER['sent_symbols'].add(sym)
+
+  # ==================== MỐC 4: 14:50 - 15:15 (TỔNG KẾT ĐÓNG CỬA ATC) ====================
+  elif 890 <= mins <= 915:
+    if 'ATC' not in _ALERT_TRACKER['sent_digests']:
+      msg, btns = format_session_digest('Tổng Kết Đóng Cửa ATC & Xu Hướng', opps, regime)
+      if send_telegram_message(msg, buttons=btns):
+        _ALERT_TRACKER['sent_digests'].add('ATC')
+
 
 def _screener_worker_loop():
-  """Tiến trình chạy ngầm làm mới dữ liệu Top T+ định kỳ 3 phút trong giờ giao dịch."""
+  """Tiến trình chạy ngầm làm mới dữ liệu Top T+ định kỳ 3 phút trong giờ giao dịch & bắn cảnh báo."""
   while True:
     try:
       in_market = is_market_hours()
@@ -32,6 +115,12 @@ def _screener_worker_loop():
         with _CACHE_LOCK:
           _TOP_TPLUS_CACHE['data'] = data
           _TOP_TPLUS_CACHE['timestamp'] = time.time()
+        
+        # Đánh giá cảnh báo Telegram theo các mốc giờ vàng
+        try:
+          _evaluate_telegram_alerts(data)
+        except Exception as errAlert:
+          print('Lỗi đánh giá Telegram alert:', errAlert)
       
       if in_market:
         time.sleep(_CACHE_TTL_SEC)  # 3 phút trong phiên giao dịch
@@ -151,3 +240,36 @@ def handle_top_tplus():
         'stocks': top_items,
         'isFallback': True,
     }
+
+
+def handle_telegram_test(ticker='SSI'):
+  """API kiểm tra gửi thử nghiệm cảnh báo Telegram cho mã bất kỳ."""
+  sym = (ticker or 'SSI').strip().upper()
+  board = get_ssi_board_data()
+  item = board.get(sym, {})
+  p = item.get('matchedPrice', item.get('refPrice', 36000))
+  sample_stock = {
+      'symbol': sym,
+      'name': item.get('companyNameVi', item.get('clientName', f'CTCP {sym}')),
+      'price': p,
+      'pct_change': item.get('priceChangePercent', 2.8),
+      'vol_run_rate': 1.8,
+      'buy_ratio': 65.5,
+      'net_rr': 1.65,
+      'support': round(p * 0.96, -2),
+      'target1': round(p * 1.07, -2),
+      'stop_loss': round(p * 0.94, -2),
+      'sector': 'Chứng khoán' if sym == 'SSI' else 'Doanh nghiệp',
+  }
+  msg, btns = format_breakout_alert(sample_stock)
+  ok = send_telegram_message(msg, buttons=btns)
+  bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+  chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
+  return {
+      'success': ok,
+      'targetChatId': chat_id,
+      'hasToken': bool(bot_token),
+      'messagePreview': msg,
+      'buttons': btns,
+      'hint': 'Thành công!' if ok else 'Chưa gửi được. Vui lòng kiểm tra TELEGRAM_BOT_TOKEN hoặc Chat ID.',
+  }

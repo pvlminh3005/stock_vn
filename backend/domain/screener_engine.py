@@ -202,8 +202,8 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
       tag_type = 'BREAKOUT_T0'
       badge = '⚡ BÙNG NỔ CHÂN SÓNG'
       badge_color = 'emerald'
-      alloc_advice = 'Vị thế Mua mới: 100% Full size (10-15% NAV)'
-      alloc_pct = 100
+      alloc_advice = 'Vị thế Thăm dò: 20-30% vị thế (10-15% NAV) - Gia tăng khi ATC giữ vững'
+      alloc_pct = 30
       timing_note = f'Nổ Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio}%, cách nền +{dist_s1}%. Vào lệnh chủ động.'
       entry_zone = f'{s1:,.0f} - {round(min(s1 + 0.4 * atr, p * 1.005), -2):,.0f} đ'
     else:

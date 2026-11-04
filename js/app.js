@@ -413,6 +413,17 @@ export async function loadStock(ticker) {
   setActiveTopTPlusTicker(sym);
   showLoading(sym);
 
+  // Đồng bộ URL parameter ?ticker=... để tiện chia sẻ / bookmark từ Telegram
+  try {
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.get('ticker') !== sym) {
+      currentUrl.searchParams.set('ticker', sym);
+      window.history.replaceState({ ticker: sym }, '', currentUrl.toString());
+    }
+  } catch (errUrl) {
+    // Không ảnh hưởng nếu trình duyệt chặn history API
+  }
+
   try {
     const resSelect = document.getElementById("chartTimeframeSelect");
     if (resSelect) currentResolution = resSelect.value || '1D';
@@ -609,6 +620,19 @@ function initApp() {
   initTopTPlusBar((ticker) => {
     loadStock(ticker);
   });
+
+  // Tự động phân tích & mở biểu đồ mã cổ phiếu từ tham số URL (deep-linking Telegram: ?ticker=SSI)
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetTicker = urlParams.get('ticker') || urlParams.get('symbol') || window.location.hash.replace('#', '');
+    if (targetTicker && targetTicker.trim().length >= 3) {
+      const cleanTicker = targetTicker.trim().toUpperCase();
+      if (DOM.input) DOM.input.value = cleanTicker;
+      loadStock(cleanTicker);
+    }
+  } catch (errInitTicker) {
+    console.warn("Lỗi đọc tham số URL ticker:", errInitTicker);
+  }
 }
 
 if (document.readyState === "loading") {
