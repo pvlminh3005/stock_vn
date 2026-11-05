@@ -482,18 +482,26 @@ export function setChartPriceLines(config = {}) {
   };
 
   const isExit = !!config.isProhibited;
+  const curP = (cachedCandles && cachedCandles.length > 0)
+    ? cachedCandles[cachedCandles.length - 1].close
+    : 0;
 
   // 1. Đường Target 1 (T+ / Chốt lời 50%) - Xanh dương nhạt / Sky HOẶC Kháng cự hạ tỷ trọng (Amber)
   if (config.target && config.target > 0) {
     try {
       const lineColor = isExit ? '#f59e0b' : '#38bdf8';
+      let title = config.targetLabel || (isExit ? 'Kháng cự hạ tỷ trọng' : 'Target 1 (T+)');
+      if (!title.includes('%') && curP > 0) {
+        const pct = (((config.target - curP) / curP) * 100).toFixed(1);
+        title += ` (${pct >= 0 ? '+' : ''}${pct}%)`;
+      }
       const line = candleSeries.createPriceLine({
         price: config.target,
         color: lineColor,
         lineWidth: 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: config.targetLabel || (isExit ? 'Kháng cự hạ tỷ trọng' : 'Target 1 (T+)'),
+        title: title,
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -504,13 +512,18 @@ export function setChartPriceLines(config = {}) {
   // 1B. Đường Target 2 (Mục tiêu Xu hướng / Trend) - Tím / Purple / Indigo (Ẩn khi ở chế độ Cấm mua / Thoát vị thế)
   if (!isExit && config.target2 && config.target2 > 0) {
     try {
+      let title2 = config.target2Label || 'Target 2 (Trend)';
+      if (!title2.includes('%') && curP > 0) {
+        const pct2 = (((config.target2 - curP) / curP) * 100).toFixed(1);
+        title2 += ` (${pct2 >= 0 ? '+' : ''}${pct2}%)`;
+      }
       const line = candleSeries.createPriceLine({
         price: config.target2,
         color: '#a855f7',
         lineWidth: 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: config.target2Label || 'Target 2 (Trend)',
+        title: title2,
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -542,13 +555,18 @@ export function setChartPriceLines(config = {}) {
     try {
       const isLockProfit = !!config.isLockProfit || (config.stopLossLabel && (config.stopLossLabel.includes("Chặn lãi") || config.stopLossLabel.includes("Chốt hết") || config.stopLossLabel.includes("Khóa lãi")));
       const lineColor = isExit ? '#f43f5e' : (isLockProfit ? '#f59e0b' : '#f43f5e');
+      let titleSL = config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : (isLockProfit ? 'Hỗ trợ Chặn Lãi' : 'Cắt lỗ'));
+      if (!titleSL.includes('%') && curP > 0) {
+        const pctSL = (((config.stopLoss - curP) / curP) * 100).toFixed(1);
+        titleSL += ` (${pctSL >= 0 ? '+' : ''}${pctSL}%)`;
+      }
       const line = candleSeries.createPriceLine({
         price: config.stopLoss,
         color: lineColor,
         lineWidth: (isExit || isLockProfit) ? 2 : 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : (isLockProfit ? 'Hỗ trợ Chặn Lãi' : 'Cắt lỗ')),
+        title: titleSL,
       });
       activePriceLines.push(line);
     } catch (err) {

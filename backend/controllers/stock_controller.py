@@ -10,7 +10,7 @@ import time
 from backend.constants.config import DAILY_HISTORY_DAYS
 from backend.utils.ohlc_helpers import format_candles, merge_live_candle_to_chart_data
 from backend.data_providers.ssi_provider import get_ssi_board_data
-from backend.data_providers.entrade_provider import fetch_chart_data
+from backend.data_providers.entrade_provider import fetch_chart_data, fetch_intraday_snapshot
 from backend.data_providers.news_provider import fetch_live_multi_sources
 from backend.domain.valuation import get_fundamental_profile
 from backend.domain.technicals import analyze_technicals_and_scoring
@@ -25,10 +25,16 @@ def handle_stock_detail(ticker, resolution='1D'):
   ssi_board = get_ssi_board_data()
   ssi_item = ssi_board.get(ticker, {})
 
+  # Nếu SSI bị chặn IP (trên Render Cloud) hoặc ngoài phiên rỗng -> Tự động Fallback sang Entrade Intraday Live 1-min
+  if not ssi_item or ssi_item.get('matchedPrice', 0) <= 0:
+    entrade_snap = fetch_intraday_snapshot(ticker)
+    if entrade_snap and entrade_snap.get('matchedPrice', 0) > 0:
+      ssi_item = entrade_snap
+
   # Toàn bộ phân tích (RSI, MA, ATR, hỗ trợ/kháng cự, kế hoạch T+) luôn chạy trên nến NGÀY;
   # resolution chỉ quyết định dữ liệu nến vẽ biểu đồ.
   chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', ssi_item=ssi_item)
-  # Ghép cây nến realtime tại thời điểm search từ SSI vào chuỗi nến ngày
+  # Ghép cây nến realtime tại thời điểm search từ SSI/Entrade vào chuỗi nến ngày
   chart_data = merge_live_candle_to_chart_data(chart_data, ssi_item, resolution='1D')
 
   t_list = chart_data.get('t', [])

@@ -22,11 +22,18 @@ from backend.domain.regime import evaluate_market_regime
 from backend.data_providers.ssi_provider import get_ssi_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data
 
+VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
+
+
+def get_vn_now():
+  """Lấy thời gian chuẩn theo múi giờ Việt Nam (UTC+7) bất kể server ở múi giờ nào (Render UTC hay Local)."""
+  return datetime.datetime.now(VN_TZ)
+
 
 def is_market_hours(now=None):
-  """Kiểm tra xem thời điểm hiện tại có nằm trong giờ khớp lệnh TTCK Việt Nam không."""
+  """Kiểm tra xem thời điểm hiện tại có nằm trong giờ khớp lệnh TTCK Việt Nam không (theo giờ VN GMT+7)."""
   if now is None:
-    now = datetime.datetime.now()
+    now = get_vn_now()
   # Thứ 7 (5) và Chủ nhật (6) đóng cửa
   if now.weekday() >= 5:
     return False
@@ -44,7 +51,7 @@ def get_session_elapsed_ratio(now=None):
   - Tổng cộng cả phiên: 255 phút
   """
   if now is None:
-    now = datetime.datetime.now()
+    now = get_vn_now()
   if not is_market_hours(now):
     return 1.0
   t = now.time()
@@ -85,7 +92,7 @@ def calculate_upper_wick_ratio(high, low, close):
 def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
   """Đánh giá chi tiết 1 mã cổ phiếu xem có đạt chuẩn Bùng Nổ T0 hoặc Gom Pullback T1-T2."""
   if now is None:
-    now = datetime.datetime.now()
+    now = get_vn_now()
   try:
     p = ssi_item.get('matchedPrice') or ssi_item.get('refPrice', 0)
     ref = ssi_item.get('refPrice', p)
@@ -302,6 +309,76 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
     return None
 
 
+def _build_synthetic_board_from_entrade(symbols=None):
+  """
+  Tạo bảng giá mô phỏng từ Entrade Chart API khi SSI iBoard bị chặn (Render / Cloud Datacenter).
+  Quét song song Top 45 mã Universe để lấy giá realtime (c[-1]), ref (c[-2]),
+  vol (v[-1]), high, low và % thay đổi.
+  """
+  if not symbols:
+    symbols = list(KNOWN_STOCK_SECTORS.keys())[:45]
+
+  board = {}
+
+  def _fetch_stock_candle(sym):
+    try:
+      from backend.data_providers.entrade_provider import fetch_intraday_snapshot
+      snap = fetch_intraday_snapshot(sym)
+      if snap and snap.get('matchedPrice', 0) > 0:
+        return snap
+
+      raw = fetch_chart_data(sym, days=30, resolution='1D')
+      c = raw.get('c', [])
+      if not c or len(c) < 2:
+        return None
+      h = raw.get('h', [])
+      l = raw.get('l', [])
+      v = raw.get('v', [])
+
+      scale = 1000 if c[-1] < 1000 else 1
+      p = float(c[-1] * scale)
+      ref = float(c[-2] * scale)
+      high_p = float((h[-1] * scale) if h else p)
+      low_p = float((l[-1] * scale) if l else p)
+      vol_today = int(v[-1]) if v else 0
+      traded_val = float(vol_today * p)
+      pct_chg = round(((p - ref) / ref) * 100, 2) if ref > 0 else 0.0
+
+      range_hl = high_p - low_p
+      if range_hl > 0:
+        buy_ratio = round(max(35.0, min(75.0, 35.0 + ((p - low_p) / range_hl) * 40.0)), 1)
+      else:
+        buy_ratio = 52.0 if p >= ref else 48.0
+
+      return {
+          'stockSymbol': sym,
+          'matchedPrice': p,
+          'refPrice': ref,
+          'highest': high_p,
+          'lowest': low_p,
+          'stockVol': vol_today,
+          'nmTotalTradedValue': traded_val,
+          'buyVol': int(vol_today * (buy_ratio / 100.0)),
+          'sellVol': int(vol_today * ((100.0 - buy_ratio) / 100.0)),
+          'priceChange': p - ref,
+          'priceChangePercent': pct_chg,
+          'companyNameVi': f'CTCP {sym}',
+          'exchange': 'HOSE',
+          'stockType': 's',
+          'isSynthetic': True,
+      }
+    except Exception:
+      return None
+
+  with ThreadPoolExecutor(max_workers=15) as pool:
+    results = pool.map(_fetch_stock_candle, symbols)
+    for item in results:
+      if item and item.get('stockSymbol'):
+        board[item['stockSymbol']] = item
+
+  return board
+
+
 def build_top_tplus_opportunities(max_total=8):
   """
   Quét Universe các mã đầu ngành thanh khoản cao và phân loại Top 8 cơ hội T+:
@@ -310,7 +387,11 @@ def build_top_tplus_opportunities(max_total=8):
   """
   ssi_board = get_ssi_board_data()
   if not ssi_board:
-    return {'updatedAt': time.strftime('%H:%M:%S %d/%m/%Y'), 'totalScanned': 0, 'topOpportunities': []}
+    # FALLBACK ENTRADE: Tạo bảng giá tổng hợp từ nến Entrade khi SSI iBoard bị chặn (Render Cloud)
+    ssi_board = _build_synthetic_board_from_entrade()
+
+  if not ssi_board:
+    return {'updatedAt': get_vn_now().strftime('%H:%M:%S %d/%m/%Y'), 'totalScanned': 0, 'topOpportunities': []}
 
   regime = evaluate_market_regime(ssi_board)
 
@@ -391,7 +472,7 @@ def build_top_tplus_opportunities(max_total=8):
   final_list = final_list[:max_total]
 
   return {
-      'updatedAt': time.strftime('%H:%M:%S %d/%m/%Y'),
+      'updatedAt': get_vn_now().strftime('%H:%M:%S %d/%m/%Y'),
       'marketRegime': regime.get('status', 'NEUTRAL') if isinstance(regime, dict) else 'NEUTRAL',
       'totalScanned': len(scan_list),
       'countBreakout': len([x for x in final_list if x['tagType'] == 'BREAKOUT_T0']),

@@ -101,7 +101,12 @@ def get_breadth_universe(ssi_board):
 def warm_up_market_data():
   """Tải trước bảng giá và universe độ rộng khi khởi động server để request đầu tiên có đủ regime."""
   try:
-    get_breadth_universe(get_ssi_board_data())
+    from backend.data_providers.ssi_provider import get_ssi_board_data
+    board = get_ssi_board_data()
+    if not board:
+      from backend.domain.screener_engine import _build_synthetic_board_from_entrade
+      board = _build_synthetic_board_from_entrade()
+    get_breadth_universe(board)
   except Exception as e:
     print('Lỗi warm-up dữ liệu thị trường:', e)
 
@@ -126,6 +131,13 @@ def evaluate_market_regime(ssi_board):
   now = time.time()
   if _REGIME_CACHE['data'] and now - _REGIME_CACHE['time'] < 120:
     return _REGIME_CACHE['data']
+
+  if not ssi_board:
+    try:
+      from backend.domain.screener_engine import _build_synthetic_board_from_entrade
+      ssi_board = _build_synthetic_board_from_entrade()
+    except Exception:
+      pass
 
   vni = get_vnindex_series()
   today = time.strftime('%Y-%m-%d', time.gmtime(now + VN_UTC_OFFSET_SEC))

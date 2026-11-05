@@ -642,6 +642,7 @@ export function syncChartPriceLines() {
       const midStop = midterm.stopLoss || 0;
       const marginOfSafety = midterm.marginOfSafetyPct !== undefined ? midterm.marginOfSafetyPct : 0;
       const marginSign = marginOfSafety >= 0 ? '+' : '';
+      const midT2PctStr = mTarget2Pct ? ` (${mTarget2Pct})` : (midT2Price && currentPrice > 0 ? ` (+${(((midT2Price - currentPrice) / currentPrice) * 100).toFixed(1)}%)` : '');
 
       const isMidLock = isHoldingMode && ((userCostPrice && currentPrice > userCostPrice) || (midT1Price > 0 && currentPrice >= midT1Price * 0.98));
 
@@ -651,7 +652,7 @@ export function syncChartPriceLines() {
           ? `Kháng cự hạ tỷ trọng: ${formatVND(midT1Price)}` 
           : `Target 1 (Định giá): ${formatVND(midT1Price)} (${marginSign}${marginOfSafety}%)`,
         target2: isProhibited ? null : midT2Price,
-        target2Label: (!isProhibited && midT2Price) ? `Target 2 (Đỉnh CK): ${formatVND(midT2Price)}` : '',
+        target2Label: (!isProhibited && midT2Price) ? `Target 2 (Đỉnh CK): ${formatVND(midT2Price)}${midT2PctStr}` : '',
         buyZone: (isHoldingMode || isProhibited) ? null : midBuyZone,
         buyZoneLabel: isProhibited 
           ? `Hỗ trợ tuần: ${formatVND(midBuyZone)} (Cấm bắt đáy)` 
@@ -671,8 +672,9 @@ export function syncChartPriceLines() {
       const target1Price = tplus.target1 || tplus.target || 0;
       const target2Price = tplus.target2 || 0;
 
-      const tpPctStr = tplus.targetPct ? `+${tplus.targetPct}%` : '';
-      const slPctStr = tplus.stopLossPct ? `-${tplus.stopLossPct}%` : '';
+      const tpPctStr = tplus.target1Pct ? `+${tplus.target1Pct}%` : (tplus.targetPct ? `+${tplus.targetPct}%` : (target1Price && currentPrice > 0 ? `+${(((target1Price - currentPrice) / currentPrice) * 100).toFixed(1)}%` : ''));
+      const tp2PctStr = tplus.target2Pct ? `+${tplus.target2Pct}%` : (target2Price && currentPrice > 0 ? `+${(((target2Price - currentPrice) / currentPrice) * 100).toFixed(1)}%` : '');
+      const slPctStr = tplus.stopLossPct ? `-${tplus.stopLossPct}%` : (rawSL && currentPrice > 0 ? `${(((rawSL - currentPrice) / currentPrice) * 100).toFixed(1)}%` : '');
 
       if (isHoldingMode) {
         // =========================================================================
@@ -698,23 +700,23 @@ export function syncChartPriceLines() {
             holdingSLLabel = `Hỗ trợ Chặn Lãi: ${formatVND(lockStopPrice)}`;
           }
         } else {
-          holdingSLLabel = `Ngưỡng QTRR: ${formatVND(rawSL)}`;
+          holdingSLLabel = `Ngưỡng QTRR: ${formatVND(rawSL)}${slPctStr ? ` (${slPctStr})` : ''}`;
         }
 
         // Target cho người nắm giữ:
         let primaryTarget = target1Price;
-        let primaryTargetLabel = `Target 1 (T+): ${formatVND(target1Price)}`;
+        let primaryTargetLabel = `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`;
         let secTarget = target2Price;
-        let secTargetLabel = target2Price ? `Target 2 (Trend): ${formatVND(target2Price)}` : '';
+        let secTargetLabel = target2Price ? `Target 2 (Trend): ${formatVND(target2Price)}${tp2PctStr ? ` (${tp2PctStr})` : ''}` : '';
 
         if (tplus.tpStage === 2) {
           primaryTarget = target2Price || target1Price;
-          primaryTargetLabel = `Target 2 (Đã hoàn tất): ${formatVND(primaryTarget)}`;
+          primaryTargetLabel = `Target 2 (Đã hoàn tất): ${formatVND(primaryTarget)}${tp2PctStr ? ` (${tp2PctStr})` : ''}`;
           secTarget = null;
           secTargetLabel = '';
         } else if (isHitTarget1 && target2Price > 0) {
           primaryTarget = target2Price;
-          primaryTargetLabel = `Target 2 (Gồng lãi): ${formatVND(target2Price)}`;
+          primaryTargetLabel = `Target 2 (Gồng lãi): ${formatVND(target2Price)}${tp2PctStr ? ` (${tp2PctStr})` : ''}`;
           secTarget = null;
           secTargetLabel = '';
         }
@@ -753,7 +755,7 @@ export function syncChartPriceLines() {
             ? `Kháng cự hạ tỷ trọng: ${formatVND(target1Price)}` 
             : `Target 1 (T+): ${formatVND(target1Price)}${tpPctStr ? ` (${tpPctStr})` : ''}`,
           target2: isProhibited ? null : target2Price,
-          target2Label: (!isProhibited && target2Price) ? `Target 2 (Trend): ${formatVND(target2Price)}` : '',
+          target2Label: (!isProhibited && target2Price) ? `Target 2 (Trend): ${formatVND(target2Price)}${tp2PctStr ? ` (${tp2PctStr})` : ''}` : '',
           buyZone: buyPrice,
           buyZoneLabel: buyLabel,
           stopLoss: rawSL,

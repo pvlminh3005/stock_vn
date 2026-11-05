@@ -94,12 +94,16 @@ Khi server bị ngủ:
 2. Vào mục **Cronjobs** $\rightarrow$ Bấm nút **Create cronjob**.
 3. Điền các thông tin:
    * **Title**: `Keep Alive Stock RT`
-   * **URL**: Đường dẫn Render của bạn, ví dụ:
+   * **URL**: Đường dẫn Render của bạn kèm endpoint `/ping` (cực nhẹ < 40 bytes, tránh lỗi vượt dung lượng), ví dụ:
      ```text
-     https://<ten-app-cua-ban>.onrender.com
+     https://<ten-app-cua-ban>.onrender.com/ping
      ```
-   * **Execution schedule**: Chọn `User-defined` $\rightarrow$ Đặt tần suất **Every 10 minutes** (Mỗi 10 phút gửi 1 request).
-   * **Request Method**: `GET`
+   * **Execution schedule**: Chọn `Custom` $\rightarrow$ Đặt biểu thức:
+     ```text
+     */10 8-15 * * 1-5
+     ```
+     *(Đảm bảo Timezone chọn `Asia/Ho_Chi_Minh` để chạy từ 08:00 sáng đến 15:50 chiều T2 - T6)*
+   * **Request Method**: `GET` (hoặc `HEAD`)
 4. Bấm **Create**.
 
 > 💡 **Kết quả**: Cứ mỗi 10 phút, cron-job.org sẽ tự động ping vào trang web của bạn một lần, giúp server Render duy trì trạng thái hoạt động liên tục trong toàn bộ các phiên giao dịch từ Thứ 2 đến Thứ 6.

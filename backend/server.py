@@ -171,12 +171,24 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
     return False
 
+  def do_HEAD(self):
+    """Xử lý HEAD request siêu nhẹ cho các hệ thống giám sát / uptime monitor."""
+    self.send_response(200)
+    self.send_header('Content-Type', 'application/json; charset=utf-8')
+    self.send_header('Access-Control-Allow-Origin', '*')
+    self.end_headers()
+
   def do_GET(self):
     parsed = urllib.parse.urlparse(self.path)
     path = parsed.path
     params = urllib.parse.parse_qs(parsed.query)
 
-    # 0. API: Xác thực mã PIN nội bộ
+    # 0. API: Health Check & Keep-Alive siêu nhẹ cho Cron-job / Uptime Monitor (< 40 bytes)
+    if path in ['/ping', '/health', '/api/ping', '/api/health']:
+      self.send_json(200, {'status': 'ok', 'message': 'pong'})
+      return
+
+    # 0B. API: Xác thực mã PIN nội bộ
     if path == '/api/auth/verify':
       host = self.headers.get('Host', '').split(':')[0].lower()
       client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''

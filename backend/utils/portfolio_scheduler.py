@@ -11,7 +11,7 @@ Chức năng:
 import os
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import threading
 
 from backend.db.portfolio_db import (
@@ -25,6 +25,15 @@ from backend.utils.telegram_bot import send_telegram_message, get_public_url
 
 logger = logging.getLogger('portfolio_scheduler')
 
+# Múi giờ Việt Nam (UTC+7) chuẩn hoá cho môi trường Cloud (Render/Docker)
+VN_TZ = timezone(timedelta(hours=7))
+
+
+def get_vn_now() -> datetime:
+    """Lấy thời gian hiện tại chuẩn theo múi giờ Việt Nam (UTC+7)."""
+    return datetime.now(VN_TZ)
+
+
 _last_scan_ts = 0
 _last_digest_date = ""  # Ngày đã gửi bản tin 14h30 (YYYY-MM-DD)
 
@@ -35,16 +44,16 @@ def is_trading_day(dt: datetime) -> bool:
 
 
 def is_market_hours(dt: datetime) -> bool:
-    """Kiểm tra thời gian trong phiên giao dịch chứng khoán Việt Nam (09:15 - 11:30 & 13:00 - 14:45)."""
+    """Kiểm tra thời gian trong phiên giao dịch chứng khoán Việt Nam (09:00 - 11:30 & 13:00 - 15:00)."""
     if not is_trading_day(dt):
         return False
     h = dt.hour
     m = dt.minute
     total_min = h * 60 + m
-    # Phiên sáng: 09:15 -> 11:30 (555 -> 690)
-    # Phiên chiều: 13:00 -> 14:45 (780 -> 885)
-    in_morning = 555 <= total_min <= 690
-    in_afternoon = 780 <= total_min <= 885
+    # Phiên sáng: 09:00 -> 11:30 (540 -> 690)
+    # Phiên chiều: 13:00 -> 15:00 (780 -> 900)
+    in_morning = 540 <= total_min <= 690
+    in_afternoon = 780 <= total_min <= 900
     return in_morning or in_afternoon
 
 
@@ -227,7 +236,7 @@ def send_daily_ribbon_digest():
     auth_param = f"?auth={access_pin}" if access_pin else ""
     home_link = f"{base_url}/{auth_param}".rstrip('/')
 
-    today_str = datetime.now().strftime('%d/%m/%Y')
+    today_str = get_vn_now().strftime('%d/%m/%Y')
     msg = (
         f"📊 <b>XÁC NHẬN TÍN HIỆU SUPERTREND CUỐI PHIÊN (14:30)</b>\n"
         f"📅 <i>Ngày {today_str} - Danh mục đang nắm giữ</i>\n"
@@ -253,7 +262,7 @@ def portfolio_worker_loop():
 
     while True:
         try:
-            now = datetime.now()
+            now = get_vn_now()
             today_str = now.strftime('%Y-%m-%d')
 
             # 1. Kiểm tra gửi Báo cáo 14h30 (từ 14:30 đến 14:35, các ngày T2 - T6)

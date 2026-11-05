@@ -11,7 +11,12 @@ import threading
 import time
 
 from backend.data_providers.ssi_provider import get_ssi_board_data
-from backend.domain.screener_engine import build_top_tplus_opportunities, is_market_hours
+from backend.domain.screener_engine import (
+    build_top_tplus_opportunities,
+    is_market_hours,
+    _build_synthetic_board_from_entrade,
+    get_vn_now,
+)
 from backend.utils.telegram_bot import (
     send_telegram_message,
     format_breakout_alert,
@@ -104,6 +109,33 @@ def _evaluate_telegram_alerts(screener_data):
         _ALERT_TRACKER['sent_digests'].add('ATC')
 
 
+def _save_screener_snapshot_to_mongo(data):
+  """Lưu snapshot Top T+ mới nhất lên MongoDB Atlas để đồng bộ với Render Cloud."""
+  try:
+    from backend.db.portfolio_db import _mongo_db
+    if _mongo_db is not None and data and data.get('topOpportunities'):
+      _mongo_db['screener_snapshots'].update_one(
+          {'key': 'top_tplus'},
+          {'$set': {'key': 'top_tplus', 'data': data, 'updated_at': int(time.time())}},
+          upsert=True
+      )
+  except Exception as e:
+    print('Lỗi lưu screener snapshot lên MongoDB:', e)
+
+
+def _load_screener_snapshot_from_mongo():
+  """Đọc snapshot Top T+ mới nhất từ MongoDB Atlas."""
+  try:
+    from backend.db.portfolio_db import _mongo_db
+    if _mongo_db is not None:
+      doc = _mongo_db['screener_snapshots'].find_one({'key': 'top_tplus'})
+      if doc and doc.get('data'):
+        return doc.get('data')
+  except Exception as e:
+    print('Lỗi load screener snapshot từ MongoDB:', e)
+  return None
+
+
 def _screener_worker_loop():
   """Tiến trình chạy ngầm làm mới dữ liệu Top T+ định kỳ 3 phút trong giờ giao dịch & bắn cảnh báo."""
   while True:
@@ -115,6 +147,9 @@ def _screener_worker_loop():
         with _CACHE_LOCK:
           _TOP_TPLUS_CACHE['data'] = data
           _TOP_TPLUS_CACHE['timestamp'] = time.time()
+        
+        # Lưu snapshot lên MongoDB Atlas để Render đồng bộ
+        _save_screener_snapshot_to_mongo(data)
         
         # Đánh giá cảnh báo Telegram theo các mốc giờ vàng
         try:
@@ -146,6 +181,8 @@ def handle_search(query):
   if not q:
     return []
   board = get_ssi_board_data()
+  if not board:
+    board = _build_synthetic_board_from_entrade()
   results = []
   for sym, item in board.items():
     if sym.startswith(q) or q in str(item.get('companyNameVi', '')).upper():
@@ -159,15 +196,32 @@ def handle_search(query):
       })
       if len(results) >= 15:
         break
+
+  # Fallback nếu mã tìm kiếm chưa có trong board (hoặc mã riêng lẻ)
+  if len(results) == 0 and len(q) == 3:
+    from backend.data_providers.entrade_provider import fetch_intraday_snapshot
+    snap = fetch_intraday_snapshot(q)
+    if snap and snap.get('matchedPrice', 0) > 0:
+      results.append({
+          'symbol': q,
+          'name': f'CTCP {q}',
+          'exchange': 'HOSE',
+          'price': snap.get('matchedPrice', 0),
+          'change': snap.get('priceChange', 0),
+          'percentChange': snap.get('priceChangePercent', 0),
+      })
+
   return results
 
 
 def handle_screener():
   """Bộ lọc cổ phiếu thanh khoản cao và tích cực trong phiên."""
   board = get_ssi_board_data()
+  if not board:
+    board = _build_synthetic_board_from_entrade()
   stocks = [
       v for v in board.values()
-      if v.get('stockType') == 's' and len(str(v.get('stockSymbol', ''))) == 3
+      if (v.get('stockType') == 's' or v.get('isSynthetic')) and len(str(v.get('stockSymbol', ''))) == 3
   ]
   # Sắp xếp theo giá trị giao dịch
   sorted_stocks = sorted(
@@ -193,7 +247,7 @@ def handle_screener():
 def handle_top_tplus():
   """
   API /api/top-tplus: VSR Smart Screener Top 8 Cơ hội Lướt Sóng T+:
-  - Trả về tức thì từ In-Memory Cache (0 delay)
+  - Trả về tức thì từ In-Memory Cache hoặc MongoDB Cloud Snapshot (0 delay)
   - Phân loại rõ ràng ⚡ BÙNG NỔ T0 vs 🎯 GOM PULLBACK T1-T2
   - Đảm bảo tương thích ngược cấu trúc dữ liệu cũ
   """
@@ -203,7 +257,7 @@ def handle_top_tplus():
     cached_data = _TOP_TPLUS_CACHE.get('data')
     ts = _TOP_TPLUS_CACHE.get('timestamp', 0)
 
-  # Nếu cache đã có sẵn và còn trong vòng 20 phút thì phục vụ ngay lập tức
+  # 1. Nếu cache RAM đã có sẵn và còn trong vòng 20 phút thì phục vụ ngay lập tức
   if cached_data and (time.time() - ts < 1200):
     opps = cached_data.get('topOpportunities', [])
     return {
@@ -212,12 +266,26 @@ def handle_top_tplus():
         'stocks': opps,
     }
 
-  # Nếu cold-start chưa có dữ liệu, tính toán trực tiếp 1 lần và lưu cache
+  # 2. Nếu cold-start hoặc RAM trống, kiểm tra snapshot từ MongoDB Atlas Cloud
+  mongo_data = _load_screener_snapshot_from_mongo()
+  if mongo_data and mongo_data.get('topOpportunities'):
+    with _CACHE_LOCK:
+      _TOP_TPLUS_CACHE['data'] = mongo_data
+      _TOP_TPLUS_CACHE['timestamp'] = time.time()
+    opps = mongo_data.get('topOpportunities', [])
+    return {
+        **mongo_data,
+        'top': opps,
+        'stocks': opps,
+    }
+
+  # 3. Nếu chưa có snapshot, tính toán trực tiếp 1 lần và lưu cache + MongoDB
   try:
     fresh_data = build_top_tplus_opportunities(max_total=8)
     with _CACHE_LOCK:
       _TOP_TPLUS_CACHE['data'] = fresh_data
       _TOP_TPLUS_CACHE['timestamp'] = time.time()
+    _save_screener_snapshot_to_mongo(fresh_data)
     opps = fresh_data.get('topOpportunities', [])
     return {
         **fresh_data,
@@ -231,8 +299,8 @@ def handle_top_tplus():
     gainers = [s for s in stocks if s.get('percentChange', 0) > 0]
     gainers.sort(key=lambda s: -(s.get('percentChange', 0)))
     top_items = gainers[:8]
-    return {
-        'updatedAt': time.strftime('%H:%M:%S %d/%m/%Y'),
+    fallback_data = {
+        'updatedAt': get_vn_now().strftime('%H:%M:%S %d/%m/%Y'),
         'marketRegime': 'NEUTRAL',
         'totalScanned': len(stocks),
         'topOpportunities': top_items,
@@ -240,6 +308,8 @@ def handle_top_tplus():
         'stocks': top_items,
         'isFallback': True,
     }
+    _save_screener_snapshot_to_mongo(fallback_data)
+    return fallback_data
 
 
 def handle_telegram_test(ticker='SSI'):

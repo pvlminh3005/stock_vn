@@ -59,17 +59,22 @@ def handle_get_portfolio() -> Dict[str, Any]:
         vol = int(t.get('volume', 0))
         entry_price = float(t.get('price', 0))
 
-        # Thông tin realtime từ sàn
+        # Thông tin realtime từ sàn (SSI hoặc Entrade Fallback khi trên Cloud)
         board_item = board_data.get(sym, {})
-        # matchedPrice trên SSI thường ở đơn vị nghìn đồng (vd 28.5) hoặc đồng tùy endpoint
         raw_matched = board_item.get('matchedPrice') or board_item.get('lastPrice') or board_item.get('refPrice') or 0.0
         current_price = _format_price(raw_matched)
-        if current_price == 0.0:
-            # Fallback nếu sàn ngoài giờ chưa có giá matched
-            current_price = entry_price
-
         ref_price = _format_price(board_item.get('refPrice', 0))
         change_pct = float(board_item.get('priceChangePercent') or board_item.get('changePercent') or 0.0)
+
+        if current_price == 0.0:
+            from backend.data_providers.entrade_provider import fetch_intraday_snapshot
+            snap = fetch_intraday_snapshot(sym)
+            if snap and snap.get('matchedPrice', 0) > 0:
+                current_price = float(snap['matchedPrice'])
+                ref_price = float(snap.get('refPrice', current_price))
+                change_pct = float(snap.get('priceChangePercent', 0.0))
+            else:
+                current_price = entry_price
 
         # Tính toán giá trị và P&L
         invested_amount = vol * entry_price
