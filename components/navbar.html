@@ -17,7 +17,8 @@
   <!-- Search Bar & Chế độ xem -->
   <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 relative w-full lg:w-auto">
     <!-- Mode Switcher Tabs -->
-    <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs font-semibold self-start sm:self-auto">
+    <div
+      class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs font-semibold self-start sm:self-auto">
       <button type="button" id="modeSingleStockBtn"
         class="mode-nav-btn px-3.5 py-2 rounded-lg transition bg-blue-600 text-white shadow-sm flex items-center gap-1.5 active cursor-pointer">
         <i class="fa-solid fa-chart-simple text-xs"></i> <span>Tra Cứu 1 Mã</span>
@@ -25,7 +26,8 @@
       <button type="button" id="modePortfolioBundleBtn"
         class="mode-nav-btn px-3.5 py-2 rounded-lg transition text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer">
         <i class="fa-solid fa-briefcase text-xs text-amber-400"></i> <span>Gói Theo Vốn</span>
-        <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">Mới</span>
+        <span
+          class="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">Mới</span>
       </button>
       <button type="button" id="modeUserPortfolioBtn"
         class="mode-nav-btn px-3.5 py-2 rounded-lg transition text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer">
@@ -51,7 +53,11 @@
         class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 whitespace-nowrap shadow-lg shadow-blue-600/20 cursor-pointer">
         <i class="fa-solid fa-sync" id="searchIcon"></i> Tra cứu
       </button>
+
+      <!-- <button id="lockAppBtn" type="button" title="Khóa ứng dụng & Đăng xuất"
+        class="bg-slate-950 hover:bg-slate-800 border border-slate-700/80 text-slate-400 hover:text-amber-400 px-3 py-2 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-inner">
+        <i class="fa-solid fa-lock text-xs"></i>
+      </button> -->
     </div>
   </div>
 </div>
-

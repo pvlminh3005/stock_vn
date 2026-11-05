@@ -27,20 +27,32 @@ for p in [ROOT_DIR, BACKEND_DIR]:
     sys.path.insert(0, p)
 
 # Tự động nạp file .env nội bộ (nếu có) để đọc config bảo mật
-env_path = os.path.join(ROOT_DIR, '.env')
-if os.path.isfile(env_path):
-  try:
-    with open(env_path, 'r', encoding='utf-8') as f:
-      for line in f:
-        line = line.strip()
-        if line and not line.startswith('#') and '=' in line:
-          k, v = line.split('=', 1)
-          k = k.strip()
-          v = v.strip().strip("'\"")
-          if k and k not in os.environ:
-            os.environ[k] = v
-  except Exception:
-    pass
+def reload_env_file():
+  """Đọc và nạp các biến môi trường từ file .env nội bộ nếu có."""
+  env_path = os.path.join(ROOT_DIR, '.env')
+  if os.path.isfile(env_path):
+    try:
+      with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+          line = line.strip()
+          if line and not line.startswith('#') and '=' in line:
+            k, v = line.split('=', 1)
+            k = k.strip()
+            v = v.strip().strip("'\"")
+            if k:
+              os.environ[k] = v
+    except Exception:
+      pass
+
+reload_env_file()
+
+def get_whitelist_hosts():
+  """Lấy danh sách Host được miễn trừ mã PIN từ biến môi trường WHITELIST_HOSTS (không hardcode)."""
+  reload_env_file()
+  raw = os.environ.get('WHITELIST_HOSTS', '').strip()
+  if not raw:
+    return []
+  return [h.strip().lower() for h in raw.split(',') if h.strip()]
 
 # ==================== IMPORT FROM CLEAN ARCHITECTURE MODULES ====================
 from backend.domain.regime import warm_up_market_data
@@ -138,27 +150,31 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     except (BrokenPipeError, ConnectionResetError):
       pass
 
-  def is_localhost_request(self):
-    """Kiểm tra request có thực sự đến từ máy cục bộ (localhost) không.
-    Tránh nhận nhầm Reverse Proxy của Cloud (Render/Cloudflare) có client_address=127.0.0.1 là localhost.
+  def is_whitelisted_host(self):
+    """Kiểm tra xem request có thuộc WHITELIST_HOSTS được cấu hình từ ENV không.
+    Chỉ lấy từ biến môi trường WHITELIST_HOSTS, tuyệt đối không hardcode bất kỳ host nào.
+    Bất kỳ host nào không nằm trong danh sách này đều BẮT BUỘC phải xác thực mã PIN.
     """
-    # 1. Nếu có header từ Cloud Proxy (Render/Cloudflare/AWS) -> 100% là kết nối Public từ Internet!
-    if self.headers.get('X-Forwarded-For') or self.headers.get('X-Forwarded-Host') or self.headers.get('X-Render-Origin-Server'):
+    whitelist = get_whitelist_hosts()
+    if not whitelist:
       return False
 
-    # 2. Kiểm tra Host header
     host = self.headers.get('Host', '').split(':')[0].lower()
-    if host not in ['localhost', '127.0.0.1']:
+    is_cloud_proxy = bool(
+        self.headers.get('X-Forwarded-For') or 
+        self.headers.get('X-Forwarded-Host') or 
+        self.headers.get('X-Render-Origin-Server')
+    )
+    # Nếu client từ Cloud Proxy (Internet) giả mạo host cục bộ -> Từ chối
+    if is_cloud_proxy and host in ['localhost', '127.0.0.1', '0.0.0.0']:
       return False
 
-    # 3. Kiểm tra địa chỉ socket nội bộ
-    client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''
-    return client_ip in ['127.0.0.1', '::1']
+    return host in whitelist
 
   def check_pin_authenticated(self, params):
     """Kiểm tra xác thực mã PIN bảo vệ (nếu biến APP_ACCESS_PIN được cấu hình)."""
-    # 0. Miễn phí xác thực khi chạy trên máy cục bộ (localhost / 127.0.0.1)
-    if self.is_localhost_request():
+    # 0. Miễn phí xác thực nếu Host nằm trong WHITELIST_HOSTS cấu hình từ ENV
+    if self.is_whitelisted_host():
       return True
 
     pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
@@ -205,8 +221,8 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
     # 0B. API: Xác thực mã PIN nội bộ
     if path == '/api/auth/verify':
-      if self.is_localhost_request():
-        self.send_json(200, {'authenticated': True, 'isLocalhost': True})
+      if self.is_whitelisted_host():
+        self.send_json(200, {'authenticated': True, 'isWhitelisted': True})
         return
 
       pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
@@ -214,20 +230,39 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         self.send_json(200, {'authenticated': True, 'pinRequired': False})
         return
 
-      # Kiểm tra nếu request đã có cookie hoặc tham số xác thực hợp lệ sẵn
+      # 1. Kiểm tra nếu người dùng gửi mã PIN qua form hoặc query
+      input_pin = params.get('pin', [''])[0].strip() or params.get('auth', [''])[0].strip()
+      if input_pin:
+        if input_pin == pin_required:
+          self.send_response(200)
+          self.send_header('Content-Type', 'application/json; charset=utf-8')
+          self.send_header('Access-Control-Allow-Origin', '*')
+          cookie_val = f'stock_rt_auth={pin_required}; Path=/; Max-Age=315360000; SameSite=Lax'
+          if self.headers.get('X-Forwarded-Proto') == 'https':
+            cookie_val += '; Secure'
+          self.send_header('Set-Cookie', cookie_val)
+          self.end_headers()
+          self.wfile.write(json.dumps({'authenticated': True, 'success': True, 'token': pin_required}).encode('utf-8'))
+        else:
+          self.send_json(401, {'authenticated': False, 'error': 'Mã PIN không chính xác'})
+        return
+
+      # 2. Nếu không gửi PIN, kiểm tra xem đã có Cookie hoặc Header xác thực từ trước chưa
       if self.check_pin_authenticated(params):
         self.send_json(200, {'authenticated': True, 'success': True})
         return
 
-      input_pin = params.get('pin', [''])[0].strip() or params.get('auth', [''])[0].strip()
-      if input_pin == pin_required:
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Set-Cookie', f'stock_rt_auth={pin_required}; Path=/; Max-Age=315360000; SameSite=Lax')
-        self.end_headers()
-        self.wfile.write(json.dumps({'authenticated': True, 'success': True}).encode('utf-8'))
-      else:
-        self.send_json(401, {'authenticated': False, 'error': 'Mã PIN không chính xác'})
+      self.send_json(401, {'authenticated': False, 'error': 'Yêu cầu mã PIN bảo vệ'})
+      return
+
+    # 0C. API: Đăng xuất & Khóa ứng dụng
+    if path == '/api/auth/logout':
+      self.send_response(200)
+      self.send_header('Content-Type', 'application/json; charset=utf-8')
+      self.send_header('Access-Control-Allow-Origin', '*')
+      self.send_header('Set-Cookie', 'stock_rt_auth=; Path=/; Max-Age=0; SameSite=Lax')
+      self.end_headers()
+      self.wfile.write(json.dumps({'success': True, 'authenticated': False}).encode('utf-8'))
       return
 
     # Chốt chặn bảo vệ: Nếu là yêu cầu API mà chưa xác thực mã PIN thì từ chối truy cập

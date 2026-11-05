@@ -1,11 +1,11 @@
-import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.3';
-import { getStockDetail, getChartData } from './api.js?v=5.3';
-import { initChart, updateChartData } from './modules/chart.js?v=5.3';
-import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.3';
-import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.3';
-import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.3';
-import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.3';
-import { initUserPortfolioModule } from './modules/portfolio.js?v=5.3';
+import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.7';
+import { getStockDetail, getChartData } from './api.js?v=5.7';
+import { initChart, updateChartData } from './modules/chart.js?v=5.7';
+import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.7';
+import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.7';
+import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.7';
+import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.7';
+import { initUserPortfolioModule } from './modules/portfolio.js?v=5.7';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';
@@ -625,13 +625,7 @@ async function initAuthProtection() {
     if (overlay) overlay.classList.add("hidden");
   }
 
-  // 0. Miễn phí xác thực khi chạy trên localhost / 127.0.0.1
-  const hostname = window.location.hostname;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    hideOverlay();
-    return true;
-  }
-
+  // Khi gặp bất kỳ lỗi 401 nào từ API -> Bật ngay màn hình khóa
   window.addEventListener("unauthorizedAccess", () => {
     showOverlay();
   });
@@ -646,6 +640,9 @@ async function initAuthProtection() {
     if (res.ok) {
       const data = await res.json();
       if (data.authenticated) {
+        if (queryAuth && typeof localStorage !== 'undefined') {
+          localStorage.setItem("stock_rt_pin", queryAuth);
+        }
         hideOverlay();
         return true;
       }
@@ -656,6 +653,28 @@ async function initAuthProtection() {
 
   // Chưa xác thực -> Hiện màn hình khóa
   showOverlay();
+
+  // Nút Khóa ứng dụng trên thanh điều hướng (Navbar)
+  const bindLockBtn = () => {
+    const lockBtn = document.getElementById("lockAppBtn");
+    if (lockBtn && !lockBtn.dataset.bound) {
+      lockBtn.dataset.bound = "true";
+      lockBtn.addEventListener("click", async () => {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem("stock_rt_pin");
+        }
+        try {
+          await fetch('/api/auth/logout');
+        } catch (e) {}
+        showOverlay();
+        if (input) {
+          input.value = "";
+          input.focus();
+        }
+      });
+    }
+  };
+  bindLockBtn();
 
   if (form && !form.dataset.bound) {
     form.dataset.bound = "true";
@@ -669,9 +688,15 @@ async function initAuthProtection() {
         const res = await fetch(`/api/auth/verify?pin=${encodeURIComponent(val)}`);
         const data = await res.json();
         if (data.authenticated) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem("stock_rt_pin", val);
+          }
           hideOverlay();
           initApp();
         } else {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem("stock_rt_pin");
+          }
           if (errorEl) {
             errorEl.innerText = data.error || "Mã PIN không chính xác";
             errorEl.classList.remove("hidden");
@@ -694,6 +719,25 @@ async function initAuthProtection() {
 
 // ==================== 7. KHỞI CHẠY ỨNG DỤNG ====================
 function initApp() {
+  const lockBtn = document.getElementById("lockAppBtn");
+  if (lockBtn && !lockBtn.dataset.bound) {
+    lockBtn.dataset.bound = "true";
+    lockBtn.addEventListener("click", async () => {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem("stock_rt_pin");
+      }
+      try {
+        await fetch('/api/auth/logout');
+      } catch (e) {}
+      const overlay = document.getElementById("authPinOverlay");
+      if (overlay) overlay.classList.remove("hidden");
+      const input = document.getElementById("authPinInput");
+      if (input) {
+        input.value = "";
+        input.focus();
+      }
+    });
+  }
   if (DOM.input) DOM.input.value = '';
   if (DOM.select) DOM.select.value = '';
   initChart();

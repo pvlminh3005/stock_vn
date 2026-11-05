@@ -1,6 +1,15 @@
-async function safeFetch(url, options) {
-  const res = await fetch(url, options);
+async function safeFetch(url, options = {}) {
+  const pin = (typeof localStorage !== 'undefined') ? localStorage.getItem('stock_rt_pin') : null;
+  const headers = new Headers(options.headers || {});
+  if (pin && !headers.has('X-Access-Pin')) {
+    headers.set('X-Access-Pin', pin);
+  }
+  const mergedOptions = { ...options, headers };
+  const res = await fetch(url, mergedOptions);
   if (res.status === 401) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('stock_rt_pin');
+    }
     window.dispatchEvent(new Event('unauthorizedAccess'));
     throw new Error('Yêu cầu mã PIN bảo vệ để truy cập hệ thống');
   }
