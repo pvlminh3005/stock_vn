@@ -1,7 +1,86 @@
-/* Cố định layout viewport chống giật / co giãn text khi chuyển tab */
+/* ========================================================================= */
+/* FLUID TYPOGRAPHY & RESPONSIVE ROOT SCALING                                */
+/* ========================================================================= */
+/* Tự động co giãn mượt từ 13.5px (mobile 360px) -> 14.8px (tablet 768px) -> 16px (desktop >= 1200px) */
 html {
   overflow-y: scroll;
   scrollbar-gutter: stable;
+  font-size: clamp(13.5px, 0.84375rem + 0.25vw, 16px);
+}
+
+/* ========================================================================= */
+/* FLUID BUTTONS & TOUCH ERGONOMICS                                         */
+/* ========================================================================= */
+button, input[type="button"], input[type="submit"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Tự động scale kích thước button và touch padding theo màn hình */
+.mode-nav-btn,
+.portfolio-filter-btn,
+.capital-preset-btn,
+.bundle-style-btn {
+  min-height: clamp(38px, 4.5vw, 42px);
+  padding-left: clamp(0.55rem, 1.2vw, 0.875rem);
+  padding-right: clamp(0.55rem, 1.2vw, 0.875rem);
+  font-size: clamp(0.7rem, 1.1vw, 0.8125rem);
+}
+
+/* Nút tìm kiếm & CTA chính */
+#searchBtn,
+#addTradeBtn,
+#saveNavSettingBtn {
+  min-height: clamp(40px, 4.8vw, 44px);
+  padding-left: clamp(0.75rem, 1.5vw, 1.1rem);
+  padding-right: clamp(0.75rem, 1.5vw, 1.1rem);
+}
+
+/* ========================================================================= */
+/* FLUID BOX & CARD PADDING (TRỰC QUAN THEO MỌI THIẾT BỊ)                    */
+/* ========================================================================= */
+/* Khung lớn (Hero card, unified card) */
+#unifiedDecisionHeroCard,
+#userPortfolioSection,
+#portfolioBundleSection {
+  padding: clamp(0.875rem, 2.2vw, 1.5rem);
+  border-radius: clamp(0.875rem, 2vw, 1.25rem);
+}
+
+/* Khung vé lệnh nhanh 3 giây */
+#instantOrderTicket {
+  padding: clamp(0.75rem, 2vw, 1.25rem);
+  border-radius: clamp(0.75rem, 1.8vw, 1rem);
+}
+
+/* Các box thẻ chỉ số nhỏ (4 metric vé lệnh, thước đo RSI/Vol/SSI) */
+#instantOrderTicket .grid > div,
+#quickHeader,
+#overallSignalBanner {
+  padding: clamp(0.625rem, 1.6vw, 1rem);
+  border-radius: clamp(0.625rem, 1.4vw, 0.875rem);
+}
+
+/* ========================================================================= */
+/* FLUID TYPOGRAPHY CHO CÁC CON SỐ TÀI CHÍNH QUAN TRỌNG                     */
+/* ========================================================================= */
+#displayTicker {
+  font-size: clamp(1.65rem, 4.5vw, 2.25rem) !important;
+}
+
+#currentPrice {
+  font-size: clamp(1.4rem, 4vw, 1.875rem) !important;
+}
+
+#instantBuyZone,
+#instantAllocPct,
+#instantTPPrice,
+#instantSLPrice {
+  font-size: clamp(0.875rem, 1.8vw, 1.05rem);
 }
 
 /* Tab button cố định kích thước và font */
@@ -35,7 +114,48 @@ html {
 #chartContainer {
   position: relative;
   width: 100%;
-  height: 520px;
+  height: 350px;
+}
+
+@media (min-width: 640px) {
+  #chartContainer {
+    height: 420px;
+  }
+}
+
+@media (min-width: 1024px) {
+  #chartContainer {
+    height: 520px;
+  }
+}
+
+/* Touch Targets & Mobile Ergonomics */
+.touch-target-44 {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Horizontal scroll with touch momentum */
+.smooth-horizontal-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* Sticky first column in tables for mobile */
+@media (max-width: 768px) {
+  .sticky-col-first {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background-color: #020617;
+  }
+  .sticky-col-first-header {
+    position: sticky;
+    left: 0;
+    z-index: 20;
+    background-color: #0f172a;
+  }
 }
 
 /* RSI Meter Marker */

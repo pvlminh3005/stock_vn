@@ -137,8 +137,9 @@ export function initUserPortfolioModule(callbacks = {}) {
         saveNavBtn.disabled = true;
         saveNavBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang lưu...';
         await saveUserPortfolioSettings({ total_nav: numVal });
-        // Giữ nguyên giá trị đã format dot trong ô input, không clear
-        navInput.value = formatDot(numVal);
+        // Clear ô input sau khi lưu thành công, đặt placeholder là giá trị đã lưu
+        navInput.value = '';
+        navInput.placeholder = formatDot(numVal);
         await loadPortfolioData(callbacks);
         saveNavBtn.innerHTML = '<i class="fa-solid fa-circle-check mr-1 text-emerald-300"></i> Đã Lưu!';
         setTimeout(() => {
@@ -263,17 +264,29 @@ export function initUserPortfolioModule(callbacks = {}) {
         note,
       });
 
+      // Clear toàn bộ form sau khi lưu thành công
+      form.reset();
       symInput.value = '';
       volInput.value = '';
       priceInput.value = '';
       if (noteInput) noteInput.value = '';
+      if (dateInput) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+      }
       setOrderType('BUY');
       symInput.focus();
 
       await loadPortfolioData(callbacks);
+
+      if (addBtn) {
+        addBtn.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-300"></i> Đã Ghi Sổ!';
+        setTimeout(() => {
+          addBtn.disabled = false;
+          addBtn.innerHTML = '<i class="fa-solid fa-plus"></i> <span>Ghi Sổ Lệnh</span>';
+        }, 1200);
+      }
     } catch (err) {
       alert('Lỗi: ' + (err.message || 'Không thể thêm giao dịch'));
-    } finally {
       if (addBtn) {
         addBtn.disabled = false;
         addBtn.innerHTML = '<i class="fa-solid fa-plus"></i> <span>Ghi Sổ Lệnh</span>';
@@ -352,8 +365,8 @@ function updateSummaryCards(summary) {
   const pnlVal = summary.unrealized_pnl || 0;
   const pnlPct = summary.unrealized_pnl_pct || 0;
 
-  if (navInput && totalNav > 0 && document.activeElement !== navInput) {
-    navInput.value = formatDot(totalNav);
+  if (navInput && totalNav > 0) {
+    navInput.placeholder = formatDot(totalNav);
   }
 
   if (statTotalNav) statTotalNav.textContent = formatVND(totalNav);
