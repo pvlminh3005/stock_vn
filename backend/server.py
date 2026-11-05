@@ -30,6 +30,7 @@ for p in [ROOT_DIR, BACKEND_DIR]:
 def reload_env_file():
   """Đọc và nạp các biến môi trường từ file .env nội bộ nếu có."""
   env_path = os.path.join(ROOT_DIR, '.env')
+  found_keys = set()
   if os.path.isfile(env_path):
     try:
       with open(env_path, 'r', encoding='utf-8') as f:
@@ -41,8 +42,13 @@ def reload_env_file():
             v = v.strip().strip("'\"")
             if k:
               os.environ[k] = v
+              found_keys.add(k)
     except Exception:
       pass
+
+  # Nếu WHITELIST_HOSTS bị xóa hoặc comment khỏi file .env -> Xóa ngay khỏi os.environ
+  if 'WHITELIST_HOSTS' not in found_keys:
+    os.environ.pop('WHITELIST_HOSTS', None)
 
 reload_env_file()
 
@@ -408,6 +414,14 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     if path in ['/', '', '/index.html']:
       index_file = os.path.join(ROOT_DIR, 'index.html')
       html_content = render_template_html(index_file)
+
+      # Nếu chưa xác thực và host không nằm trong whitelist -> Hiển thị màn hình PIN ngay từ HTML ban đầu
+      if not self.check_pin_authenticated(params):
+        html_content = html_content.replace(
+            'id="authPinOverlay" class="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 hidden"',
+            'id="authPinOverlay" class="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4"'
+        )
+
       encoded = html_content.encode('utf-8')
       self.send_response(200)
       self.send_header('Content-Type', 'text/html; charset=utf-8')

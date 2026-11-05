@@ -22,6 +22,10 @@ from backend.utils.telegram_bot import (
     format_breakout_alert,
     format_session_digest,
 )
+from backend.db.portfolio_db import (
+    is_alert_already_sent,
+    record_alert_sent,
+)
 
 _TOP_TPLUS_CACHE = {
     'timestamp': 0,
@@ -69,43 +73,62 @@ def _evaluate_telegram_alerts(screener_data):
 
   # ==================== MỐC 1: 10:15 - 10:45 (SÓNG SỚM BÙNG NỔ T0) ====================
   if 615 <= mins <= 645:
-    candidates = [
-        s for s in opps
-        if (s.get('tag') == 'BREAKOUT_T0' or str(s.get('badge', '')).startswith('⚡'))
-        and s.get('symbol') not in _ALERT_TRACKER['sent_symbols']
-    ]
-    for stock in candidates[:2]:
-      sym = stock.get('symbol')
-      msg, btns = format_breakout_alert(stock)
-      if send_telegram_message(msg, buttons=btns):
-        _ALERT_TRACKER['sent_symbols'].add(sym)
+    m1_batch_key = f'MOC1_T0_BATCH_{today_str}'
+    if not is_alert_already_sent(m1_batch_key, min_interval_seconds=14400):
+      candidates = [
+          s for s in opps
+          if (s.get('tag') == 'BREAKOUT_T0' or str(s.get('badge', '')).startswith('⚡'))
+      ]
+      sent_any = False
+      for stock in candidates[:2]:
+        sym = stock.get('symbol')
+        sym_key = f'MOC1_STOCK_{today_str}_{sym}'
+        if not is_alert_already_sent(sym_key, min_interval_seconds=86400):
+          msg, btns = format_breakout_alert(stock)
+          if send_telegram_message(msg, buttons=btns):
+            record_alert_sent(sym_key, preview=f'Breakout {sym}')
+            _ALERT_TRACKER['sent_symbols'].add(sym)
+            sent_any = True
+      if sent_any or candidates:
+        record_alert_sent(m1_batch_key, preview='Moc 1 finished')
 
   # ==================== MỐC 2: 11:35 - 12:00 (BẢN TIN TRƯA KẾT PHIÊN SÁNG) ====================
   elif 695 <= mins <= 720:
-    if 'MIDDAY' not in _ALERT_TRACKER['sent_digests']:
+    midday_key = f'DIGEST_MIDDAY_{today_str}'
+    if 'MIDDAY' not in _ALERT_TRACKER['sent_digests'] and not is_alert_already_sent(midday_key, min_interval_seconds=14400):
       msg, btns = format_session_digest('Bản Tin Trưa - Kết Phiên Sáng', opps, regime)
       if send_telegram_message(msg, buttons=btns):
+        record_alert_sent(midday_key, preview='Midday Digest')
         _ALERT_TRACKER['sent_digests'].add('MIDDAY')
 
   # ==================== MỐC 3: 14:05 - 14:25 (ĐIỂM MUA GIỜ VÀNG CHIỀU) ====================
   elif 845 <= mins <= 865:
-    candidates = [
-        s for s in opps
-        if s.get('symbol') not in _ALERT_TRACKER['sent_symbols']
-        and s.get('buy_ratio', 50) >= 55.0
-        and s.get('pct_change', 0) > 0.5
-    ]
-    for stock in candidates[:2]:
-      sym = stock.get('symbol')
-      msg, btns = format_breakout_alert(stock)
-      if send_telegram_message(msg, buttons=btns):
-        _ALERT_TRACKER['sent_symbols'].add(sym)
+    m3_batch_key = f'MOC3_GOLDEN_BATCH_{today_str}'
+    if not is_alert_already_sent(m3_batch_key, min_interval_seconds=14400):
+      candidates = [
+          s for s in opps
+          if s.get('buy_ratio', 50) >= 55.0 and s.get('pct_change', 0) > 0.5
+      ]
+      sent_any = False
+      for stock in candidates[:2]:
+        sym = stock.get('symbol')
+        sym_key = f'MOC3_STOCK_{today_str}_{sym}'
+        if not is_alert_already_sent(sym_key, min_interval_seconds=86400):
+          msg, btns = format_breakout_alert(stock)
+          if send_telegram_message(msg, buttons=btns):
+            record_alert_sent(sym_key, preview=f'Golden Buy {sym}')
+            _ALERT_TRACKER['sent_symbols'].add(sym)
+            sent_any = True
+      if sent_any or candidates:
+        record_alert_sent(m3_batch_key, preview='Moc 3 finished')
 
   # ==================== MỐC 4: 14:50 - 15:15 (TỔNG KẾT ĐÓNG CỬA ATC) ====================
   elif 890 <= mins <= 915:
-    if 'ATC' not in _ALERT_TRACKER['sent_digests']:
+    atc_key = f'DIGEST_ATC_{today_str}'
+    if 'ATC' not in _ALERT_TRACKER['sent_digests'] and not is_alert_already_sent(atc_key, min_interval_seconds=14400):
       msg, btns = format_session_digest('Tổng Kết Đóng Cửa ATC & Xu Hướng', opps, regime)
       if send_telegram_message(msg, buttons=btns):
+        record_alert_sent(atc_key, preview='ATC Digest')
         _ALERT_TRACKER['sent_digests'].add('ATC')
 
 

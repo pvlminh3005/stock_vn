@@ -73,8 +73,10 @@ def init_portfolio_db():
             trades_coll.create_index([("symbol", ASCENDING)])
             trades_coll.create_index([("order_type", ASCENDING)])
 
-            # Index cho alert states
+            # Index cho alert states & telegram alert logs
             _mongo_db['alert_states'].create_index([("symbol", ASCENDING)], unique=True)
+            _mongo_db['telegram_alert_logs'].create_index([("key", ASCENDING)], unique=True)
+            _mongo_db['telegram_alert_logs'].create_index([("sent_at", ASCENDING)], expireAfterSeconds=86400 * 7)
 
             # Tự động đồng bộ nếu MongoDB đang rỗng mà SQLite local có dữ liệu
             if trades_coll.count_documents({}) == 0 and os.path.exists(SQLITE_PORTFOLIO_DB):
@@ -126,6 +128,14 @@ def init_portfolio_db():
                     last_ribbon_color TEXT DEFAULT '',
                     pending_summary TEXT DEFAULT '',
                     updated_at INTEGER NOT NULL
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS telegram_alert_logs (
+                    key TEXT PRIMARY KEY,
+                    sent_at INTEGER NOT NULL,
+                    preview TEXT DEFAULT ''
                 )
             """)
         cleanup_sqlite_expired()
@@ -431,4 +441,66 @@ def save_alert_state(symbol: str, data: Dict[str, Any]) -> bool:
     except Exception as e:
         logger.error("SQLite save_alert_state error: %s", e)
         return False
+
+
+# ==================== DEDUPLICATION TELEGRAM PERSISTENCE ====================
+def is_alert_already_sent(alert_key: str, min_interval_seconds: int = 7200) -> bool:
+    """
+    Kiểm tra xem một loại cảnh báo đã được gửi qua Telegram gần đây hay chưa (hỗ trợ phân tán Multi-Instance / Render + Local).
+    Trả về True nếu ĐÃ gửi trong vòng min_interval_seconds giây qua.
+    """
+    now_ts = int(time.time())
+    if _use_mongo and _mongo_db is not None:
+        try:
+            doc = _mongo_db['telegram_alert_logs'].find_one({'key': alert_key})
+            if doc:
+                sent_at = doc.get('sent_at', 0)
+                if now_ts - sent_at < min_interval_seconds:
+                    return True
+            return False
+        except Exception as e:
+            logger.warning("MongoDB is_alert_already_sent error: %s", e)
+
+    try:
+        with sqlite3.connect(SQLITE_PORTFOLIO_DB) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT sent_at FROM telegram_alert_logs WHERE key = ?", (alert_key,))
+            row = cur.fetchone()
+            if row:
+                sent_at = row[0]
+                if now_ts - sent_at < min_interval_seconds:
+                    return True
+    except Exception as e:
+        logger.warning("SQLite is_alert_already_sent error: %s", e)
+    return False
+
+
+def record_alert_sent(alert_key: str, preview: str = '') -> bool:
+    """Ghi nhận cảnh báo Telegram đã gửi thành công để chống trùng lặp đa tiến trình/đám mây."""
+    now_ts = int(time.time())
+    if _use_mongo and _mongo_db is not None:
+        try:
+            _mongo_db['telegram_alert_logs'].update_one(
+                {'key': alert_key},
+                {'$set': {'key': alert_key, 'sent_at': now_ts, 'preview': preview[:100]}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.warning("MongoDB record_alert_sent error: %s", e)
+
+    try:
+        with sqlite3.connect(SQLITE_PORTFOLIO_DB) as conn:
+            conn.execute("""
+                INSERT INTO telegram_alert_logs (key, sent_at, preview)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    sent_at = excluded.sent_at,
+                    preview = excluded.preview
+            """, (alert_key, now_ts, preview[:100]))
+            return True
+    except Exception as e:
+        logger.warning("SQLite record_alert_sent error: %s", e)
+        return False
+
 

@@ -18,6 +18,8 @@ from backend.db.portfolio_db import (
     get_active_holding_symbols,
     get_alert_state,
     save_alert_state,
+    is_alert_already_sent,
+    record_alert_sent,
 )
 from backend.data_providers.ssi_provider import get_ssi_board_data
 from backend.controllers.stock_controller import handle_stock_detail
@@ -152,24 +154,30 @@ def scan_portfolio_alerts():
             }
 
             # 1. Kiểm tra CẮT LỖ S1
+            today_str = get_vn_now().strftime('%Y-%m-%d')
+            sl_key = f'PORTFOLIO_STOPLOSS_{today_str}_{sym}'
+            tp_key = f'PORTFOLIO_TARGET_{today_str}_{sym}'
+
             if current_price > 0 and s1 > 0 and current_price <= s1:
-                if last_alert != 'STOPLOSS_TRIGGERED':
+                if last_alert != 'STOPLOSS_TRIGGERED' and not is_alert_already_sent(sl_key, min_interval_seconds=14400):
                     # Bắn Telegram lần đầu khi vi phạm
                     msg, btns = format_portfolio_alert(sym, 'STOPLOSS_TRIGGERED', alert_data)
-                    send_telegram_message(msg, buttons=btns)
-                    state['last_alert_type'] = 'STOPLOSS_TRIGGERED'
-                    state['last_alert_time'] = now_ts
-                    logger.info("Đã gửi cảnh báo STOPLOSS cho %s", sym)
+                    if send_telegram_message(msg, buttons=btns):
+                        record_alert_sent(sl_key, preview=f'Stoploss {sym}')
+                        state['last_alert_type'] = 'STOPLOSS_TRIGGERED'
+                        state['last_alert_time'] = now_ts
+                        logger.info("Đã gửi cảnh báo STOPLOSS cho %s", sym)
 
             # 2. Kiểm tra CHỐT LỜI R1
             elif current_price > 0 and r1 > 0 and current_price >= r1:
-                if last_alert != 'TARGET_TRIGGERED':
+                if last_alert != 'TARGET_TRIGGERED' and not is_alert_already_sent(tp_key, min_interval_seconds=14400):
                     # Bắn Telegram lần đầu khi chạm mục tiêu
                     msg, btns = format_portfolio_alert(sym, 'TARGET_TRIGGERED', alert_data)
-                    send_telegram_message(msg, buttons=btns)
-                    state['last_alert_type'] = 'TARGET_TRIGGERED'
-                    state['last_alert_time'] = now_ts
-                    logger.info("Đã gửi cảnh báo TARGET cho %s", sym)
+                    if send_telegram_message(msg, buttons=btns):
+                        record_alert_sent(tp_key, preview=f'Target {sym}')
+                        state['last_alert_type'] = 'TARGET_TRIGGERED'
+                        state['last_alert_time'] = now_ts
+                        logger.info("Đã gửi cảnh báo TARGET cho %s", sym)
 
             # 3. Giá trở lại vùng bình thường
             else:
@@ -251,8 +259,11 @@ def send_daily_ribbon_digest():
         {'text': '🌐 Mở Stock RT Live Web', 'url': home_link}
     ]
 
-    send_telegram_message(msg, buttons=buttons)
-    logger.info("Đã gửi Báo cáo Tín hiệu SuperTrend Cuối Phiên 14:30 qua Telegram.")
+    ribbon_key = f'RIBBON_DIGEST_1430_{today_str}'
+    if not is_alert_already_sent(ribbon_key, min_interval_seconds=14400):
+        if send_telegram_message(msg, buttons=buttons):
+            record_alert_sent(ribbon_key, preview='14:30 Ribbon Digest')
+            logger.info("Đã gửi Báo cáo Tín hiệu SuperTrend Cuối Phiên 14:30 qua Telegram.")
 
 
 def portfolio_worker_loop():
