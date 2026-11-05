@@ -21,6 +21,13 @@ from backend.controllers.portfolio_controller import (
     handle_portfolio_alternatives,
     handle_portfolio_sectors,
 )
+from backend.controllers.user_portfolio_controller import (
+    handle_get_portfolio,
+    handle_add_trade,
+    handle_delete_trade,
+    handle_reset_portfolio,
+    handle_save_settings,
+)
 
 __all__ = [
     'handle_stock_detail',
@@ -35,4 +42,9 @@ __all__ = [
     'handle_portfolio_bundle',
     'handle_portfolio_alternatives',
     'handle_portfolio_sectors',
+    'handle_get_portfolio',
+    'handle_add_trade',
+    'handle_delete_trade',
+    'handle_reset_portfolio',
+    'handle_save_settings',
 ]

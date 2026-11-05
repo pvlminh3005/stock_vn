@@ -1,10 +1,11 @@
-import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=4.0';
-import { getStockDetail, getChartData } from './api.js?v=4.0';
-import { initChart, updateChartData } from './modules/chart.js?v=4.5';
-import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=4.0';
-import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=4.4';
-import { initPortfolioBundle } from './modules/portfolioBundle.js?v=4.0';
-import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=4.0';
+import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.1';
+import { getStockDetail, getChartData } from './api.js?v=5.1';
+import { initChart, updateChartData } from './modules/chart.js?v=5.1';
+import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.1';
+import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.1';
+import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.1';
+import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.1';
+import { initUserPortfolioModule } from './modules/portfolio.js?v=5.1';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';
@@ -704,6 +705,9 @@ function initApp() {
   });
   initTopTPlusBar((ticker) => {
     loadStock(ticker);
+  });
+  initUserPortfolioModule({
+    onSelectTicker: (ticker) => loadStock(ticker)
   });
 
   // Tự động phân tích & mở biểu đồ mã cổ phiếu từ tham số URL (deep-linking Telegram: ?ticker=SSI)

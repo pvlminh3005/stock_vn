@@ -9,3 +9,6 @@ env/
 venv/
 *.log
 data/*.db
+atlas-credentials.env
+*.env.local
+

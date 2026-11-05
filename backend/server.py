@@ -44,6 +44,7 @@ if os.path.isfile(env_path):
 
 # ==================== IMPORT FROM CLEAN ARCHITECTURE MODULES ====================
 from backend.domain.regime import warm_up_market_data
+from backend.utils.portfolio_scheduler import start_portfolio_scheduler
 from backend.controllers import (
     handle_stock_detail,
     handle_chart,
@@ -57,6 +58,11 @@ from backend.controllers import (
     handle_portfolio_alternatives,
     handle_portfolio_sectors,
     handle_telegram_test,
+    handle_get_portfolio,
+    handle_add_trade,
+    handle_delete_trade,
+    handle_reset_portfolio,
+    handle_save_settings,
 )
 
 
@@ -316,7 +322,23 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         self.send_json(500, {'error': str(e)})
       return
 
-    # 9. Trang chủ HTML & Components
+    # 9. API: Sổ Lệnh / Danh Mục Cá Nhân
+    if path == '/api/portfolio':
+      try:
+        self.send_json(200, handle_get_portfolio())
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/portfolio/delete':
+      trade_id = params.get('id', [''])[0]
+      try:
+        self.send_json(200, handle_delete_trade(trade_id))
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    # 10. Trang chủ HTML & Components
     if path in ['/', '', '/index.html']:
       index_file = os.path.join(ROOT_DIR, 'index.html')
       html_content = render_template_html(index_file)
@@ -338,6 +360,65 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     # Static assets (JS, CSS, Images, Components)
     super().do_GET()
 
+  def do_POST(self):
+    parsed = urllib.parse.urlparse(self.path)
+    path = parsed.path
+    params = urllib.parse.parse_qs(parsed.query)
+
+    # Chốt chặn bảo vệ mã PIN
+    if path.startswith('/api/'):
+      if not self.check_pin_authenticated(params):
+        self.send_json(401, {'error': 'UNAUTHORIZED', 'message': 'Yêu cầu mã PIN bảo vệ để truy cập hệ thống'})
+        return
+
+    content_length = int(self.headers.get('Content-Length', 0))
+    post_body = {}
+    if content_length > 0:
+      try:
+        raw_body = self.rfile.read(content_length).decode('utf-8')
+        post_body = json.loads(raw_body)
+      except Exception:
+        try:
+          post_body = urllib.parse.parse_qs(raw_body)
+          post_body = {k: v[0] if len(v) == 1 else v for k, v in post_body.items()}
+        except Exception:
+          post_body = {}
+
+    if path == '/api/portfolio/trade':
+      try:
+        res = handle_add_trade(post_body)
+        self.send_json(200 if res.get('success') else 400, res)
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/portfolio/trade/delete':
+      trade_id = post_body.get('id') or params.get('id', [''])[0]
+      try:
+        res = handle_delete_trade(trade_id)
+        self.send_json(200 if res.get('success') else 400, res)
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/portfolio/settings':
+      try:
+        res = handle_save_settings(post_body)
+        self.send_json(200 if res.get('success') else 400, res)
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    if path == '/api/portfolio/reset':
+      try:
+        res = handle_reset_portfolio()
+        self.send_json(200 if res.get('success') else 400, res)
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
+    self.send_json(404, {'error': 'NOT_FOUND', 'message': 'Endpoint không tồn tại'})
+
 
 class ReusableTCPServer(socketserver.TCPServer):
   allow_reuse_address = True
@@ -348,6 +429,7 @@ if __name__ == '__main__':
   PORT = get_configured_port(8000)
   threading.Thread(target=warm_up_market_data, daemon=True).start()
   threading.Thread(target=start_screener_worker, daemon=True).start()
+  start_portfolio_scheduler()
   print(
       f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT} (PORT={PORT})'
   )

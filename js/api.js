@@ -78,3 +78,59 @@ export async function getPortfolioSectors(budget, excludeSector = '') {
   if (data.error) throw new Error(data.error);
   return data;
 }
+
+// ==================== USER PORTFOLIO / SỔ LỆNH CÁ NHÂN ====================
+
+// API lấy toàn bộ danh mục, P&L realtime và thống kê NAV
+export async function getUserPortfolio() {
+  const res = await safeFetch('/api/portfolio');
+  if (!res.ok) throw new Error(`Lỗi tải sổ lệnh cá nhân: ${res.status}`);
+  return await res.json();
+}
+
+// API thêm giao dịch mới
+export async function addUserTrade(tradeData) {
+  const res = await safeFetch('/api/portfolio/trade', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(tradeData)
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || 'Lỗi thêm giao dịch');
+  return data;
+}
+
+// API xóa một giao dịch theo ID
+export async function deleteUserTrade(tradeId) {
+  const res = await safeFetch('/api/portfolio/trade/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ id: tradeId })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || 'Lỗi xóa giao dịch');
+  return data;
+}
+
+// API reset / xóa trắng toàn bộ sổ lệnh
+export async function resetUserPortfolio() {
+  const res = await safeFetch('/api/portfolio/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' }
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || 'Lỗi xóa toàn bộ danh mục');
+  return data;
+}
+
+// API lưu cấu hình Tổng NAV
+export async function saveUserPortfolioSettings(settings) {
+  const res = await safeFetch('/api/portfolio/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(settings)
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || 'Lỗi lưu cấu hình NAV');
+  return data;
+}

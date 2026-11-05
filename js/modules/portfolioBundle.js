@@ -1,5 +1,5 @@
-import { formatVND } from '../utils.js?v=4.0';
-import { getPortfolioBundle, getPortfolioAlternatives, getPortfolioSectors } from '../api.js?v=4.0';
+import { formatVND } from '../utils.js?v=5.0';
+import { getPortfolioBundle, getPortfolioAlternatives, getPortfolioSectors } from '../api.js?v=5.0';
 
 let currentCapital = 20000000;
 let currentStyle = 'balanced';
@@ -21,11 +21,11 @@ export function initPortfolioBundle(selectStockCb) {
   // 1. Chuyển đổi chế độ (Mode Switcher)
   const modeSingleBtn = document.getElementById('modeSingleStockBtn');
   const modeBundleBtn = document.getElementById('modePortfolioBundleBtn');
+  const modePortfolioBtn = document.getElementById('modeUserPortfolioBtn');
 
-  if (modeSingleBtn && modeBundleBtn) {
-    modeSingleBtn.addEventListener('click', () => switchAppMode('single'));
-    modeBundleBtn.addEventListener('click', () => switchAppMode('bundle'));
-  }
+  if (modeSingleBtn) modeSingleBtn.addEventListener('click', () => switchAppMode('single'));
+  if (modeBundleBtn) modeBundleBtn.addEventListener('click', () => switchAppMode('bundle'));
+  if (modePortfolioBtn) modePortfolioBtn.addEventListener('click', () => switchAppMode('user-portfolio'));
 
   // 2. Các nút chọn sẵn mức vốn (15tr, 20tr, 25tr, 50tr)
   document.querySelectorAll('.capital-preset-btn').forEach(btn => {
@@ -141,36 +141,54 @@ export function initPortfolioBundle(selectStockCb) {
 export function switchAppMode(mode) {
   const modeSingleBtn = document.getElementById('modeSingleStockBtn');
   const modeBundleBtn = document.getElementById('modePortfolioBundleBtn');
+  const modePortfolioBtn = document.getElementById('modeUserPortfolioBtn');
+
   const singleDetail = document.getElementById('singleStockDetailContainer');
   const singleBody = document.getElementById('singleStockBodyContainer');
   const bundleSec = document.getElementById('portfolioBundleSection');
+  const userPortfolioSec = document.getElementById('userPortfolioSection');
+  const searchWrapper = document.getElementById('singleStockSearchWrapper');
 
-  if (mode === 'bundle') {
-    if (modeSingleBtn) {
-      modeSingleBtn.className = 'mode-nav-btn px-3.5 py-2 rounded-lg transition text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer';
+  // Reset tất cả các nút
+  [modeSingleBtn, modeBundleBtn, modePortfolioBtn].forEach(btn => {
+    if (!btn) return;
+    btn.className = 'mode-nav-btn px-3.5 py-2 rounded-lg transition text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer';
+  });
+
+  if (mode === 'user-portfolio') {
+    if (modePortfolioBtn) {
+      modePortfolioBtn.className = 'mode-nav-btn px-3.5 py-2 rounded-lg transition bg-blue-600 text-white shadow-sm flex items-center gap-1.5 active cursor-pointer';
     }
+    if (singleDetail) singleDetail.classList.add('hidden');
+    if (singleBody) singleBody.classList.add('hidden');
+    if (bundleSec) bundleSec.classList.add('hidden');
+    if (userPortfolioSec) userPortfolioSec.classList.remove('hidden');
+    if (searchWrapper) searchWrapper.classList.add('hidden');
+
+    window.dispatchEvent(new CustomEvent('userPortfolioActivated'));
+  } else if (mode === 'bundle') {
     if (modeBundleBtn) {
       modeBundleBtn.className = 'mode-nav-btn px-3.5 py-2 rounded-lg transition bg-blue-600 text-white shadow-sm flex items-center gap-1.5 active cursor-pointer';
     }
-
     if (singleDetail) singleDetail.classList.add('hidden');
     if (singleBody) singleBody.classList.add('hidden');
     if (bundleSec) bundleSec.classList.remove('hidden');
+    if (userPortfolioSec) userPortfolioSec.classList.add('hidden');
+    if (searchWrapper) searchWrapper.classList.add('hidden');
 
     if (!currentBundleData) {
       loadBundleData(currentCapital, currentStyle);
     }
   } else {
+    // Single stock
     if (modeSingleBtn) {
       modeSingleBtn.className = 'mode-nav-btn px-3.5 py-2 rounded-lg transition bg-blue-600 text-white shadow-sm flex items-center gap-1.5 active cursor-pointer';
     }
-    if (modeBundleBtn) {
-      modeBundleBtn.className = 'mode-nav-btn px-3.5 py-2 rounded-lg transition text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer';
-    }
-
     if (singleDetail) singleDetail.classList.remove('hidden');
     if (singleBody) singleBody.classList.remove('hidden');
     if (bundleSec) bundleSec.classList.add('hidden');
+    if (userPortfolioSec) userPortfolioSec.classList.add('hidden');
+    if (searchWrapper) searchWrapper.classList.remove('hidden');
   }
 }
 
