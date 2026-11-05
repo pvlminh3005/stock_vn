@@ -17,21 +17,21 @@
       </p>
     </div>
 
-    <!-- Bộ chọn vốn nhanh & Input tùy chọn -->
+    <!-- Bộ chọn vốn nhanh & Input tùy chọn (Tối ưu cảm ứng Mobile) -->
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-xs font-semibold text-slate-400 mr-1 hidden sm:inline"><i class="fa-solid fa-coins text-amber-400 mr-1"></i>Vốn:</span>
-      <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs font-semibold">
-        <button type="button" class="capital-preset-btn px-3 py-1.5 rounded-lg transition text-slate-300 hover:text-white" data-capital="15000000">15 Tr</button>
-        <button type="button" class="capital-preset-btn px-3 py-1.5 rounded-lg transition bg-blue-600 text-white shadow-sm font-bold active" data-capital="20000000">20 Tr ⭐</button>
-        <button type="button" class="capital-preset-btn px-3 py-1.5 rounded-lg transition text-slate-300 hover:text-white" data-capital="25000000">25 Tr</button>
-        <button type="button" class="capital-preset-btn px-3 py-1.5 rounded-lg transition text-slate-300 hover:text-white" data-capital="50000000">50 Tr</button>
+      <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs font-semibold overflow-x-auto smooth-horizontal-scroll">
+        <button type="button" class="capital-preset-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg transition text-slate-300 hover:text-white whitespace-nowrap cursor-pointer" data-capital="15000000">15 Tr</button>
+        <button type="button" class="capital-preset-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg transition bg-blue-600 text-white shadow-sm font-bold active whitespace-nowrap cursor-pointer" data-capital="20000000">20 Tr ⭐</button>
+        <button type="button" class="capital-preset-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg transition text-slate-300 hover:text-white whitespace-nowrap cursor-pointer" data-capital="25000000">25 Tr</button>
+        <button type="button" class="capital-preset-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg transition text-slate-300 hover:text-white whitespace-nowrap cursor-pointer" data-capital="50000000">50 Tr</button>
       </div>
 
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5 w-full sm:w-auto">
         <input type="text" id="customCapitalInput" placeholder="Số khác (VND)..."
-          class="w-32 sm:w-36 bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono">
+          class="flex-1 sm:w-36 min-h-[38px] sm:min-h-0 bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono">
         <button type="button" id="applyCustomCapitalBtn"
-          class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition border border-slate-700 cursor-pointer">
+          class="min-h-[38px] sm:min-h-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition border border-slate-700 cursor-pointer whitespace-nowrap">
           Áp dụng
         </button>
       </div>
@@ -40,16 +40,16 @@
 
   <!-- Chọn phong cách đầu tư -->
   <div class="flex flex-wrap items-center justify-between gap-3 px-1">
-    <div class="flex items-center gap-2 text-xs">
+    <div class="flex flex-col sm:flex-row sm:items-center gap-2 text-xs w-full sm:w-auto">
       <span class="text-slate-400 font-medium">Khẩu vị:</span>
-      <div class="inline-flex rounded-xl bg-slate-950/80 p-0.5 border border-slate-800 text-xs font-medium">
-        <button type="button" class="bundle-style-btn px-3 py-1 rounded-lg text-white bg-blue-600/80 font-bold active" data-style="balanced">
+      <div class="inline-flex rounded-xl bg-slate-950/80 p-0.5 border border-slate-800 text-xs font-medium overflow-x-auto smooth-horizontal-scroll">
+        <button type="button" class="bundle-style-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 sm:py-1 rounded-lg text-white bg-blue-600/80 font-bold active whitespace-nowrap cursor-pointer" data-style="balanced">
           <i class="fa-solid fa-scale-balanced mr-1"></i> Cân Bằng (1 Trụ + 1 T+)
         </button>
-        <button type="button" class="bundle-style-btn px-3 py-1 rounded-lg text-slate-400 hover:text-white transition" data-style="momentum">
+        <button type="button" class="bundle-style-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 sm:py-1 rounded-lg text-slate-400 hover:text-white transition whitespace-nowrap cursor-pointer" data-style="momentum">
           <i class="fa-solid fa-bolt text-amber-400 mr-1"></i> Đột Phá T+ (Dòng tiền)
         </button>
-        <button type="button" class="bundle-style-btn px-3 py-1 rounded-lg text-slate-400 hover:text-white transition" data-style="defensive">
+        <button type="button" class="bundle-style-btn min-h-[38px] sm:min-h-0 px-3 py-1.5 sm:py-1 rounded-lg text-slate-400 hover:text-white transition whitespace-nowrap cursor-pointer" data-style="defensive">
           <i class="fa-solid fa-shield-halved text-emerald-400 mr-1"></i> An Toàn / Tích Sản
         </button>
       </div>

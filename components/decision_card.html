@@ -180,7 +180,7 @@
     </div>
   </div>
 
-  <!-- BỘ ĐIỀU HƯỚNG KÉP: VỊ THẾ & KHUNG THỜI GIAN -->
+  <!-- BỘ ĐIỀU HƯỚNG KÉP: VỊ THẾ & KHUNG THỜI GIAN (Tối ưu nút bấm cảm ứng trên Mobile/Tablet) -->
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     
     <!-- 1. BỘ LỌC VỊ THẾ NHANH -->
@@ -192,14 +192,14 @@
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
-        <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono">
-          <button id="filterPosAll" type="button" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer">
+        <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono w-full sm:w-auto justify-between sm:justify-start">
+          <button id="filterPosAll" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
             <i class="fa-solid fa-table-columns"></i> <span>Tất cả</span>
           </button>
-          <button id="filterPosNew" type="button" class="px-2.5 py-1 rounded-md font-bold transition flex items-center gap-1 bg-emerald-600 text-white shadow cursor-pointer">
+          <button id="filterPosNew" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-bold transition flex items-center justify-center gap-1 bg-emerald-600 text-white shadow cursor-pointer flex-1 sm:flex-initial">
             <i class="fa-solid fa-cart-plus text-emerald-400"></i> <span>Mua mới</span>
           </button>
-          <button id="filterPosHolding" type="button" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer">
+          <button id="filterPosHolding" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
             <i class="fa-solid fa-briefcase text-amber-400"></i> <span>Nắm giữ</span>
           </button>
         </div>
@@ -207,7 +207,7 @@
         <!-- Khung nhập giá vốn tiện ích (khi đang nắm giữ) -->
         <div id="costPriceWidget" class="hidden flex items-center gap-1 bg-slate-900 border border-amber-900/40 rounded-lg px-2 py-0.5 text-xs font-mono">
           <span class="text-[10px] text-amber-400">Giá vốn:</span>
-          <input id="userCostInput" type="number" step="100" placeholder="Giá..." class="w-20 px-1.5 py-0.5 text-xs bg-slate-950 border border-slate-700 rounded text-white font-mono focus:border-amber-500 focus:outline-none">
+          <input id="userCostInput" type="number" step="100" placeholder="Giá..." class="w-20 min-h-[32px] px-1.5 py-0.5 text-xs bg-slate-950 border border-slate-700 rounded text-white font-mono focus:border-amber-500 focus:outline-none">
           <span id="userPnLBadge" class="text-[10px] font-bold px-1 py-0.5 rounded bg-slate-800 text-slate-400">--%</span>
         </div>
       </div>
@@ -221,14 +221,14 @@
         </span>
       </div>
 
-      <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono">
-        <button id="toggleHorizonTPlus" type="button" class="px-2.5 py-1 rounded-md font-bold transition flex items-center gap-1 bg-blue-600 text-white shadow cursor-pointer">
+      <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono w-full sm:w-auto justify-between sm:justify-start">
+        <button id="toggleHorizonTPlus" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-bold transition flex items-center justify-center gap-1 bg-blue-600 text-white shadow cursor-pointer flex-1 sm:flex-initial">
           <i class="fa-solid fa-bolt text-amber-400"></i> <span>⚡ Lướt T+</span>
         </button>
-        <button id="toggleHorizonMidterm" type="button" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer">
+        <button id="toggleHorizonMidterm" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
           <i class="fa-solid fa-gem text-cyan-400"></i> <span>💎 Trung Hạn</span>
         </button>
-        <button id="toggleHorizonBoth" type="button" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer">
+        <button id="toggleHorizonBoth" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
           <i class="fa-solid fa-columns"></i> <span>Cả Hai</span>
         </button>
       </div>

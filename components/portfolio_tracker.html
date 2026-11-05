@@ -21,19 +21,19 @@
     </div>
 
     <!-- Nhập Tổng NAV -->
-    <div class="flex flex-wrap items-center gap-2.5 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-slate-950/80 p-3 sm:p-2.5 rounded-xl border border-slate-800 w-full sm:w-auto">
       <div class="flex items-center gap-1.5 text-xs text-slate-300 font-semibold">
         <i class="fa-solid fa-vault text-emerald-400"></i>
         <span>Tổng Vốn NAV:</span>
       </div>
-      <div class="relative">
+      <div class="relative flex-1 sm:w-44">
         <input type="text" id="userPortfolioNavInput" placeholder="Ví dụ: 500.000.000"
           autocomplete="off"
-          class="w-36 sm:w-44 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500">
-        <span class="absolute right-2 top-1.5 text-[10px] text-slate-500 font-mono">đ</span>
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 sm:py-1.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500">
+        <span class="absolute right-2.5 top-2 sm:top-1.5 text-[10px] text-slate-500 font-mono">đ</span>
       </div>
       <button type="button" id="saveNavSettingBtn"
-        class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-md shadow-emerald-900/30">
+        class="min-h-[40px] sm:min-h-0 px-3.5 py-2 sm:py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-md shadow-emerald-900/30 flex items-center justify-center">
         <i class="fa-solid fa-check mr-1"></i> Lưu NAV
       </button>
     </div>
@@ -84,10 +84,10 @@
     </div>
   </div>
 
-  <!-- Form Nhập Lệnh Mua / Bán Mới -->
+  <!-- Form Nhập Lệnh Mua / Bán Mới (Hiển thị từng dòng 1 cột trên Mobile/Tablet nhỏ, 7 cột trên Desktop) -->
   <div class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3">
     <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
-      <div class="text-xs font-bold text-white flex items-center gap-1.5">
+      <div class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
         <i class="fa-solid fa-plus-circle text-emerald-400"></i>
         <span>Nhập Giao Dịch Mua / Bán Mới</span>
       </div>
@@ -96,62 +96,62 @@
       </span>
     </div>
 
-    <form id="portfolioTradeForm" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-2.5 items-end">
+    <form id="portfolioTradeForm" class="grid grid-cols-1 lg:grid-cols-7 gap-3 items-end">
       <!-- 1. Mã CK -->
-      <div class="space-y-1">
-        <label for="tradeSymbolInput" class="block text-[11px] font-semibold text-slate-400">Mã CK *</label>
-        <input type="text" id="tradeSymbolInput" placeholder="HPG..." required maxlength="10" autocomplete="off"
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white uppercase font-mono font-bold focus:outline-none focus:border-emerald-500">
+      <div class="space-y-1 w-full">
+        <label for="tradeSymbolInput" class="block text-xs font-semibold text-slate-400">Mã CK *</label>
+        <input type="text" id="tradeSymbolInput" placeholder="Ví dụ: HPG, SSI, FPT..." required maxlength="10" autocomplete="off"
+          class="w-full min-h-[42px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white uppercase font-mono font-bold focus:outline-none focus:border-emerald-500 shadow-inner">
       </div>
 
       <!-- 2. Khối lượng (KL) -->
-      <div class="space-y-1">
-        <label for="tradeVolumeInput" class="block text-[11px] font-semibold text-slate-400">Khối Lượng (KL) *</label>
-        <input type="number" id="tradeVolumeInput" placeholder="1000" required step="100" min="1"
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500">
+      <div class="space-y-1 w-full">
+        <label for="tradeVolumeInput" class="block text-xs font-semibold text-slate-400">Khối Lượng (KL) *</label>
+        <input type="number" id="tradeVolumeInput" placeholder="Ví dụ: 1000" required step="100" min="1"
+          class="w-full min-h-[42px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-emerald-500 shadow-inner">
       </div>
 
       <!-- 3. Giá Mua/Bán -->
-      <div class="space-y-1">
-        <label for="tradePriceInput" class="block text-[11px] font-semibold text-slate-400">Giá Khớp (đ) *</label>
+      <div class="space-y-1 w-full">
+        <label for="tradePriceInput" class="block text-xs font-semibold text-slate-400">Giá Khớp (đ) *</label>
         <input type="number" id="tradePriceInput" placeholder="27.5 hoặc 27500" required step="any" min="0.1"
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500">
+          class="w-full min-h-[42px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-emerald-500 shadow-inner">
       </div>
 
       <!-- 4. Ngày mua (Date picker - mặc định ngày nhập) -->
-      <div class="space-y-1">
-        <label for="tradeDateInput" class="block text-[11px] font-semibold text-slate-400">Ngày Giao Dịch *</label>
+      <div class="space-y-1 w-full">
+        <label for="tradeDateInput" class="block text-xs font-semibold text-slate-400">Ngày Giao Dịch *</label>
         <input type="date" id="tradeDateInput" required
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500">
+          class="w-full min-h-[42px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 shadow-inner">
       </div>
 
       <!-- 5. Button Type (Mua / Bán - Mặc định Mua xanh, Bán đỏ) -->
-      <div class="space-y-1 col-span-2 sm:col-span-1">
-        <label class="block text-[11px] font-semibold text-slate-400">Loại Lệnh</label>
-        <div class="inline-flex w-full rounded-lg bg-slate-900 p-0.5 border border-slate-700">
+      <div class="space-y-1 w-full">
+        <label class="block text-xs font-semibold text-slate-400">Loại Lệnh</label>
+        <div class="inline-flex w-full min-h-[42px] rounded-xl bg-slate-900 p-1 border border-slate-700">
           <button type="button" id="tradeTypeBuyBtn"
-            class="flex-1 py-1 rounded-md text-xs font-bold transition cursor-pointer bg-emerald-600 text-white shadow-sm flex items-center justify-center gap-1 active">
-            <i class="fa-solid fa-arrow-down-long text-[10px]"></i> Mua
+            class="flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer bg-emerald-600 text-white shadow-sm flex items-center justify-center gap-1.5 active">
+            <i class="fa-solid fa-arrow-down-long text-xs"></i> <span>Mua</span>
           </button>
           <button type="button" id="tradeTypeSellBtn"
-            class="flex-1 py-1 rounded-md text-xs font-bold transition cursor-pointer text-slate-400 hover:text-white flex items-center justify-center gap-1">
-            <i class="fa-solid fa-arrow-up-long text-[10px]"></i> Bán
+            class="flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer text-slate-400 hover:text-white flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-arrow-up-long text-xs"></i> <span>Bán</span>
           </button>
         </div>
         <input type="hidden" id="tradeTypeHidden" value="BUY">
       </div>
 
       <!-- 6. Ghi chú -->
-      <div class="space-y-1 col-span-2 sm:col-span-2 md:col-span-1">
-        <label for="tradeNoteInput" class="block text-[11px] font-semibold text-slate-400">Ghi Chú</label>
+      <div class="space-y-1 w-full">
+        <label for="tradeNoteInput" class="block text-xs font-semibold text-slate-400">Ghi Chú</label>
         <input type="text" id="tradeNoteInput" placeholder="Ví dụ: Theo ST, gom nền..."
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+          class="w-full min-h-[42px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 shadow-inner">
       </div>
 
       <!-- 7. Nút Thêm Lệnh -->
-      <div class="col-span-2 sm:col-span-1">
+      <div class="w-full">
         <button type="submit" id="addTradeBtn"
-          class="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-900/30">
+          class="w-full min-h-[44px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-900/40">
           <i class="fa-solid fa-plus"></i>
           <span>Ghi Sổ Lệnh</span>
         </button>
@@ -159,24 +159,24 @@
     </form>
   </div>
 
-  <!-- Thanh Công Cụ: Filter & Reset Tổng -->
+  <!-- Thanh Công Cụ: Filter & Reset Tổng (Tối ưu vuốt ngang trên Mobile) -->
   <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
     <!-- Nút Filter với các loại khác nhau -->
-    <div class="flex flex-wrap items-center gap-1.5 text-xs">
-      <span class="text-slate-400 font-semibold mr-1 text-[11px]"><i class="fa-solid fa-filter mr-1"></i>Lọc:</span>
-      <button type="button" class="portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-700 bg-emerald-600 text-white font-bold cursor-pointer active" data-filter="ALL">
+    <div class="flex items-center gap-1.5 text-xs overflow-x-auto smooth-horizontal-scroll pb-1 sm:pb-0">
+      <span class="text-slate-400 font-semibold mr-1 text-[11px] whitespace-nowrap"><i class="fa-solid fa-filter mr-1"></i>Lọc:</span>
+      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-700 bg-emerald-600 text-white font-bold cursor-pointer active whitespace-nowrap" data-filter="ALL">
         Tất cả (<span id="filterCountAll">0</span>)
       </button>
-      <button type="button" class="portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer" data-filter="BUY">
+      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="BUY">
         <i class="fa-solid fa-circle-dot text-emerald-400 text-[9px] mr-1"></i>Đang Mua (<span id="filterCountBuy">0</span>)
       </button>
-      <button type="button" class="portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer" data-filter="SELL">
+      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="SELL">
         <i class="fa-solid fa-circle-dot text-rose-400 text-[9px] mr-1"></i>Đã Bán (<span id="filterCountSell">0</span>)
       </button>
-      <button type="button" class="portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer" data-filter="PROFIT">
+      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="PROFIT">
         <i class="fa-solid fa-arrow-trend-up text-emerald-400 text-[9px] mr-1"></i>Đang Lãi (<span id="filterCountProfit">0</span>)
       </button>
-      <button type="button" class="portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer" data-filter="LOSS">
+      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="LOSS">
         <i class="fa-solid fa-arrow-trend-down text-rose-400 text-[9px] mr-1"></i>Đang Lỗ (<span id="filterCountLoss">0</span>)
       </button>
     </div>
@@ -185,30 +185,30 @@
     <div class="flex items-center gap-2">
       <div class="relative flex-1 sm:w-44">
         <input type="text" id="portfolioSearchInput" placeholder="Tìm mã..."
-          class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2.5 py-1 text-xs text-white uppercase font-mono focus:outline-none focus:border-slate-600">
-        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2 text-[10px] text-slate-500"></i>
+          class="w-full min-h-[38px] sm:min-h-0 bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2.5 py-1 text-xs text-white uppercase font-mono focus:outline-none focus:border-slate-600">
+        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 sm:top-2 text-[10px] text-slate-500"></i>
       </div>
       
       <!-- Nút Refresh Cập nhật giá -->
       <button type="button" id="refreshPortfolioBtn" title="Cập nhật giá realtime"
-        class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition border border-slate-700 cursor-pointer">
+        class="min-h-[38px] sm:min-h-0 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition border border-slate-700 cursor-pointer whitespace-nowrap flex items-center justify-center">
         <i class="fa-solid fa-rotate mr-1"></i> Làm mới
       </button>
 
       <!-- Nút Reset (Xóa Tổng) -->
       <button type="button" id="resetPortfolioBtn"
-        class="px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 hover:text-rose-300 rounded-lg text-xs font-semibold transition border border-rose-800/50 cursor-pointer whitespace-nowrap">
+        class="min-h-[38px] sm:min-h-0 px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 hover:text-rose-300 rounded-lg text-xs font-semibold transition border border-rose-800/50 cursor-pointer whitespace-nowrap flex items-center justify-center">
         <i class="fa-solid fa-trash-can mr-1"></i> Xóa Tổng
       </button>
     </div>
   </div>
 
-  <!-- Bảng Danh Sách Giao Dịch & Realtime Tracker -->
-  <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/80 shadow-inner">
+  <!-- Bảng Danh Sách Giao Dịch & Realtime Tracker (Hỗ trợ Sticky Column trên Mobile) -->
+  <div class="overflow-x-auto smooth-horizontal-scroll rounded-xl border border-slate-800 bg-slate-950/80 shadow-inner">
     <table class="w-full text-left text-xs whitespace-nowrap">
       <thead class="bg-slate-900/90 text-slate-400 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-800">
         <tr>
-          <th class="py-2.5 px-3">Mã CK</th>
+          <th class="py-2.5 px-3 sticky-col-first-header">Mã CK</th>
           <th class="py-2.5 px-3">Loại</th>
           <th class="py-2.5 px-3 text-right">Khối Lượng</th>
           <th class="py-2.5 px-3 text-right">Giá Khớp</th>
