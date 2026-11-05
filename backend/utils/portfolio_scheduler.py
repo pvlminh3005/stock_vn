@@ -61,21 +61,23 @@ def format_portfolio_alert(symbol: str, alert_type: str, detail: dict) -> tuple:
 
     if alert_type == 'STOPLOSS_TRIGGERED':
         stop_val = detail.get('stop_loss', 0)
+        downside_pct = round(((stop_val - price) / price * 100), 2) if price > 0 and stop_val > 0 else 0.0
         msg = (
             f"🚨 <b>CẢNH BÁO DANH MỤC: {symbol} CHẠM NGƯỠNG CẮT LỖ!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
-            f"🛡️ <b>Mốc hỗ trợ S1 / Stoploss:</b> {stop_val:,.0f} đ\n\n"
+            f"🛡️ <b>Mốc hỗ trợ S1 / Stoploss:</b> {stop_val:,.0f} đ ({downside_pct:.1f}%)\n\n"
             f"⚠️ <i>Giá cổ phiếu đã vi phạm hoặc xuyên thủng ngưỡng phòng thủ ban đầu. "
             f"Hãy xem xét hạ tỷ trọng hoặc đóng vị thế để bảo toàn vốn.</i>\n"
         )
     elif alert_type == 'TARGET_TRIGGERED':
         r1_val = detail.get('target1', 0)
+        upside_pct = round(((r1_val - price) / price * 100), 2) if price > 0 and r1_val > 0 else 0.0
         msg = (
             f"🎯 <b>CẢNH BÁO DANH MỤC: {symbol} ĐẠT MỤC TIÊU CHỐT LỜI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
-            f"🏆 <b>Mục tiêu chốt lời R1:</b> {r1_val:,.0f} đ\n\n"
+            f"🏆 <b>Mục tiêu chốt lời R1:</b> {r1_val:,.0f} đ (+{upside_pct:.1f}%)\n\n"
             f"🎉 <i>Cổ phiếu đã chạm vùng kháng cự chốt lời kỳ vọng. "
             f"Khuyến nghị hiện thực hóa lợi nhuận từng phần hoặc nâng mốc chặn lãi (Trailing Stop).</i>\n"
         )

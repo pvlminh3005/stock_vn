@@ -243,25 +243,64 @@ def handle_top_tplus():
 
 
 def handle_telegram_test(ticker='SSI'):
-  """API kiểm tra gửi thử nghiệm cảnh báo Telegram cho mã bất kỳ."""
+  """
+  API kiểm tra gửi thử nghiệm cảnh báo Telegram cho mã bất kỳ.
+  Toàn bộ dữ liệu được trích xuất 100% từ nến kỹ thuật thực tế & DecisionEngine,
+  tuyệt đối không dùng công thức ngón tay cái tĩnh (No Mock/Hardcode).
+  """
+  from backend.controllers.stock_controller import handle_stock_detail
+
   sym = (ticker or 'SSI').strip().upper()
-  board = get_ssi_board_data()
-  item = board.get(sym, {})
-  p = item.get('matchedPrice', item.get('refPrice', 36000))
-  sample_stock = {
+  try:
+    detail = handle_stock_detail(sym)
+  except Exception as e:
+    detail = {}
+
+  p = float(detail.get('price', 0))
+  if p <= 0:
+    board = get_ssi_board_data()
+    item = board.get(sym, {})
+    raw_p = item.get('matchedPrice', item.get('refPrice', 0))
+    p = float(raw_p) if raw_p else 0.0
+
+  pct_change = float(detail.get('percentChange', detail.get('priceChange', 0.0)))
+  tech = detail.get('technicals', {})
+  decision = detail.get('decisionEngine', {})
+  targets_and_stops = decision.get('targetsAndStops', {})
+  scenarios = decision.get('scenarios', {})
+  sizing = decision.get('positionSizing', {})
+
+  r1 = float(targets_and_stops.get('tp1', {}).get('price') or tech.get('resistance', 0))
+  stop_loss = float(targets_and_stops.get('stopLoss', {}).get('price') or tech.get('support', 0))
+  net_rr = float(scenarios.get('netRR') or tech.get('rrRatio', 0.0))
+  vol_run_rate = float(tech.get('volRatio', 1.0))
+  buy_ratio = float(tech.get('buyRatio', 50.0))
+
+  # Trích xuất quyết định hành động dứt khoát từ DecisionEngine (Không mơ hồ)
+  primary_act = decision.get('primaryAction', 'WAIT')
+  act_badge = decision.get('actionBadge') or primary_act
+  act_reason = decision.get('actionReason', '')
+  alloc_pct = float(sizing.get('allocatedNowPct', 0.0))
+
+  stock_data = {
       'symbol': sym,
-      'name': item.get('companyNameVi', item.get('clientName', f'CTCP {sym}')),
+      'name': detail.get('name', f'CTCP {sym}'),
       'price': p,
-      'pct_change': item.get('priceChangePercent', 2.8),
-      'vol_run_rate': 1.8,
-      'buy_ratio': 65.5,
-      'net_rr': 1.65,
-      'support': round(p * 0.96, -2),
-      'target1': round(p * 1.07, -2),
-      'stop_loss': round(p * 0.94, -2),
-      'sector': 'Chứng khoán' if sym == 'SSI' else 'Doanh nghiệp',
+      'changePct': pct_change,
+      'vol_run_rate': vol_run_rate,
+      'buy_ratio': buy_ratio,
+      'net_rr': net_rr,
+      'support': float(tech.get('support', 0)),
+      'target1': r1,
+      'stop_loss': stop_loss,
+      'sector': detail.get('fundamentals', {}).get('sector', ''),
+      'primary_action': primary_act,
+      'action_badge': act_badge,
+      'action_reason': act_reason,
+      'allocated_pct': alloc_pct,
   }
-  msg, btns = format_breakout_alert(sample_stock)
+
+  msg, btns = format_breakout_alert(stock_data)
   ok = send_telegram_message(msg, buttons=btns)
   bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
   chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
