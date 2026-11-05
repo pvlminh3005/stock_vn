@@ -1,5 +1,6 @@
 import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.7';
 import { getStockDetail, getChartData } from './api.js?v=5.7';
+import { API_ENDPOINTS, buildApiUrl } from './constants/apiUrls.js?v=5.7';
 import { initChart, updateChartData } from './modules/chart.js?v=5.7';
 import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.7';
 import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.7';
@@ -635,7 +636,7 @@ async function initAuthProtection() {
   const queryAuth = urlParams.get("auth") || urlParams.get("pin");
 
   try {
-    const verifyUrl = queryAuth ? `/api/auth/verify?pin=${encodeURIComponent(queryAuth)}` : `/api/auth/verify`;
+    const verifyUrl = buildApiUrl(queryAuth ? `${API_ENDPOINTS.AUTH_VERIFY}?pin=${encodeURIComponent(queryAuth)}` : API_ENDPOINTS.AUTH_VERIFY);
     const res = await fetch(verifyUrl);
     if (res.ok) {
       const data = await res.json();
@@ -664,7 +665,7 @@ async function initAuthProtection() {
           localStorage.removeItem("stock_rt_pin");
         }
         try {
-          await fetch('/api/auth/logout');
+          await fetch(buildApiUrl(API_ENDPOINTS.AUTH_LOGOUT));
         } catch (e) {}
         showOverlay();
         if (input) {
@@ -685,7 +686,7 @@ async function initAuthProtection() {
       if (errorEl) errorEl.classList.add("hidden");
 
       try {
-        const res = await fetch(`/api/auth/verify?pin=${encodeURIComponent(val)}`);
+        const res = await fetch(buildApiUrl(`${API_ENDPOINTS.AUTH_VERIFY}?pin=${encodeURIComponent(val)}`));
         const data = await res.json();
         if (data.authenticated) {
           if (typeof localStorage !== 'undefined') {
@@ -727,7 +728,7 @@ function initApp() {
         localStorage.removeItem("stock_rt_pin");
       }
       try {
-        await fetch('/api/auth/logout');
+        await fetch(buildApiUrl(API_ENDPOINTS.AUTH_LOGOUT));
       } catch (e) {}
       const overlay = document.getElementById("authPinOverlay");
       if (overlay) overlay.classList.remove("hidden");

@@ -10,7 +10,7 @@ import os
 import threading
 import time
 
-from backend.data_providers.ssi_provider import get_ssi_board_data
+from backend.data_providers.market_board_provider import get_market_board_data
 from backend.domain.screener_engine import (
     build_top_tplus_opportunities,
     is_market_hours,
@@ -199,13 +199,11 @@ def start_screener_worker():
 
 
 def handle_search(query):
-  """Tìm kiếm mã cổ phiếu từ bảng giá SSI."""
+  """Tìm kiếm mã cổ phiếu từ bảng giá realtime."""
   q = (query or '').strip().upper()
   if not q:
     return []
-  board = get_ssi_board_data()
-  if not board:
-    board = _build_synthetic_board_from_entrade()
+  board = get_market_board_data()
   results = []
   for sym, item in board.items():
     if sym.startswith(q) or q in str(item.get('companyNameVi', '')).upper():
@@ -239,9 +237,7 @@ def handle_search(query):
 
 def handle_screener():
   """Bộ lọc cổ phiếu thanh khoản cao và tích cực trong phiên."""
-  board = get_ssi_board_data()
-  if not board:
-    board = _build_synthetic_board_from_entrade()
+  board = get_market_board_data()
   stocks = [
       v for v in board.values()
       if (v.get('stockType') == 's' or v.get('isSynthetic')) and len(str(v.get('stockSymbol', ''))) == 3
@@ -351,7 +347,7 @@ def handle_telegram_test(ticker='SSI'):
 
   p = float(detail.get('price', 0))
   if p <= 0:
-    board = get_ssi_board_data()
+    board = get_market_board_data()
     item = board.get(sym, {})
     raw_p = item.get('matchedPrice', item.get('refPrice', 0))
     p = float(raw_p) if raw_p else 0.0

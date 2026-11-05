@@ -9,79 +9,17 @@ Tạo các gói đầu tư tối ưu theo quy mô vốn (15tr, 20tr, 25tr, 50tr.
 
 import time
 from concurrent.futures import ThreadPoolExecutor
-from backend.data_providers.ssi_provider import get_ssi_board_data
+from backend.data_providers.market_board_provider import get_market_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data
 from backend.domain.regime import evaluate_market_regime
 from backend.domain.technicals import analyze_technicals_and_scoring
-from backend.constants.sectors import SECTOR_MAP
-
-# Bảng tra cứu nhóm ngành cho các cổ phiếu thanh khoản hàng đầu TTCK Việt Nam
-KNOWN_STOCK_SECTORS = {
-    # Ngân hàng
-    'VCB': 'Ngân hàng', 'BID': 'Ngân hàng', 'CTG': 'Ngân hàng', 'TCB': 'Ngân hàng',
-    'MBB': 'Ngân hàng', 'ACB': 'Ngân hàng', 'VPB': 'Ngân hàng', 'HDB': 'Ngân hàng',
-    'STB': 'Ngân hàng', 'SHB': 'Ngân hàng', 'TPB': 'Ngân hàng', 'LPB': 'Ngân hàng',
-    'MSB': 'Ngân hàng', 'VIB': 'Ngân hàng', 'EIB': 'Ngân hàng', 'OCB': 'Ngân hàng',
-    'SSB': 'Ngân hàng', 'NAB': 'Ngân hàng', 'BVB': 'Ngân hàng',
-    # Chứng khoán / Dịch vụ tài chính
-    'SSI': 'Chứng khoán', 'VND': 'Chứng khoán', 'VIX': 'Chứng khoán', 'HCM': 'Chứng khoán',
-    'VCI': 'Chứng khoán', 'SHS': 'Chứng khoán', 'MBS': 'Chứng khoán', 'BSI': 'Chứng khoán',
-    'FTS': 'Chứng khoán', 'CTS': 'Chứng khoán', 'ORS': 'Chứng khoán', 'AGR': 'Chứng khoán',
-    # Thép & Tài nguyên cơ bản
-    'HPG': 'Thép & VLXD', 'HSG': 'Thép & VLXD', 'NKG': 'Thép & VLXD', 'VGS': 'Thép & VLXD',
-    'TLH': 'Thép & VLXD', 'SMC': 'Thép & VLXD',
-    # Bất động sản dân dụng & KCN
-    'VHM': 'Bất động sản', 'VIC': 'Bất động sản', 'VRE': 'Bất động sản', 'KDH': 'Bất động sản',
-    'NLG': 'Bất động sản', 'PDR': 'Bất động sản', 'DIG': 'Bất động sản', 'DXG': 'Bất động sản',
-    'KBC': 'BĐS Khu công nghiệp', 'IDC': 'BĐS Khu công nghiệp', 'SZC': 'BĐS Khu công nghiệp',
-    'BCM': 'BĐS Khu công nghiệp', 'VGC': 'BĐS Khu công nghiệp', 'NVL': 'Bất động sản',
-    'CEO': 'Bất động sản', 'TCH': 'Bất động sản', 'HQC': 'Bất động sản', 'DPG': 'Bất động sản & Hạ tầng',
-    # Bán lẻ & Tiêu dùng
-    'MWG': 'Bán lẻ tiêu dùng', 'MSN': 'Bán lẻ & Tiêu dùng', 'PNJ': 'Bán lẻ trang sức',
-    'DGW': 'Phân phối ICT', 'FRT': 'Bán lẻ ICT & Dược', 'VNM': 'Thực phẩm & Đồ uống',
-    'SAB': 'Thực phẩm & Đồ uống', 'KDC': 'Thực phẩm & Đồ uống', 'MCH': 'Hàng tiêu dùng',
-    # Công nghệ thông tin
-    'FPT': 'Công nghệ thông tin', 'CMG': 'Công nghệ thông tin', 'ELC': 'Công nghệ thông tin',
-    # Dầu khí & Năng lượng
-    'GAS': 'Dầu khí', 'PVD': 'Dầu khí', 'PVS': 'Dầu khí', 'BSR': 'Dầu khí & Lọc hóa dầu',
-    'PLX': 'Dầu khí', 'POW': 'Năng lượng điện', 'PC1': 'Năng lượng & Xây lắp', 'REE': 'Năng lượng & Cơ điện',
-    'GELEX': 'Thiết bị điện & Hạ tầng', 'GEX': 'Thiết bị điện & Hạ tầng',
-    # Hóa chất & Phân bón
-    'DGC': 'Hóa chất cơ bản', 'DCM': 'Phân bón & Hóa chất', 'DPM': 'Phân bón & Hóa chất', 'CSV': 'Hóa chất cơ bản',
-    # Vận tải & Logistics
-    'HAH': 'Cảng biển & Vận tải biển', 'GMD': 'Cảng biển & Logistics', 'VSC': 'Cảng biển & Container',
-    'PVT': 'Vận tải dầu khí', 'VOS': 'Vận tải biển',
-    # Xây dựng & Hạ tầng
-    'VCG': 'Xây dựng & Hạ tầng', 'HHV': 'Hạ tầng giao thông', 'FCN': 'Nền móng & Công trình ngầm',
-    'CII': 'Hạ tầng cầu đường', 'CTD': 'Xây dựng dân dụng', 'HBC': 'Xây dựng dân dụng',
-    # Thủy sản & Nông nghiệp
-    'VHC': 'Thủy sản', 'ANV': 'Thủy sản', 'DBC': 'Chăn nuôi & Nông nghiệp', 'BAF': 'Chăn nuôi heo',
-    'PAN': 'Nông nghiệp & Thực phẩm', 'HAG': 'Nông nghiệp & Trái cây',
-}
-
-# Nhóm ngành phân loại vai trò
-CORE_SECTORS = {'Ngân hàng', 'Thép & VLXD', 'Bán lẻ tiêu dùng', 'Thực phẩm & Đồ uống', 'Công nghệ thông tin'}
-MOMENTUM_SECTORS = {
-    'Chứng khoán', 'Bất động sản', 'BĐS Khu công nghiệp', 'Dầu khí', 'Dầu khí & Lọc hóa dầu',
-    'Phân bón & Hóa chất', 'Hóa chất cơ bản', 'Cảng biển & Logistics', 'Xây dựng & Hạ tầng',
-    'Thiết bị điện & Hạ tầng', 'Năng lượng điện'
-}
-
-# Danh mục các nhóm ngành chuẩn hóa để người dùng tùy biến khẩu vị
-MAJOR_SECTOR_GROUPS = [
-    'Ngân hàng',
-    'Chứng khoán',
-    'Thép & VLXD',
-    'Bất động sản',
-    'BĐS Khu công nghiệp',
-    'Bán lẻ & Tiêu dùng',
-    'Công nghệ thông tin',
-    'Dầu khí & Năng lượng',
-    'Hóa chất & Phân bón',
-    'Cảng biển & Logistics',
-    'Xây dựng & Hạ tầng',
-    'Thủy sản & Nông nghiệp',
-]
+from backend.constants.sectors import (
+    SECTOR_MAP,
+    KNOWN_STOCK_SECTORS,
+    CORE_SECTORS,
+    MOMENTUM_SECTORS,
+    MAJOR_SECTOR_GROUPS,
+)
 
 
 def match_sector_group(stock_sector, target_group):
@@ -330,8 +268,8 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
   except (ValueError, TypeError):
     capital = 20_000_000
 
-  ssi_board = get_ssi_board_data()
-  regime = evaluate_market_regime(ssi_board)
+  market_board = get_market_board_data()
+  regime = evaluate_market_regime(market_board)
   regime_label = regime.get('regime', 'Neutral')
   regime_score = regime.get('score', 3)
   regime_advice = regime.get('recommendation', 'Thị trường thận trọng')
@@ -347,9 +285,9 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
   total_budget = capital * alloc_rate
   slot_budget = total_budget / 2.0
 
-  # 2. Lọc danh sách ứng viên từ SSI board (Thanh khoản > 15 tỷ, thị giá >= 10k)
+  # 2. Lọc danh sách ứng viên từ market board (Thanh khoản > 15 tỷ, thị giá >= 10k)
   valid_stocks = []
-  for sym, item in ssi_board.items():
+  for sym, item in market_board.items():
     if item.get('stockType') != 's' or len(sym) != 3:
       continue
     price = item.get('matchedPrice') or item.get('refPrice', 0)
@@ -393,7 +331,7 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
         continue
       if exclude_sec and s.get('sector') == exclude_sec:
         continue
-      en = _enrich_stock_technicals(s, ssi_board, regime)
+      en = _enrich_stock_technicals(s, market_board, regime)
       tested.append(en)
       if en.get('isBuyEligible', False):
         return en
@@ -537,12 +475,12 @@ def get_alternative_candidates(current_symbol, sector, max_budget=10_000_000, ex
   - exclude_sector: Ngành của slot còn lại (để cảnh báo/lọc chống trùng ngành)
   """
   current_sym = (current_symbol or '').strip().upper()
-  ssi_board = get_ssi_board_data()
+  market_board = get_market_board_data()
   alternatives = []
 
   is_filtered_by_target = bool(target_sector and target_sector != 'Tất cả')
 
-  for sym, item in ssi_board.items():
+  for sym, item in market_board.items():
     if sym == current_sym or item.get('stockType') != 's' or len(sym) != 3:
       continue
     price = item.get('matchedPrice') or item.get('refPrice', 0)
@@ -601,7 +539,7 @@ def get_available_sectors_for_budget(slot_budget=10_000_000, exclude_sector=None
   Thống kê tất cả các nhóm ngành trên sàn và khả năng mua lô 100 theo ngân sách:
   - Trả về danh sách nhóm ngành kèm số lượng mã hợp lệ, giá tối thiểu để mua 1 lô 100
   """
-  ssi_board = get_ssi_board_data()
+  market_board = get_market_board_data()
   results = []
   total_all_eligible = 0
 
@@ -609,7 +547,7 @@ def get_available_sectors_for_budget(slot_budget=10_000_000, exclude_sector=None
     candidates = []
     min_price = float('inf')
 
-    for sym, item in ssi_board.items():
+    for sym, item in market_board.items():
       if item.get('stockType') != 's' or len(sym) != 3:
         continue
       price = item.get('matchedPrice') or item.get('refPrice', 0)

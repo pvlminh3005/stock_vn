@@ -7,6 +7,8 @@ VSA Volume Signals, Multi-timeframe Confluence (D1 vs W1), và Risk-Budget Posit
 import time
 import pandas as pd
 
+from backend.constants.urls import build_entrade_chart_url
+
 from backend.constants.colors import (
     VOL_COLOR_INFLOW,
     VOL_COLOR_DISTRIBUTION,
@@ -65,7 +67,7 @@ def get_vnindex_series(days=DAILY_HISTORY_DAYS):
   try:
     now_ts = int(now)
     from_ts = now_ts - (days * 86400)
-    url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/index?from={from_ts}&to={now_ts}&symbol=VNINDEX&resolution=1D'
+    url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
     data = fetch_json(url)
     if data.get('c'):
       series = {

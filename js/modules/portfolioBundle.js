@@ -1,5 +1,5 @@
 import { formatVND } from '../utils.js?v=5.0';
-import { getPortfolioBundle, getPortfolioAlternatives, getPortfolioSectors } from '../api.js?v=5.0';
+import { getPortfolioBundle, getPortfolioAlternatives, getPortfolioSectors, searchStocks, getStockDetail } from '../api.js?v=5.0';
 
 let currentCapital = 20000000;
 let currentStyle = 'balanced';
@@ -548,9 +548,8 @@ function renderAlternativesList(alts, budget) {
 }
 
 function handleCustomStockSwap(symbol) {
-  // Tìm mã từ bảng giá SSI bằng API tìm kiếm hoặc gán trực tiếp
-  fetch(`/api/search?q=${encodeURIComponent(symbol)}`)
-    .then(res => res.json())
+  // Tìm mã từ bảng giá bằng API tìm kiếm hoặc gán trực tiếp
+  searchStocks(symbol)
     .then(items => {
       const match = items.find(i => i.symbol.toUpperCase() === symbol.toUpperCase()) || items[0];
       if (match && match.price > 0) {
@@ -595,12 +594,10 @@ async function applyNewStockToSlot(stockInfo) {
   let actionColor = (stockInfo.percentChange || 0) <= 1.5 ? 'emerald' : 'blue';
   let advice = 'Giải ngân theo vùng gom khuyến nghị.';
 
-  // Truy vấn kỹ thuật thực tế từ API /api/stock để lấy Fractal Pivot S1/R1 và ATR
+  // Truy vấn kỹ thuật thực tế từ API getStockDetail để lấy Fractal Pivot S1/R1 và ATR
   try {
-    const res = await fetch(`/api/stock?ticker=${encodeURIComponent(stockInfo.symbol)}`);
-    if (res.ok) {
-      const detail = await res.json();
-      const tech = detail.technicals || {};
+    const detail = await getStockDetail(stockInfo.symbol);
+    const tech = detail.technicals || {};
       s1 = Number(tech.support) || 0;
       r1 = Number(tech.resistance) || 0;
       r2 = Number(tech.resistance2) || 0;
@@ -622,7 +619,6 @@ async function applyNewStockToSlot(stockInfo) {
         actionColor = 'emerald';
         advice = `Giá đang nằm trong vùng nền tích lũy an toàn (cách nền ${distToS1}%).`;
       }
-    }
   } catch (e) {
     console.warn('Không thể nạp kỹ thuật chuyên sâu cho mã đổi:', e);
   }

@@ -19,6 +19,15 @@ from backend.constants.colors import (
     BADGE_COLOR_PRESS,
 )
 from backend.constants.config import BROWSER_HEADERS
+from backend.constants.urls import (
+    ENTRADE_BASE_URL,
+    CAFEF_BASE_URL,
+    VNEXPRESS_BASE_URL,
+    BAOCHINHPHU_BASE_URL,
+    build_cafef_search_url,
+    build_cafef_events_url,
+    build_vietstock_finance_url,
+)
 from backend.utils.network import vnstock_call
 
 _LIVE_NEWS_CACHE = {}
@@ -68,7 +77,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   def trace_cafef():
     items = []
     try:
-      url = f'https://cafef.vn/tim-kiem.chn?keywords={ticker}'
+      url = build_cafef_search_url(ticker)
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
       with urllib.request.urlopen(req, timeout=3.5) as res:
         soup = BeautifulSoup(res.read(), 'html.parser')
@@ -80,7 +89,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
             continue
           link = a.get('href', '')
           if not link.startswith('http'):
-            link = 'https://cafef.vn' + link
+            link = CAFEF_BASE_URL + link
           items.append({
               'source': 'CafeF Doanh Nghiệp',
               'badge': 'TIN TỨC BÁO CHÍ',
@@ -120,7 +129,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
             'badgeColor': BADGE_COLOR_EVENT,
             'title': title,
             'date': str(pub_date)[:10] if isinstance(pub_date, str) else '',
-            'url': f'https://s.cafef.vn/tin-doanh-nghiep/{ticker}/event.chn',
+            'url': build_cafef_events_url(ticker),
             'tickerSpecific': True,
         }
     except Exception:
@@ -130,7 +139,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   # 4. VnExpress Kinh Doanh RSS
   def trace_vne():
     try:
-      url = 'https://vnexpress.net/rss/kinh-doanh.rss'
+      url = f'{VNEXPRESS_BASE_URL}/rss/kinh-doanh.rss'
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
       with urllib.request.urlopen(req, timeout=3.5) as res:
         root = ET.fromstring(res.read())
@@ -159,7 +168,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   # 5. Vĩ mô Cổng Thông Tin Điện Tử Chính Phủ
   def trace_gov():
     try:
-      url = 'https://baochinhphu.vn/kinh-te.rss'
+      url = f'{BAOCHINHPHU_BASE_URL}/kinh-te.rss'
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
       with urllib.request.urlopen(req, timeout=3.5) as res:
         root = ET.fromstring(res.read())
@@ -236,7 +245,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
       'badgeColor': BADGE_COLOR_FINANCE,
       'title': fin_title,
       'date': report_period,
-      'url': f'https://finance.vietstock.vn/{ticker}/tai-chinh.htm',
+      'url': build_vietstock_finance_url(ticker),
       'tickerSpecific': False,
   })
 
@@ -254,12 +263,12 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
       f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | Khối ngoại ròng: {f_net:,.0f} cp"
   )
   news_records.append({
-      'source': 'SSI iBoard Pro',
+      'source': 'Bảng Giá Thị Trường Realtime',
       'badge': 'DÒNG TIỀN REALTIME',
       'badgeColor': BADGE_COLOR_MARKET,
       'title': ssi_title,
       'date': time.strftime('%d/%m/%Y %H:%M'),
-      'url': 'https://iboard.ssi.com.vn/',
+      'url': f'{ENTRADE_BASE_URL}/',
       'tickerSpecific': False,
   })
 

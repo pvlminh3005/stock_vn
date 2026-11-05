@@ -35,15 +35,6 @@ HEADERS = {
     'Accept': 'application/json, text/plain, */*',
 }
 
-SSI_HEADERS = {
-    'User-Agent': (
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        ' (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    ),
-    'Origin': 'https://iboard.ssi.com.vn',
-    'Referer': 'https://iboard.ssi.com.vn/',
-}
-
 BROWSER_HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
@@ -58,7 +49,6 @@ VNSTOCK_CALLS_PER_MINUTE = 40
 DEFAULT_TIMEOUT = 5
 
 # Cache TTL (giây)
-SSI_CACHE_TTL = 45
 REGIME_CACHE_TTL = 120
 FUNDAMENTAL_CACHE_TTL = 86400 * 30  # 30 ngày
 

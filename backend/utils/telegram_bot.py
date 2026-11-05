@@ -10,6 +10,8 @@ import logging
 import os
 import requests
 
+from backend.constants.urls import build_telegram_url
+
 logger = logging.getLogger('telegram_bot')
 
 # Cấu hình mặc định từ biến môi trường (Bảo mật: không hardcode key/id trên Git)
@@ -57,7 +59,7 @@ def send_telegram_message(text: str, buttons: list = None, chat_id: str = None, 
     logger.debug('Telegram Chat ID chưa được cấu hình (TELEGRAM_CHAT_ID). Bỏ qua gửi tin.')
     return False
 
-  url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+  url = build_telegram_url(bot_token, 'sendMessage')
   payload = {
       'chat_id': str(target_chat_id),
       'text': text,

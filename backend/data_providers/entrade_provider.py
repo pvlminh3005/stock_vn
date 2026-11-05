@@ -4,6 +4,7 @@ Cung cấp dữ liệu nến kỹ thuật lịch sử (OHLCV) từ Entrade Chart
 """
 import time
 from backend.constants.config import DAILY_HISTORY_DAYS
+from backend.constants.urls import build_entrade_chart_url
 from backend.utils.network import fetch_json
 from backend.utils.ohlc_helpers import format_candles
 
@@ -56,7 +57,7 @@ def fetch_chart_data(ticker, days=120, resolution='1D', ssi_item=None):
   if resolution == '1M':
     days_1m = 1825
     from_ts = now_ts - (days_1m * 86400)
-    url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={from_ts}&to={now_ts}&symbol={ticker}&resolution=1D'
+    url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': ticker, 'resolution': '1D'})
     raw_daily = fetch_json(url)
     if ssi_item:
       from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
@@ -69,7 +70,7 @@ def fetch_chart_data(ticker, days=120, resolution='1D', ssi_item=None):
   elif resolution in ['15', '5']:
     days = 15
   from_ts = now_ts - (days * 86400)
-  url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={from_ts}&to={now_ts}&symbol={ticker}&resolution={resolution}'
+  url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': ticker, 'resolution': resolution})
   return fetch_json(url)
 
 
@@ -81,7 +82,7 @@ def fetch_intraday_snapshot(ticker, daily_prev_close=None):
   sym = (ticker or '').strip().upper()
   now_ts = int(time.time())
   from_ts = now_ts - 86400 * 2  # Lấy 2 ngày gần nhất
-  url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={from_ts}&to={now_ts}&symbol={sym}&resolution=1'
+  url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': sym, 'resolution': 1})
 
   try:
     data = fetch_json(url, timeout=5)
@@ -181,11 +182,11 @@ def fetch_intraday_snapshot(ticker, daily_prev_close=None):
 
 def handle_chart_only(ticker, resolution='1D'):
   """Trả về dữ liệu nến phục vụ chuyển nhanh khung thời gian trên biểu đồ."""
-  from backend.data_providers.ssi_provider import get_ssi_board_data
+  from backend.data_providers.market_board_provider import get_market_board_data
   from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
 
-  ssi_board = get_ssi_board_data()
-  ssi_item = ssi_board.get(ticker, {})
+  board_data = get_market_board_data()
+  board_item = board_data.get(ticker, {})
 
   if resolution == '1D':
     days = DAILY_HISTORY_DAYS
@@ -195,8 +196,8 @@ def handle_chart_only(ticker, resolution='1D'):
     days = 1825
   else:
     days = 120
-  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution, ssi_item=ssi_item)
-  chart_data = merge_live_candle_to_chart_data(chart_data, ssi_item, resolution=resolution)
+  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution, ssi_item=board_item)
+  chart_data = merge_live_candle_to_chart_data(chart_data, board_item, resolution=resolution)
   return {
       'ticker': ticker,
       'resolution': resolution,

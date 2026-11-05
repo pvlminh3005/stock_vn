@@ -15,7 +15,7 @@ from backend.db.portfolio_db import (
     save_setting,
     get_setting,
 )
-from backend.data_providers.ssi_provider import get_ssi_board_data
+from backend.data_providers.market_board_provider import get_market_board_data
 
 logger = logging.getLogger('user_portfolio_controller')
 
@@ -46,7 +46,7 @@ def handle_get_portfolio() -> Dict[str, Any]:
         total_nav = 0.0
 
     # Lấy bảng giá realtime
-    board_data = get_ssi_board_data() or {}
+    board_data = get_market_board_data() or {}
 
     enriched_trades = []
     total_buy_cost = 0.0      # Tổng vốn ban đầu của các mã đang giữ

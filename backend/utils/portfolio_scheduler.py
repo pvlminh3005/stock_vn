@@ -21,7 +21,7 @@ from backend.db.portfolio_db import (
     is_alert_already_sent,
     record_alert_sent,
 )
-from backend.data_providers.ssi_provider import get_ssi_board_data
+from backend.data_providers.market_board_provider import get_market_board_data
 from backend.controllers.stock_controller import handle_stock_detail
 from backend.utils.telegram_bot import send_telegram_message, get_public_url
 
@@ -109,7 +109,7 @@ def scan_portfolio_alerts():
         return
 
     logger.info("Bắt đầu quét cảnh báo danh mục cho %d mã: %s", len(symbols), symbols)
-    board_data = get_ssi_board_data() or {}
+    board_data = get_market_board_data() or {}
     now_ts = int(time.time())
 
     for sym in symbols:
@@ -124,8 +124,8 @@ def scan_portfolio_alerts():
 
             # Lấy chi tiết kỹ thuật từ stock controller
             detail = handle_stock_detail(sym)
-            tech = detail.get('technical', {})
-            decision = detail.get('decision', {})
+            tech = detail.get('technicals', {}) or detail.get('technical', {})
+            decision = detail.get('decisionEngine', {}) or detail.get('decision', {})
 
             s1 = float(tech.get('support', 0) or decision.get('stop_loss', 0))
             r1 = float(tech.get('resistance', 0) or decision.get('target1', 0))
@@ -199,7 +199,7 @@ def send_daily_ribbon_digest():
         return
 
     logger.info("Bắt đầu tạo Báo cáo Tín hiệu SuperTrend Cuối Phiên 14:30 cho %d mã...", len(symbols))
-    board_data = get_ssi_board_data() or {}
+    board_data = get_market_board_data() or {}
     digest_items = []
 
     for sym in symbols:
@@ -214,7 +214,7 @@ def send_daily_ribbon_digest():
             sign = '+' if pct >= 0 else ''
 
             detail = handle_stock_detail(sym)
-            decision = detail.get('decision', {})
+            decision = detail.get('decisionEngine', {}) or detail.get('decision', {})
             ribbon_status = str(decision.get('ribbon_status', ''))
             is_green = 'XANH' in ribbon_status.upper() or 'BULL' in ribbon_status.upper()
             flip_count = state.get('flip_count_today', 0)

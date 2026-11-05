@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from backend.domain.portfolio_bundler import KNOWN_STOCK_SECTORS, get_stock_sector
 from backend.domain.technicals import analyze_technicals_and_scoring
 from backend.domain.regime import evaluate_market_regime
-from backend.data_providers.ssi_provider import get_ssi_board_data
+from backend.data_providers.market_board_provider import get_market_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
@@ -385,15 +385,15 @@ def build_top_tplus_opportunities(max_total=8):
   - Tối đa 8 mã tổng cộng
   - Cân bằng Quota: Tối đa 5 mã Bùng nổ + 3 mã Gom Pullback
   """
-  ssi_board = get_ssi_board_data()
-  if not ssi_board:
-    # FALLBACK ENTRADE: Tạo bảng giá tổng hợp từ nến Entrade khi SSI iBoard bị chặn (Render Cloud)
-    ssi_board = _build_synthetic_board_from_entrade()
+  market_board = get_market_board_data()
+  if not market_board:
+    # FALLBACK ENTRADE: Tạo bảng giá tổng hợp từ nến Entrade khi cần
+    market_board = _build_synthetic_board_from_entrade()
 
-  if not ssi_board:
+  if not market_board:
     return {'updatedAt': get_vn_now().strftime('%H:%M:%S %d/%m/%Y'), 'totalScanned': 0, 'topOpportunities': []}
 
-  regime = evaluate_market_regime(ssi_board)
+  regime = evaluate_market_regime(market_board)
 
   # Chọn lọc Universe Top 45 mã chất lượng từ danh mục đầu ngành có thanh khoản
   universe_symbols = list(KNOWN_STOCK_SECTORS.keys())
@@ -401,21 +401,21 @@ def build_top_tplus_opportunities(max_total=8):
   if in_trading:
     board_symbols = [
         sym for sym in universe_symbols
-        if sym in ssi_board and (ssi_board[sym].get('nmTotalTradedValue') or 0) > 0
+        if sym in market_board and (market_board[sym].get('nmTotalTradedValue') or 0) > 0
     ]
-    board_symbols.sort(key=lambda s: -(ssi_board[s].get('nmTotalTradedValue') or 0))
+    board_symbols.sort(key=lambda s: -(market_board[s].get('nmTotalTradedValue') or 0))
   else:
-    board_symbols = [sym for sym in universe_symbols if sym in ssi_board]
+    board_symbols = [sym for sym in universe_symbols if sym in market_board]
 
   if not board_symbols:
-    board_symbols = [sym for sym in universe_symbols if sym in ssi_board]
+    board_symbols = [sym for sym in universe_symbols if sym in market_board]
 
   scan_list = board_symbols[:45]
 
   results = []
   with ThreadPoolExecutor(max_workers=10) as executor:
     futures = [
-        executor.submit(evaluate_single_stock_opportunity, sym, ssi_board.get(sym, {}), regime)
+        executor.submit(evaluate_single_stock_opportunity, sym, market_board.get(sym, {}), regime)
         for sym in scan_list
     ]
     for fut in futures:

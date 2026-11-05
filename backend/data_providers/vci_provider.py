@@ -4,12 +4,10 @@ Cung cấp dữ liệu báo cáo tài chính hàng quý, bảng cân đối, dò
 """
 import io
 import json
-import sqlite3
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from backend.constants.config import (
-    DB_PATH,
     VCI_HISTORY_KEEP_QUARTERS,
     _VCI_RATIO_FIELDS,
     _VCI_BS_FIELDS,
@@ -17,6 +15,17 @@ from backend.constants.config import (
 )
 from backend.utils.network import vnstock_call
 from backend.utils.ohlc_helpers import period_key, expected_latest_report_period
+
+
+def _get_vci_mongo():
+  """Lấy collection vci_history từ MongoDB Atlas."""
+  try:
+    from backend.db.portfolio_db import _mongo_db, _use_mongo
+    if _use_mongo and _mongo_db is not None:
+      return _mongo_db['vci_history']
+  except Exception:
+    pass
+  return None
 
 def _latest(series, periods):
   """Giá trị của kỳ gần nhất có dữ liệu."""
@@ -92,35 +101,40 @@ def fetch_vci_financial_history(symbol):
 
 def get_vci_financial_history(symbol):
   """
-  Lịch sử VCI có cache SQLite: dùng lại nếu tải trong 1 ngày, hoặc trong 7 ngày và đã có kỳ BCTC
+  Lịch sử VCI có cache MongoDB: dùng lại nếu tải trong 1 ngày, hoặc trong 7 ngày và đã có kỳ BCTC
   quá hạn công bố gần nhất (mùa BCTC sẽ tự tải lại khi kỳ mới đến hạn).
   """
   sym = symbol.upper()
   now = int(time.time())
   expected = expected_latest_report_period()
-  try:
-    with sqlite3.connect(DB_PATH) as conn:
-      row = conn.execute(
-          'SELECT payload, latest_period, updated_at FROM vci_history WHERE symbol = ?', (sym,)
-      ).fetchone()
-    if row:
-      payload, latest_period, updated_at = row
-      age = now - updated_at
-      period_ok = expected is None or (period_key(latest_period) or (0, 0)) >= expected
-      if age < 86400 or (age < 604800 and period_ok):
-        return json.loads(payload)
-  except Exception as e:
-    print(f'Lỗi đọc cache vci_history {sym}:', e)
+  coll = _get_vci_mongo()
+
+  if coll is not None:
+    try:
+      doc = coll.find_one({'symbol': sym})
+      if doc:
+        payload = doc.get('payload')
+        latest_period = doc.get('latest_period', '')
+        updated_at = doc.get('updated_at', 0)
+        age = now - updated_at
+        period_ok = expected is None or (period_key(latest_period) or (0, 0)) >= expected
+        if age < 86400 or (age < 604800 and period_ok):
+          if isinstance(payload, dict):
+            return payload
+          elif isinstance(payload, str):
+            return json.loads(payload)
+    except Exception as e:
+      print(f'Lỗi đọc cache vci_history {sym}:', e)
 
   hist = fetch_vci_financial_history(sym)
   # Không cache bản thiếu để lần sau tải lại đủ
-  if hist and not hist.get('partial'):
+  if hist and not hist.get('partial') and coll is not None:
     try:
-      with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            'INSERT OR REPLACE INTO vci_history (symbol, payload, latest_period, updated_at) VALUES (?, ?, ?, ?)',
-            (sym, json.dumps(hist), hist['latestPeriod'], now),
-        )
+      coll.update_one(
+          {'symbol': sym},
+          {'$set': {'symbol': sym, 'payload': hist, 'latest_period': hist.get('latestPeriod', ''), 'updated_at': now}},
+          upsert=True
+      )
     except Exception as e:
       print(f'Lỗi ghi cache vci_history {sym}:', e)
   return hist

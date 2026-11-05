@@ -33,7 +33,8 @@ if os.path.isfile(env_file):
     except Exception:
         pass
 
-from backend.db.portfolio_db import SQLITE_PORTFOLIO_DB, RETENTION_DAYS
+from backend.db.portfolio_db import RETENTION_DAYS
+SQLITE_PORTFOLIO_DB = os.path.join(BASE_DIR, 'data', 'portfolio.db')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 logger = logging.getLogger('sync_to_mongo')
