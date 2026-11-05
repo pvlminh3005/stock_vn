@@ -138,12 +138,27 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     except (BrokenPipeError, ConnectionResetError):
       pass
 
+  def is_localhost_request(self):
+    """Kiểm tra request có thực sự đến từ máy cục bộ (localhost) không.
+    Tránh nhận nhầm Reverse Proxy của Cloud (Render/Cloudflare) có client_address=127.0.0.1 là localhost.
+    """
+    # 1. Nếu có header từ Cloud Proxy (Render/Cloudflare/AWS) -> 100% là kết nối Public từ Internet!
+    if self.headers.get('X-Forwarded-For') or self.headers.get('X-Forwarded-Host') or self.headers.get('X-Render-Origin-Server'):
+      return False
+
+    # 2. Kiểm tra Host header
+    host = self.headers.get('Host', '').split(':')[0].lower()
+    if host not in ['localhost', '127.0.0.1']:
+      return False
+
+    # 3. Kiểm tra địa chỉ socket nội bộ
+    client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''
+    return client_ip in ['127.0.0.1', '::1']
+
   def check_pin_authenticated(self, params):
     """Kiểm tra xác thực mã PIN bảo vệ (nếu biến APP_ACCESS_PIN được cấu hình)."""
     # 0. Miễn phí xác thực khi chạy trên máy cục bộ (localhost / 127.0.0.1)
-    host = self.headers.get('Host', '').split(':')[0].lower()
-    client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''
-    if host in ['localhost', '127.0.0.1'] or client_ip in ['127.0.0.1', '::1']:
+    if self.is_localhost_request():
       return True
 
     pin_required = os.environ.get('APP_ACCESS_PIN', '').strip()
@@ -190,9 +205,7 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
     # 0B. API: Xác thực mã PIN nội bộ
     if path == '/api/auth/verify':
-      host = self.headers.get('Host', '').split(':')[0].lower()
-      client_ip = self.client_address[0] if getattr(self, 'client_address', None) else ''
-      if host in ['localhost', '127.0.0.1'] or client_ip in ['127.0.0.1', '::1']:
+      if self.is_localhost_request():
         self.send_json(200, {'authenticated': True, 'isLocalhost': True})
         return
 
@@ -200,6 +213,12 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
       if not pin_required:
         self.send_json(200, {'authenticated': True, 'pinRequired': False})
         return
+
+      # Kiểm tra nếu request đã có cookie hoặc tham số xác thực hợp lệ sẵn
+      if self.check_pin_authenticated(params):
+        self.send_json(200, {'authenticated': True, 'success': True})
+        return
+
       input_pin = params.get('pin', [''])[0].strip() or params.get('auth', [''])[0].strip()
       if input_pin == pin_required:
         self.send_response(200)
