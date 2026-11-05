@@ -1,11 +1,11 @@
-import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.1';
-import { getStockDetail, getChartData } from './api.js?v=5.1';
-import { initChart, updateChartData } from './modules/chart.js?v=5.1';
-import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.1';
-import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.1';
-import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.1';
-import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.1';
-import { initUserPortfolioModule } from './modules/portfolio.js?v=5.1';
+import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.3';
+import { getStockDetail, getChartData } from './api.js?v=5.3';
+import { initChart, updateChartData } from './modules/chart.js?v=5.3';
+import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.3';
+import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.3';
+import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.3';
+import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.3';
+import { initUserPortfolioModule } from './modules/portfolio.js?v=5.3';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';

@@ -13,8 +13,8 @@
  * 4. Đồng bộ trực tiếp các mốc giá lên Đồ thị TradingView (Target, Vùng mua, Cắt lỗ)
  */
 
-import { formatVND } from '../utils.js?v=4.0';
-import { setChartPriceLines } from './chart.js?v=4.5';
+import { formatVND } from '../utils.js?v=5.3';
+import { setChartPriceLines } from './chart.js?v=5.3';
 
 function safeSetText(id, text) {
   const el = document.getElementById(id);
@@ -642,7 +642,8 @@ export function syncChartPriceLines() {
       const midStop = midterm.stopLoss || 0;
       const marginOfSafety = midterm.marginOfSafetyPct !== undefined ? midterm.marginOfSafetyPct : 0;
       const marginSign = marginOfSafety >= 0 ? '+' : '';
-      const midT2PctStr = mTarget2Pct ? ` (${mTarget2Pct})` : (midT2Price && currentPrice > 0 ? ` (+${(((midT2Price - currentPrice) / currentPrice) * 100).toFixed(1)}%)` : '');
+      const midT2Pct = midterm.target2PctDisplay || (midterm.target2Pct !== undefined ? `+${midterm.target2Pct}%` : (midT2Price && currentPrice > 0 ? `+${(((midT2Price - currentPrice) / currentPrice) * 100).toFixed(1)}%` : ''));
+      const midT2PctStr = midT2Pct ? ` (${midT2Pct})` : (midT2Price && currentPrice > 0 ? ` (+${(((midT2Price - currentPrice) / currentPrice) * 100).toFixed(1)}%)` : '');
 
       const isMidLock = isHoldingMode && ((userCostPrice && currentPrice > userCostPrice) || (midT1Price > 0 && currentPrice >= midT1Price * 0.98));
 

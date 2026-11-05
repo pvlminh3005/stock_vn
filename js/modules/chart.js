@@ -388,20 +388,21 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
   const targetPct = (targetPrice && currentPrice > 0)
     ? (((targetPrice - currentPrice) / currentPrice) * 100).toFixed(1)
     : null;
+  const targetPctFormatted = targetPct ? `(${targetPct >= 0 ? '+' : ''}${targetPct}%)` : "";
   safeSetText("stbSummaryTarget", targetPrice ? formatStockPrice(targetPrice) : "--");
-  safeSetText("stbSummaryTargetPct", targetPct ? (targetPct >= 0 ? `+${targetPct}%` : `${targetPct}%`) : "");
+  safeSetText("stbSummaryTargetPct", targetPrice ? targetPctFormatted : "");
   if (targetEl) {
     if (isProhibited) {
-      targetEl.className = "font-bold text-amber-400 text-xs mt-0.5";
+      targetEl.className = "font-bold text-amber-400 text-xs";
       if (targetPctEl) targetPctEl.className = "text-[10px] font-bold font-mono text-amber-400";
       targetEl.title = targetPrice
-        ? `Kháng cự hạ tỷ trọng: ${formatStockPrice(targetPrice)} ${targetPct ? `(+${targetPct}%)` : ''}`
+        ? `Kháng cự hạ tỷ trọng: ${formatStockPrice(targetPrice)} ${targetPctFormatted}`
         : '';
     } else {
-      targetEl.className = "font-bold text-sky-400 text-xs mt-0.5";
+      targetEl.className = "font-bold text-sky-400 text-xs";
       if (targetPctEl) targetPctEl.className = "text-[10px] font-bold font-mono text-sky-400";
       targetEl.title = targetPrice
-        ? `${isMidTerm ? 'Target 1 (Định giá hợp lý)' : 'Target 1 (T+ Chốt 50%)'}: ${formatStockPrice(targetPrice)} ${targetPct ? `(+${targetPct}%)` : ''}`
+        ? `${isMidTerm ? 'Target 1 (Định giá hợp lý)' : 'Target 1 (T+ Chốt 50%)'}: ${formatStockPrice(targetPrice)} ${targetPctFormatted}`
         : '';
     }
   }
@@ -415,13 +416,14 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
       const target2Pct = (target2Price && currentPrice > 0)
         ? (((target2Price - currentPrice) / currentPrice) * 100).toFixed(1)
         : null;
-      const t2LabelEl = t2Box.querySelector("span:first-child");
+      const target2PctFormatted = target2Pct ? `(${target2Pct >= 0 ? '+' : ''}${target2Pct}%)` : "";
+      const t2LabelEl = document.getElementById("stbSummaryTarget2Label") || t2Box.querySelector("span:first-child");
       if (t2LabelEl) t2LabelEl.innerText = isMidTerm ? "TARGET 2 (ĐỈNH CK)" : "TARGET 2 (TREND)";
       safeSetText("stbSummaryTarget2", formatStockPrice(target2Price));
-      safeSetText("stbSummaryTarget2Pct", target2Pct ? (target2Pct >= 0 ? `+${target2Pct}%` : `${target2Pct}%`) : "");
+      safeSetText("stbSummaryTarget2Pct", target2PctFormatted);
       const t2El = document.getElementById("stbSummaryTarget2");
       if (t2El) {
-        t2El.title = `${isMidTerm ? 'Target 2 (Định giá đỉnh chu kỳ)' : 'Target 2 (Trend Gồng lãi)'}: ${formatStockPrice(target2Price)} ${target2Pct ? `(+${target2Pct}%)` : ''}`;
+        t2El.title = `${isMidTerm ? 'Target 2 (Định giá đỉnh chu kỳ)' : 'Target 2 (Trend Gồng lãi)'}: ${formatStockPrice(target2Price)} ${target2PctFormatted}`;
       }
     } else {
       t2Box.classList.add("hidden");
@@ -448,21 +450,22 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
   const slPct = (slPrice && currentPrice > 0)
     ? (((currentPrice - slPrice) / currentPrice) * 100).toFixed(1)
     : null;
+  const slPctFormatted = slPct ? `(-${slPct}%)` : "";
   safeSetText("stbSummaryStopLoss", slPrice ? formatStockPrice(slPrice) : "--");
-  safeSetText("stbSummaryStopLossPct", slPct ? `-${slPct}%` : "");
+  safeSetText("stbSummaryStopLossPct", slPrice ? slPctFormatted : "");
   if (slEl) {
     if (isProhibited) {
-      slEl.className = "font-bold text-rose-400 text-xs mt-0.5";
+      slEl.className = "font-bold text-rose-400 text-xs";
       if (slPctEl) slPctEl.className = "text-[10px] font-bold font-mono text-rose-400";
     } else if (isLockProfit) {
-      slEl.className = "font-bold text-amber-400 text-xs mt-0.5";
+      slEl.className = "font-bold text-amber-400 text-xs";
       if (slPctEl) slPctEl.className = "text-[10px] font-bold font-mono text-amber-400";
     } else {
-      slEl.className = "font-bold text-rose-400 text-xs mt-0.5";
+      slEl.className = "font-bold text-rose-400 text-xs";
       if (slPctEl) slPctEl.className = "text-[10px] font-bold font-mono text-rose-400";
     }
     slEl.title = slPrice
-      ? `${isProhibited ? 'Ngưỡng thoát vị thế bảo toàn vốn' : (isLockProfit ? 'Hỗ trợ Chặn Lãi / Chốt lời toàn bộ bảo toàn đệm lãi' : (isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ'))))}: ${formatStockPrice(slPrice)} ${slPct ? `(-${slPct}%)` : ''}`
+      ? `${isProhibited ? 'Ngưỡng thoát vị thế bảo toàn vốn' : (isLockProfit ? 'Hỗ trợ Chặn Lãi / Chốt lời toàn bộ bảo toàn đệm lãi' : (isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ'))))}: ${formatStockPrice(slPrice)} ${slPctFormatted}`
       : '';
   }
 }
