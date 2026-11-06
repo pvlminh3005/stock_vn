@@ -28,7 +28,7 @@ def build_macro_context(news_list):
 
 def generate_multi_source_future_outlook(
     ticker, sector, current_price, fundamental_info, technical_info,
-    ssi_item=None, ssi_board=None, news_list=None
+    market_item=None, market_board=None, news_list=None, ssi_item=None, ssi_board=None
 ):
   """Wrapper tương thích ngược tổng hợp phân tích đa nguồn từ SecuritiesRiskAssessmentEngine."""
   from backend.domain.risk_engine import evaluate_securities_risk_engine
@@ -39,8 +39,8 @@ def generate_multi_source_future_outlook(
       current_price=current_price,
       fundamental_info=fundamental_info,
       technical_info=technical_info,
-      ssi_item=ssi_item or {},
-      ssi_board=ssi_board or {},
+      market_item=market_item or ssi_item or {},
+      market_board=market_board or ssi_board or {},
       news_list=news_list or [],
   )
 

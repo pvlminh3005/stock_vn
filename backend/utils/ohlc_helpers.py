@@ -68,29 +68,30 @@ def expected_latest_report_period(now_ts=None):
       return (year, quarter)
   return None
 
-def merge_live_session_bar(t_list, opens, highs, lows, closes, volumes, ssi_item):
+def merge_live_session_bar(t_list, opens, highs, lows, closes, volumes, market_item=None, ssi_item=None):
   """
-  Ghép nến phiên hôm nay từ snapshot SSI vào chuỗi nến ngày (sửa trực tiếp các list).
+  Ghép nến phiên hôm nay từ bảng giá realtime vào chuỗi nến ngày (sửa trực tiếp các list).
   - Entrade thường chưa có nến hôm nay trong phiên -> nối thêm nến mới, KHÔNG ghi đè giá đóng cửa hôm qua.
-  - Nếu Entrade đã có nến hôm nay -> cập nhật bằng số liệu SSI mới nhất.
+  - Nếu Entrade đã có nến hôm nay -> cập nhật bằng số liệu thị trường mới nhất.
   Trả về (has_live_bar, is_partial, elapsed_fraction):
     is_partial = phiên chưa kết thúc (trước 14:45), nến và khối lượng hôm nay chưa hoàn chỉnh.
   """
-  if not ssi_item or ssi_item.get('matchedPrice', 0) <= 0 or not closes:
+  item = market_item or ssi_item
+  if not item or item.get('matchedPrice', 0) <= 0 or not closes:
     return False, False, 1.0
-  session_start = ssi_item.get('sessionStart')
+  session_start = item.get('sessionStart')
   now_vn = time.gmtime(time.time() + VN_UTC_OFFSET_SEC)
   today = time.strftime('%Y-%m-%d', now_vn)
   minute_of_day = now_vn.tm_hour * 60 + now_vn.tm_min
-  # Snapshot SSI không thuộc phiên hôm nay (cuối tuần, ngày nghỉ) hoặc chưa mở cửa -> không ghép
+  # Snapshot không thuộc phiên hôm nay (cuối tuần, ngày nghỉ) hoặc chưa mở cửa -> không ghép
   if not session_start or vn_date(session_start / 1000.0) != today or minute_of_day < 9 * 60:
     return False, False, 1.0
 
-  price = ssi_item['matchedPrice']
-  bar_open = ssi_item.get('openPrice') or price
-  bar_high = max(ssi_item.get('highest') or price, price)
-  bar_low = min(ssi_item.get('lowest') or price, price)
-  bar_vol = ssi_item.get('stockVol') or 0
+  price = item['matchedPrice']
+  bar_open = item.get('openPrice') or price
+  bar_high = max(item.get('highest') or price, price)
+  bar_low = min(item.get('lowest') or price, price)
+  bar_vol = item.get('stockVol') or 0
   session_ts = int(session_start / 1000.0) if session_start else int(time.time())
 
   last_date = vn_date(t_list[-1]) if t_list else None
@@ -115,13 +116,14 @@ def merge_live_session_bar(t_list, opens, highs, lows, closes, volumes, ssi_item
   return True, is_partial, elapsed
 
 
-def merge_live_candle_to_chart_data(chart_data, ssi_item, resolution='1D'):
+def merge_live_candle_to_chart_data(chart_data, market_item=None, resolution='1D', ssi_item=None):
   """
-  Ghép cây nến realtime tại thời điểm search từ SSI vào chart_data (dict t, o, h, l, c, v).
+  Ghép cây nến realtime tại thời điểm search từ bảng giá thị trường vào chart_data (dict t, o, h, l, c, v).
   - Tự động nhận diện scale (nghìn đồng vs đồng) để giá nến đồng nhất tuyệt đối.
   - Chống trùng lặp: nếu nến cuối đã là ngày hôm nay thì cập nhật in-place, nếu là ngày cũ thì nối thêm.
   - Đảm bảo hiển thị đầy đủ nến tới thời điểm search trên biểu đồ TradingView Lightweight Charts.
   """
+  item = market_item or ssi_item
   if not chart_data or not isinstance(chart_data, dict):
     return chart_data
 
@@ -134,15 +136,15 @@ def merge_live_candle_to_chart_data(chart_data, ssi_item, resolution='1D'):
 
   if not c_list or not t_list:
     return chart_data
-  if not ssi_item or not isinstance(ssi_item, dict):
+  if not item or not isinstance(item, dict):
     return chart_data
 
   # Lấy giá khớp lệnh realtime (hoặc giá dự kiến ATO / giá tham chiếu nếu chưa khớp)
-  price = ssi_item.get('matchedPrice') or ssi_item.get('expectedMatchedPrice') or 0
+  price = item.get('matchedPrice') or item.get('expectedMatchedPrice') or 0
   if price <= 0:
     return chart_data
 
-  session_start = ssi_item.get('sessionStart')
+  session_start = item.get('sessionStart')
   now_vn = time.gmtime(time.time() + VN_UTC_OFFSET_SEC)
   today = time.strftime('%Y-%m-%d', now_vn)
   minute_of_day = now_vn.tm_hour * 60 + now_vn.tm_min
@@ -152,22 +154,22 @@ def merge_live_candle_to_chart_data(chart_data, ssi_item, resolution='1D'):
   if not session_start or vn_date(session_start / 1000.0) != today or minute_of_day < 9 * 60:
     return chart_data
 
-  # Xác định tỷ lệ giá của chart_data (Entrade thường chia 1000, SSI là full VND)
+  # Xác định tỷ lệ giá của chart_data (Entrade thường chia 1000, bảng giá là full VND)
   scale_factor = 1000.0 if c_list[-1] < 1000 else 1.0
 
-  bar_open = (ssi_item.get('openPrice') or price) / scale_factor
-  raw_high = max(ssi_item.get('highest') or price, price)
-  raw_low = min(ssi_item.get('lowest') or price, price) if (ssi_item.get('lowest') or 0) > 0 else price
+  bar_open = (item.get('openPrice') or price) / scale_factor
+  raw_high = max(item.get('highest') or price, price)
+  raw_low = min(item.get('lowest') or price, price) if (item.get('lowest') or 0) > 0 else price
   bar_high = raw_high / scale_factor
   bar_low = raw_low / scale_factor
   bar_close = price / scale_factor
-  bar_vol = int(ssi_item.get('stockVol') or 0)
+  bar_vol = int(item.get('stockVol') or 0)
   session_ts = int(session_start / 1000.0) if session_start else int(time.time())
 
   if resolution == '1D':
     last_date = vn_date(t_list[-1]) if t_list else None
     if last_date == today:
-      # Nến hôm nay đã có sẵn trong chart_data -> Cập nhật in-place số liệu SSI mới nhất
+      # Nến hôm nay đã có sẵn trong chart_data -> Cập nhật in-place số liệu mới nhất
       o_list[-1] = bar_open
       h_list[-1] = max(h_list[-1], bar_high)
       l_list[-1] = min(l_list[-1], bar_low) if l_list[-1] > 0 else bar_low

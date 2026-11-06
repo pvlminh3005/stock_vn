@@ -3,10 +3,15 @@ Stock RT - Entrade Chart Data Provider
 Cung cấp dữ liệu nến kỹ thuật lịch sử (OHLCV) từ Entrade Chart API.
 """
 import time
+import copy
 from backend.constants.config import DAILY_HISTORY_DAYS
 from backend.constants.urls import build_entrade_chart_url
 from backend.utils.network import fetch_json
 from backend.utils.ohlc_helpers import format_candles
+
+# Bộ nhớ đệm RAM cho nến lịch sử quá khứ (TTL 10 phút) giúp giảm 90% tải gọi API Entrade, chống bị chặn IP
+_HISTORICAL_CHART_CACHE = {}
+_CHART_CACHE_TTL_SEC = 600
 
 def aggregate_monthly_candles(daily_data):
   """Tổng hợp nến ngày (1D) thành nến tháng (1M) chuẩn OHLCV."""
@@ -51,27 +56,45 @@ def aggregate_monthly_candles(daily_data):
       res[k].append(m[k])
   return res
 
-def fetch_chart_data(ticker, days=120, resolution='1D', ssi_item=None):
-  """Lấy nến kỹ thuật đầy đủ (t, o, h, l, c, v) từ Entrade API theo resolution."""
+def fetch_chart_data(ticker, days=120, resolution='1D', market_item=None, ssi_item=None):
+  """Lấy nến kỹ thuật đầy đủ (t, o, h, l, c, v) từ Entrade API theo resolution với Smart Cache."""
+  item = market_item or ssi_item
   now_ts = int(time.time())
-  if resolution == '1M':
-    days_1m = 1825
-    from_ts = now_ts - (days_1m * 86400)
-    url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': ticker, 'resolution': '1D'})
-    raw_daily = fetch_json(url)
-    if ssi_item:
-      from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
-      raw_daily = merge_live_candle_to_chart_data(raw_daily, ssi_item, resolution='1D')
-    return aggregate_monthly_candles(raw_daily)
-  elif resolution == '1W':
-    days = 730
-  elif resolution in ['1H', '30']:
-    days = 40
-  elif resolution in ['15', '5']:
-    days = 15
-  from_ts = now_ts - (days * 86400)
-  url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': ticker, 'resolution': resolution})
-  return fetch_json(url)
+  cache_key = f"{ticker}_{resolution}_{days}"
+
+  # Kiểm tra cache cho nến ngày/tuần/tháng lịch sử
+  cached_entry = _HISTORICAL_CHART_CACHE.get(cache_key)
+  if cached_entry and (now_ts - cached_entry['ts'] < _CHART_CACHE_TTL_SEC):
+    raw_data = copy.deepcopy(cached_entry['data'])
+  else:
+    if resolution == '1M':
+      days_1m = 1825
+      from_ts = now_ts - (days_1m * 86400)
+      url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': ticker, 'resolution': '1D'})
+      raw_daily = fetch_json(url)
+      if item:
+        from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
+        raw_daily = merge_live_candle_to_chart_data(raw_daily, item, resolution='1D')
+      monthly_data = aggregate_monthly_candles(raw_daily)
+      _HISTORICAL_CHART_CACHE[cache_key] = {'ts': now_ts, 'data': copy.deepcopy(monthly_data)}
+      return monthly_data
+    elif resolution == '1W':
+      days = 730
+    elif resolution in ['1H', '30']:
+      days = 40
+    elif resolution in ['15', '5']:
+      days = 15
+    from_ts = now_ts - (days * 86400)
+    url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': ticker, 'resolution': resolution})
+    raw_data = fetch_json(url)
+    if raw_data and isinstance(raw_data, dict) and raw_data.get('c'):
+      _HISTORICAL_CHART_CACHE[cache_key] = {'ts': now_ts, 'data': copy.deepcopy(raw_data)}
+
+  if item:
+    from backend.utils.ohlc_helpers import merge_live_candle_to_chart_data
+    raw_data = merge_live_candle_to_chart_data(raw_data, item, resolution=resolution)
+
+  return raw_data
 
 
 def fetch_intraday_snapshot(ticker, daily_prev_close=None):
@@ -196,7 +219,7 @@ def handle_chart_only(ticker, resolution='1D'):
     days = 1825
   else:
     days = 120
-  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution, ssi_item=board_item)
+  chart_data = fetch_chart_data(ticker, days=days, resolution=resolution, market_item=board_item)
   chart_data = merge_live_candle_to_chart_data(chart_data, board_item, resolution=resolution)
   return {
       'ticker': ticker,

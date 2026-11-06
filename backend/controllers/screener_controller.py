@@ -10,7 +10,10 @@ import os
 import threading
 import time
 
-from backend.data_providers.market_board_provider import get_market_board_data
+from backend.data_providers.market_board_provider import (
+    get_market_board_data,
+    get_vnindex_summary,
+)
 from backend.domain.screener_engine import (
     build_top_tplus_opportunities,
     is_market_hours,
@@ -45,9 +48,10 @@ _ALERT_TRACKER = {
 
 def _evaluate_telegram_alerts(screener_data):
   """
-  Đánh giá và gửi cảnh báo Telegram theo 4 khung giờ vàng tối ưu cho TTCK Việt Nam:
+  Đánh giá và gửi cảnh báo Telegram theo các khung giờ vàng tối ưu cho TTCK Việt Nam:
+  0. 09:25 - 09:40: Radar sóng sớm sau ATO (tối đa 1-2 mã bùng nổ sớm, gom thăm dò).
   1. 10:15 - 10:45: Sóng sớm bùng nổ T0 (tối đa 2 mã khỏe nhất, chưa gửi hôm nay).
-  2. 11:35 - 12:00: Bản tin trưa tóm tắt kết phiên sáng (1 tin duy nhất).
+  2. 11:35 - 12:00: Bản tin trưa tóm tắt kết phiên sáng (1 tin duy nhất, có VN-Index & % chuẩn).
   3. 14:05 - 14:25: Điểm mua chuẩn Giờ Vàng sau khi hấp thụ T+2.5.
   4. 14:50 - 15:15: Tổng kết đóng cửa ATC & Xác nhận tín hiệu ngày mai.
   """
@@ -71,13 +75,38 @@ def _evaluate_telegram_alerts(screener_data):
   opps = screener_data.get('topOpportunities', [])
   regime = screener_data.get('marketRegime', 'TÍCH CỰC')
 
+  # ==================== MỐC 0: 09:25 - 09:40 (RADAR SÓNG SỚM SAU ATO) ====================
+  if 565 <= mins <= 580:
+    m0_batch_key = f'MOC0_ATO_BATCH_{today_str}'
+    if not is_alert_already_sent(m0_batch_key, min_interval_seconds=14400):
+      candidates = [
+          s for s in opps
+          if s.get('isEarlyBird') or (
+              s.get('tagType') == 'BREAKOUT_T0' and
+              float(s.get('changePct', 0)) >= 1.0 and
+              float(s.get('buyRatio', 50)) >= 60.0
+          )
+      ]
+      sent_any = False
+      for stock in candidates[:2]:
+        sym = stock.get('symbol')
+        sym_key = f'MOC0_STOCK_{today_str}_{sym}'
+        if not is_alert_already_sent(sym_key, min_interval_seconds=86400):
+          msg, btns = format_breakout_alert(stock, header_title=f"🚀 <b>RADAR SÓNG SỚM SAU ATO: {sym}</b>")
+          if send_telegram_message(msg, buttons=btns):
+            record_alert_sent(sym_key, preview=f'Early ATO Breakout {sym}')
+            _ALERT_TRACKER['sent_symbols'].add(sym)
+            sent_any = True
+      if sent_any or candidates:
+        record_alert_sent(m0_batch_key, preview='Moc 0 ATO finished')
+
   # ==================== MỐC 1: 10:15 - 10:45 (SÓNG SỚM BÙNG NỔ T0) ====================
-  if 615 <= mins <= 645:
+  elif 615 <= mins <= 645:
     m1_batch_key = f'MOC1_T0_BATCH_{today_str}'
     if not is_alert_already_sent(m1_batch_key, min_interval_seconds=14400):
       candidates = [
           s for s in opps
-          if (s.get('tag') == 'BREAKOUT_T0' or str(s.get('badge', '')).startswith('⚡'))
+          if (s.get('tagType') == 'BREAKOUT_T0' or str(s.get('badge', '')).startswith('⚡'))
       ]
       sent_any = False
       for stock in candidates[:2]:
@@ -96,7 +125,8 @@ def _evaluate_telegram_alerts(screener_data):
   elif 695 <= mins <= 720:
     midday_key = f'DIGEST_MIDDAY_{today_str}'
     if 'MIDDAY' not in _ALERT_TRACKER['sent_digests'] and not is_alert_already_sent(midday_key, min_interval_seconds=14400):
-      msg, btns = format_session_digest('Bản Tin Trưa - Kết Phiên Sáng', opps, regime)
+      vni_summary = get_vnindex_summary()
+      msg, btns = format_session_digest('Bản Tin Trưa - Kết Phiên Sáng', opps, regime, vnindex_summary=vni_summary)
       if send_telegram_message(msg, buttons=btns):
         record_alert_sent(midday_key, preview='Midday Digest')
         _ALERT_TRACKER['sent_digests'].add('MIDDAY')
@@ -107,7 +137,7 @@ def _evaluate_telegram_alerts(screener_data):
     if not is_alert_already_sent(m3_batch_key, min_interval_seconds=14400):
       candidates = [
           s for s in opps
-          if s.get('buy_ratio', 50) >= 55.0 and s.get('pct_change', 0) > 0.5
+          if float(s.get('buyRatio', s.get('buy_ratio', 50))) >= 55.0 and float(s.get('changePct', s.get('pct_change', 0))) > 0.5
       ]
       sent_any = False
       for stock in candidates[:2]:
@@ -126,7 +156,8 @@ def _evaluate_telegram_alerts(screener_data):
   elif 890 <= mins <= 915:
     atc_key = f'DIGEST_ATC_{today_str}'
     if 'ATC' not in _ALERT_TRACKER['sent_digests'] and not is_alert_already_sent(atc_key, min_interval_seconds=14400):
-      msg, btns = format_session_digest('Tổng Kết Đóng Cửa ATC & Xu Hướng', opps, regime)
+      vni_summary = get_vnindex_summary()
+      msg, btns = format_session_digest('Tổng Kết Đóng Cửa ATC & Xu Hướng', opps, regime, vnindex_summary=vni_summary)
       if send_telegram_message(msg, buttons=btns):
         record_alert_sent(atc_key, preview='ATC Digest')
         _ALERT_TRACKER['sent_digests'].add('ATC')

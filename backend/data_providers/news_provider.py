@@ -48,22 +48,23 @@ def news_age_days(date_str):
   except Exception:
     return None
 
-def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, pct_change, sector_name):
+def fetch_live_multi_sources(ticker, market_item=None, fundamental_info=None, current_price=0, pct_change=0.0, sector_name='', ssi_item=None):
   """
   Truy vết Real-time dữ liệu Tin tức, BCTC, Sự kiện & Vĩ mô từ nhiều nguồn độc lập:
-  (Tin doanh nghiệp FiinGroup/VCI, Cổng Sự kiện HoSE/HNX, CafeF, VnExpress Kinh Doanh, SSI iBoard, Cổng TTĐT Chính Phủ).
+  (Tin doanh nghiệp FiinGroup/VCI, Cổng Sự kiện HoSE/HNX, CafeF, VnExpress Kinh Doanh, Bảng Giá Thị Trường Realtime, Cổng TTĐT Chính Phủ).
   """
+  item = market_item or ssi_item
   now = time.time()
   cached = _LIVE_NEWS_CACHE.get(ticker)
   if cached and (now - cached['time'] < _LIVE_NEWS_CACHE_TTL):
     records = [dict(r) for r in cached['data']]
-    # Cập nhật số liệu SSI realtime mới nhất nếu có
+    # Cập nhật số liệu bảng giá realtime mới nhất nếu có
     for r in records:
-      if r.get('source') == 'SSI iBoard Pro':
-        vol = ssi_item.get('stockVol', 0) if ssi_item else 0
-        buy_vol = ssi_item.get('stockBUVol', 0) if ssi_item else 0
-        sell_vol = ssi_item.get('stockSDVol', 0) if ssi_item else 0
-        f_net = (ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)) if ssi_item else 0
+      if r.get('source') == 'Bảng Giá Thị Trường Realtime':
+        vol = item.get('stockVol', 0) if item else 0
+        buy_vol = item.get('stockBUVol', 0) if item else 0
+        sell_vol = item.get('stockSDVol', 0) if item else 0
+        f_net = (item.get('buyForeignQtty', 0) - item.get('sellForeignQtty', 0)) if item else 0
         r['title'] = (
             f"Khớp lệnh {current_price:,.0f} ({pct_change:+.2f}%) | KL: {vol:,.0f} cp | "
             f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | NN ròng: {f_net:,.0f} cp"
@@ -253,12 +254,12 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   if vne_item:
     news_records.append(vne_item)
 
-  # 5. SSI iBoard Pro Realtime
-  vol = ssi_item.get('stockVol', 0) if ssi_item else 0
-  buy_vol = ssi_item.get('stockBUVol', 0) if ssi_item else 0
-  sell_vol = ssi_item.get('stockSDVol', 0) if ssi_item else 0
-  f_net = (ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)) if ssi_item else 0
-  ssi_title = (
+  # 5. Bảng Giá Thị Trường Realtime
+  vol = item.get('stockVol', 0) if item else 0
+  buy_vol = item.get('stockBUVol', 0) if item else 0
+  sell_vol = item.get('stockSDVol', 0) if item else 0
+  f_net = (item.get('buyForeignQtty', 0) - item.get('sellForeignQtty', 0)) if item else 0
+  flow_title = (
       f"Khớp lệnh {current_price:,.0f} ({pct_change:+.2f}%) | KL: {vol:,.0f} cp | "
       f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | Khối ngoại ròng: {f_net:,.0f} cp"
   )
@@ -266,7 +267,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
       'source': 'Bảng Giá Thị Trường Realtime',
       'badge': 'DÒNG TIỀN REALTIME',
       'badgeColor': BADGE_COLOR_MARKET,
-      'title': ssi_title,
+      'title': flow_title,
       'date': time.strftime('%d/%m/%Y %H:%M'),
       'url': f'{ENTRADE_BASE_URL}/',
       'tickerSpecific': False,

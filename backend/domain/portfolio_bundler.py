@@ -138,15 +138,15 @@ def _build_stock_summary(item):
   }
 
 
-def _enrich_stock_technicals(stock_summary, ssi_board, regime):
+def _enrich_stock_technicals(stock_summary, market_board, regime):
   """Làm giàu thông tin kỹ thuật chuyên sâu (S1, R1, R2, ATR, khoảng cách nền) cho cổ phiếu được chọn."""
   sym = stock_summary['symbol']
-  item = ssi_board.get(sym, {})
+  item = (market_board or {}).get(sym, {})
   p = stock_summary['price']
   exchange = stock_summary.get('exchange', 'HOSE')
   try:
-    chart = fetch_chart_data(sym, days=120, resolution='1D', ssi_item=item)
-    tech = analyze_technicals_and_scoring(chart, item, p, {}, ticker=sym, exchange=exchange, regime=regime)
+    chart = fetch_chart_data(sym, days=120, resolution='1D', market_item=item)
+    tech = analyze_technicals_and_scoring(chart, market_item=item, current_price=p, fundamental_info={}, ticker=sym, exchange=exchange, regime=regime)
     atr = tech.get('atr14', round(p * 0.02, 1))
     s1 = tech.get('support', round(p - 1.5 * atr, -2))
     r1 = tech.get('resistance', round(p + 2.0 * atr, -2))

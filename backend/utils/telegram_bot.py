@@ -102,9 +102,9 @@ def send_telegram_message(text: str, buttons: list = None, chat_id: str = None, 
     return False
 
 
-def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
+def format_breakout_alert(stock: dict, public_url: str = None, header_title: str = None) -> tuple:
   """
-  Soạn nội dung tin nhắn và nút bấm khi phát hiện mã BÙNG NỔ T0.
+  Soạn nội dung tin nhắn và nút bấm khi phát hiện mã BÙNG NỔ T0 / SÓNG SỚM SAU ATO.
   Toàn bộ số liệu và nhận định được tính toán động 100% từ nến kỹ thuật thực tế (VSR Engine).
   :return: (message_html, buttons_list)
   """
@@ -113,7 +113,7 @@ def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
   name = stock.get('name', symbol)
   price = float(stock.get('price', 0))
 
-  # 1. Tỷ lệ % thay đổi thị giá: đồng bộ nhận diện mọi định dạng key từ Screener / SSI Board
+  # 1. Tỷ lệ % thay đổi thị giá: đồng bộ nhận diện mọi định dạng key từ Screener / Bảng giá
   change_pct = stock.get('changePct')
   if change_pct is None:
     change_pct = stock.get('pct_change')
@@ -130,8 +130,15 @@ def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
   else:
     change_pct = float(change_pct)
 
-  vol_run_rate = float(stock.get('vol_run_rate', stock.get('volRatio', 1.0)))
-  buy_ratio = float(stock.get('buy_ratio', stock.get('buyRatio', 50.0)))
+  vol_rate = stock.get('volRunRate')
+  if vol_rate is None:
+    vol_rate = stock.get('vol_run_rate', stock.get('volRatio', 1.0))
+  vol_run_rate = float(vol_rate or 1.0)
+
+  buy_ratio_val = stock.get('buyRatio')
+  if buy_ratio_val is None:
+    buy_ratio_val = stock.get('buy_ratio', 50.0)
+  buy_ratio = float(buy_ratio_val or 50.0)
   net_rr = float(stock.get('net_rr', stock.get('netRR', 0.0)))
   s1 = float(stock.get('support', stock.get('s1', 0)))
   r1 = float(stock.get('target1', stock.get('resistance', 0)))
@@ -201,11 +208,13 @@ def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
     alloc_display = "0% NAV (Theo dõi)"
 
   if not action_reason:
-    if s1 > 0 and price > 0:
+    if 'MUA' in badge_str or 'THĂM DÒ' in badge_str:
+      action_reason = f"Dòng tiền nhập cuộc tích cực (Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.0f}%). Mở vị thế thăm dò 20-30% để lấy lợi thế T+0."
+    elif s1 > 0 and price > 0:
       dist_s1 = round(((price - s1) / s1 * 100), 1)
-      if dist_s1 <= 2.0:
+      if dist_s1 <= 2.5:
         action_reason = f"Giá sát nền hỗ trợ ({dist_s1:+.1f}%). Thăm dò vị thế quanh {s1:,.0f} đ, kiên nhẫn chờ nổ vol gia tăng."
-      elif dist_s1 > 3.5:
+      elif dist_s1 > 4.5:
         action_reason = f"Giá đã tăng xa nền ({dist_s1:+.1f}%). Tuyệt đối không FOMO mua đuổi, kiên nhẫn chờ retest."
       else:
         action_reason = f"Theo dõi nhịp hấp thụ hàng T+ phiên chiều. Xác nhận giữ vững hỗ trợ {s1:,.0f} đ trước khi giải ngân."
@@ -219,8 +228,14 @@ def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
 
   sector_tag = f" <i>(Sóng {sector})</i>" if sector else ""
 
+  if not header_title:
+    if stock.get('isEarlyBird'):
+      header_title = f"🚀 <b>RADAR SÓNG SỚM SAU ATO: {symbol}</b>{sector_tag}"
+    else:
+      header_title = f"⚡ <b>CẢNH BÁO BÙNG NỔ T0: {symbol}</b>{sector_tag}"
+
   msg = (
-      f"⚡ <b>CẢNH BÁO BÙNG NỔ T0: {symbol}</b>{sector_tag}\n"
+      f"{header_title}\n"
       f"🏢 {name}\n\n"
       f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
       f"📊 <b>Khối lượng:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
@@ -237,9 +252,9 @@ def format_breakout_alert(stock: dict, public_url: str = None) -> tuple:
   return msg, buttons
 
 
-def format_session_digest(title: str, stocks: list, regime: str, public_url: str = None) -> tuple:
+def format_session_digest(title: str, stocks: list, regime: str, public_url: str = None, vnindex_summary: dict = None) -> tuple:
   """
-  Soạn tin tổng kết phiên (Bản tin trưa 11:35 hoặc Tổng kết ATC 14:50).
+  Soạn tin tổng kết phiên (Bản tin trưa 11:35 hoặc Tổng kết ATC 14:50) kèm điểm số VN-Index và % cổ phiếu chính xác.
   """
   base_url = get_public_url(public_url)
   regime_icon = '🟢' if 'BULL' in str(regime).upper() else ('🔴' if 'BEAR' in str(regime).upper() else '🟡')
@@ -247,8 +262,16 @@ def format_session_digest(title: str, stocks: list, regime: str, public_url: str
   msg = (
       f"📊 <b>{title.upper()}</b>\n"
       f"🌐 <b>Xu hướng thị trường:</b> {regime_icon} {regime}\n"
-      f"━━━━━━━━━━━━━━━━━━━━\n"
   )
+
+  if vnindex_summary and isinstance(vnindex_summary, dict) and vnindex_summary.get('price', 0) > 0:
+    vni_p = float(vnindex_summary.get('price', 0))
+    vni_chg = float(vnindex_summary.get('change', 0))
+    vni_pct = float(vnindex_summary.get('changePercent', 0))
+    vni_sign = '+' if vni_chg >= 0 else ''
+    msg += f"📈 <b>VN-Index:</b> <b>{vni_p:,.2f}</b> ({vni_sign}{vni_chg:.2f} | {vni_sign}{vni_pct:.2f}%)\n"
+
+  msg += "━━━━━━━━━━━━━━━━━━━━\n"
 
   if not stocks:
     msg += "<i>Chưa ghi nhận mã đạt chuẩn bùng nổ vượt trội trong khung thời gian này.</i>\n"
@@ -257,10 +280,18 @@ def format_session_digest(title: str, stocks: list, regime: str, public_url: str
   msg += "🔥 <b>TOP CƠ HỘI NỔI BẬT:</b>\n"
   for idx, s in enumerate(stocks[:4], 1):
     sym = s.get('symbol', '').upper()
-    p = s.get('price', 0)
-    pct = s.get('pct_change', s.get('percentChange', 0.0))
-    vol_rate = s.get('vol_run_rate', 1.0)
-    badge = s.get('badge', 'BÙNG NỔ')
+    p = float(s.get('price', 0))
+    pct = s.get('changePct')
+    if pct is None:
+      pct = s.get('pct_change', s.get('percentChange', s.get('priceChangePercent', 0.0)))
+    pct = float(pct or 0.0)
+
+    vol_rate = s.get('volRunRate')
+    if vol_rate is None:
+      vol_rate = s.get('vol_run_rate', s.get('volRatio', 1.0))
+    vol_rate = float(vol_rate or 1.0)
+
+    badge = s.get('actionLabel') or s.get('badge', 'BÙNG NỔ')
     sign = '+' if pct >= 0 else ''
     msg += f"<b>{idx}. {sym}</b>: {p:,.0f} đ ({sign}{pct:.2f}%) | Vol x{vol_rate:.1f} TB20 | {badge}\n"
 

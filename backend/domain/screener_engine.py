@@ -89,30 +89,31 @@ def calculate_upper_wick_ratio(high, low, close):
   return round(upper_wick / range_day, 2)
 
 
-def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
-  """Đánh giá chi tiết 1 mã cổ phiếu xem có đạt chuẩn Bùng Nổ T0 hoặc Gom Pullback T1-T2."""
+def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now=None, ssi_item=None):
+  """Đánh giá chi tiết 1 mã cổ phiếu xem có đạt chuẩn Bùng Nổ T0 hoặc Gom Pullback T1-T2 từ Bảng giá Realtime."""
+  item = market_item or ssi_item or {}
   if now is None:
     now = get_vn_now()
   try:
-    p = ssi_item.get('matchedPrice') or ssi_item.get('refPrice', 0)
-    ref = ssi_item.get('refPrice', p)
+    p = item.get('matchedPrice') or item.get('refPrice', 0)
+    ref = item.get('refPrice', p)
     if not p or p <= 0:
       return None
 
-    high = ssi_item.get('highest') or p
-    low = ssi_item.get('lowest') or p
-    vol = ssi_item.get('stockVol', 0)
-    traded_val = ssi_item.get('nmTotalTradedValue', 0)
-    buy_vol = ssi_item.get('buyVol', 0)
-    sell_vol = ssi_item.get('sellVol', 0)
+    high = item.get('highest') or p
+    low = item.get('lowest') or p
+    vol = item.get('stockVol', 0)
+    traded_val = item.get('nmTotalTradedValue', 0)
+    buy_vol = item.get('buyVol', 0)
+    sell_vol = item.get('sellVol', 0)
     total_bs = buy_vol + sell_vol
     buy_ratio = round((buy_vol / total_bs) * 100, 1) if total_bs > 0 else 50.0
 
-    change = ssi_item.get('priceChange', p - ref)
-    pct_change = ssi_item.get('priceChangePercent', round((change / ref * 100), 2) if ref else 0.0)
+    change = item.get('priceChange', p - ref)
+    pct_change = item.get('priceChangePercent', round((change / ref * 100), 2) if ref else 0.0)
 
-    exchange = ssi_item.get('exchange', 'HOSE').upper()
-    chart = fetch_chart_data(symbol, days=90, resolution='1D', ssi_item=ssi_item)
+    exchange = item.get('exchange', 'HOSE').upper()
+    chart = fetch_chart_data(symbol, days=90, resolution='1D', market_item=item)
 
     # Fallback dữ liệu nến phiên gần nhất nếu ngoài giờ giao dịch hoặc sáng sớm chưa có khớp lệnh
     if (not vol or vol == 0) and chart and chart.get('v') and len(chart['v']) > 0:
@@ -137,7 +138,7 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
     if traded_val < 3_000_000_000 and vol < 100_000:
       return None
 
-    tech = analyze_technicals_and_scoring(chart, ssi_item, p, {}, ticker=symbol, exchange=exchange, regime=regime)
+    tech = analyze_technicals_and_scoring(chart, market_item=item, current_price=p, fundamental_info={}, ticker=symbol, exchange=exchange, regime=regime)
 
     atr = tech.get('atr14', round(p * 0.02, 1))
     s1 = tech.get('support', round(p - 1.5 * atr, -2))
@@ -173,14 +174,14 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
     if upper_wick > 0.45 and pct_change < 4.0:
       return None
 
-    name = ssi_item.get('companyNameVi', ssi_item.get('clientName', symbol))
+    name = item.get('companyNameVi', item.get('clientName', symbol))
     sector = get_stock_sector(symbol, name)
 
     # ==================== NHÁNH 1: BÙNG NỔ CHÂN SÓNG T0 ====================
     is_breakout = False
     if pct_change >= 0.5 and p >= ema9:
       # Điều kiện: Mới chuyển xanh hôm nay HOẶC bứt phá từ nền
-      if is_flip_buy or (is_bullish and 0.0 <= dist_s1 <= 4.2 and vol_run_rate >= 0.9):
+      if is_flip_buy or (is_bullish and 0.0 <= dist_s1 <= 4.5 and vol_run_rate >= 0.9):
         is_breakout = True
 
     # ==================== NHÁNH 2: GOM PULLBACK T1-T2 ====================
@@ -230,14 +231,25 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
     is_pre_1345 = is_weekday and is_in_trading_hours and (cur_mins < 13 * 60 + 45)
 
     # Khóa 2: Biên độ - Chống đu đỉnh (Giá chạy quá xa nền)
+    # Tinh chỉnh linh hoạt theo ATR và biên độ: chỉ coi là quá xa khi dist_s1 > 4.5% hoặc tăng > 5.5%
     is_overextended = False
-    if is_breakout and (dist_s1 > 3.2 or pct_change > 4.5):
+    if is_breakout and (dist_s1 > 4.5 or pct_change > 5.5):
       is_overextended = True
-    elif is_pullback and (dist_s1 > 2.2 or pct_change > 2.0):
+    elif is_pullback and (dist_s1 > 3.0 or pct_change > 2.5):
       is_overextended = True
 
     # Khóa 3: Thị trường chung (VN-Index Kill-Switch)
     is_market_adverse = regime in ('DOWN_TREND', 'DISTRIBUTION', 'RISK_OFF')
+
+    # Nhận diện sóng sớm sau ATO (9:25 - 9:45)
+    open_p = item.get('openPrice') or ref
+    is_early_bird = (
+        is_breakout and
+        (9 * 60 + 25 <= cur_mins <= 9 * 60 + 45) and
+        p >= open_p and
+        pct_change >= 1.0 and
+        buy_ratio >= 60.0
+    )
 
     sl_pct = round(((stop_loss - p) / p) * 100, 1)
     tp1_pct = round(((target1 - p) / p) * 100, 1)
@@ -251,12 +263,24 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
       action_status = 'OVER_EXTENDED'
       action_label = '⛔ ĐÃ CHẠY XA'
       action_badge_color = 'rose'
-      action_guide = f'Giá đã tăng +{pct_change:.1f}% (cách nền +{dist_s1:.1f}%). Tuyệt đối không FOMO đu đỉnh.'
+      action_guide = f'Giá đã tăng +{pct_change:.1f}% (cách nền +{dist_s1:.1f}%). Tuyệt đối không FOMO đu đỉnh, kiên nhẫn chờ retest.'
     elif is_pre_1345:
-      action_status = 'WAITING_CONFIRMATION'
-      action_label = '⏳ CHỜ PHIÊN CHIỀU'
-      action_badge_color = 'amber'
-      action_guide = f'Đang giữ nhịp sóng (+{pct_change:.1f}%). Chờ sau 13:45 hấp thụ hàng T+ trước khi chốt giải ngân.'
+      # PHIÊN SÁNG / CHỚM BÙNG NỔ: Cho phép mở vị thế MUA THĂM DÒ (30% size) thay vì chặn cứng
+      if is_breakout and 0.8 <= pct_change <= 3.8 and vol_run_rate >= 0.85:
+        action_status = 'BUY_PROBE'
+        action_label = '🟢 MUA THĂM DÒ T0'
+        action_badge_color = 'emerald'
+        action_guide = f'Chớm bùng nổ chân sóng (+{pct_change:.1f}%, Vol x{vol_run_rate:.1f} TB20). Vào thăm dò 30% vị thế (5-7% NAV), chiều xác nhận gia tăng.'
+      elif not is_breakout and -1.8 <= pct_change <= 0.8 and dist_s1 <= 2.5:
+        action_status = 'BUY_PROBE'
+        action_label = '🟢 GOM THĂM DÒ'
+        action_badge_color = 'emerald'
+        action_guide = f'Sát nền hỗ trợ {s1:,.0f} đ, cạn cung. Gom thăm dò 30-40% vị thế, kiên nhẫn đợi dòng tiền bứt phá.'
+      else:
+        action_status = 'WAITING_CONFIRMATION'
+        action_label = '⏳ CHỜ PHIÊN CHIỀU'
+        action_badge_color = 'amber'
+        action_guide = f'Đang giữ nhịp sóng (+{pct_change:.1f}%). Chờ sau 13:45 hấp thụ hàng T+ trước khi chốt giải ngân.'
     else:
       action_status = 'BUY_READY'
       action_label = '🟢 MUA NGAY'
@@ -302,6 +326,7 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
         'slPct': sl_pct,
         'tp1Pct': tp1_pct,
         'reversalPrice': reversal_price,
+        'isEarlyBird': is_early_bird,
         'isSectorWave': False,
         'sectorLeader': None,
     }
@@ -311,7 +336,7 @@ def evaluate_single_stock_opportunity(symbol, ssi_item, regime=None, now=None):
 
 def _build_synthetic_board_from_entrade(symbols=None):
   """
-  Tạo bảng giá mô phỏng từ Entrade Chart API khi SSI iBoard bị chặn (Render / Cloud Datacenter).
+  Tạo bảng giá mô phỏng từ Entrade Chart API trên Cloud (Render / Cloud Datacenter).
   Quét song song Top 45 mã Universe để lấy giá realtime (c[-1]), ref (c[-2]),
   vol (v[-1]), high, low và % thay đổi.
   """

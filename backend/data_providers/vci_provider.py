@@ -40,10 +40,16 @@ def _vci_quarterly_report(symbol, report_type, fields):
   Dùng API nội bộ _get_report(limit=200) vì Finance.ratio() công khai chỉ trả 4 kỳ đầu tiên.
   """
   from vnstock.explorer.vci.financial import Finance as VCIFinance
-  df = vnstock_call(lambda: VCIFinance(symbol=symbol, period='quarter')._get_report(
-      report_type=report_type, lang='vi', mode='final', style='readable',
-      show_log=False, period='quarter', limit=200, get_all=False,
-  ))
+  try:
+    f_obj = VCIFinance(symbol=symbol, period='quarter')
+    if not hasattr(f_obj, '_get_report'):
+      return {}
+    df = vnstock_call(lambda: f_obj._get_report(
+        report_type=report_type, lang='vi', mode='final', style='readable',
+        show_log=False, period='quarter', limit=200, get_all=False,
+    ))
+  except Exception:
+    return {}
   if df is None or df.empty or 'item_id' not in df.columns:
     return {}
   period_cols = [c for c in df.columns if period_key(c)]

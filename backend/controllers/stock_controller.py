@@ -33,7 +33,7 @@ def handle_stock_detail(ticker, resolution='1D'):
 
   # Toàn bộ phân tích (RSI, MA, ATR, hỗ trợ/kháng cự, kế hoạch T+) luôn chạy trên nến NGÀY;
   # resolution chỉ quyết định dữ liệu nến vẽ biểu đồ.
-  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', ssi_item=board_item)
+  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', market_item=board_item)
   # Ghép cây nến realtime tại thời điểm search từ Entrade vào chuỗi nến ngày
   chart_data = merge_live_candle_to_chart_data(chart_data, board_item, resolution='1D')
 
@@ -114,7 +114,7 @@ def handle_stock_detail(ticker, resolution='1D'):
   if resolution == '1D':
     candles_series = format_candles(chart_data, resolution='1D')
   else:
-    alt_data = fetch_chart_data(ticker, resolution=resolution, ssi_item=board_item)
+    alt_data = fetch_chart_data(ticker, resolution=resolution, market_item=board_item)
     alt_data = merge_live_candle_to_chart_data(alt_data, board_item, resolution=resolution)
     candles_series = format_candles(alt_data, resolution=resolution)
 
@@ -146,8 +146,8 @@ def handle_stock_detail(ticker, resolution='1D'):
       current_price=current_price,
       fundamental_info=fundamental_info,
       technical_info=analysis,
-      ssi_item=board_item,
-      ssi_board=market_board,
+      market_item=board_item,
+      market_board=market_board,
       news_list=news_list,
   )
 

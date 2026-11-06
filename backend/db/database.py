@@ -33,7 +33,9 @@ def get_cached_fundamental(symbol):
     if sym in _MEM_FUNDAMENTALS_CACHE:
         item, ts = _MEM_FUNDAMENTALS_CACHE[sym]
         if time.time() - ts < 604800:  # 7 ngày
-            return item
+            # Chỉ trả về nếu cache có số liệu định giá thực tế (không phải bản 0.0)
+            if item.get('pe', 0) > 0 or item.get('pb', 0) > 0 or item.get('eps', 0) > 0 or item.get('roe', 0) != 0:
+                return item
 
     # Đọc từ MongoDB Atlas Cloud
     mongo = _get_mongo()
@@ -44,8 +46,11 @@ def get_cached_fundamental(symbol):
                 doc.pop('_id', None)
                 updated_at = doc.get('updated_at', 0)
                 if time.time() - updated_at < 604800:
-                    has_adv = (doc.get('ocf') or doc.get('grossMargin') or doc.get('nim')) or doc.get('ocfStatus')
-                    if has_adv and doc.get('reportPeriod'):
+                    # Kiểm tra tính hợp lệ của dữ liệu (tránh cache 0.0 bị lưu trước đây)
+                    has_valid_metrics = (
+                        doc.get('pe', 0) > 0 or doc.get('pb', 0) > 0 or doc.get('eps', 0) > 0 or doc.get('roe', 0) != 0
+                    )
+                    if has_valid_metrics and doc.get('reportPeriod'):
                         _MEM_FUNDAMENTALS_CACHE[sym] = (doc, updated_at)
                         return doc
         except Exception as e_mongo:

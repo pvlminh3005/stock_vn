@@ -201,8 +201,15 @@ class SuperTrendCloudPrimitive {
     const timeScale = this._chart.timeScale();
     const series = this._series;
 
+    // Nhận diện kích thước hiển thị Responsive cho Mobile / Tablet
+    const containerEl = document.getElementById("chartContainer");
+    const containerW = (containerEl && containerEl.clientWidth) || window.innerWidth || 800;
+    const isMobile = containerW < 640;
+    const isTablet = containerW >= 640 && containerW < 1024;
+
     ctx.save();
-    ctx.font = 'bold 10px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const fontSize = isMobile ? 8.5 : (isTablet ? 9.5 : 10.5);
+    ctx.font = `bold ${fontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     const placedTopBoxes = [];
 
     for (let i = 0; i < this._signals.length; i++) {
@@ -211,12 +218,21 @@ class SuperTrendCloudPrimitive {
       if (x === null) continue;
 
       const isBuy = s.type === 'BUY';
-      const labelText = s.text || (isBuy ? 'MUA' : 'BÁN');
+      let labelText = s.text || (isBuy ? 'MUA' : 'BÁN');
+
+      // Tối ưu độ dài nhãn trên Mobile / Tablet để tránh che lấp nến
+      if (isMobile) {
+        if (labelText.includes('TP1')) labelText = 'TP1';
+        else if (labelText.includes('TP2')) labelText = 'TP2';
+        else if (labelText.includes('Khóa') || labelText.includes('KHÓA')) labelText = 'KHÓA';
+        else if (labelText.includes('Chờ') || labelText.includes('CHỜ')) labelText = 'CHỜ';
+      }
+
       const textMetrics = ctx.measureText(labelText);
       const textW = textMetrics.width;
 
-      const boxHeight = 18;
-      const boxWidth = Math.max(textW + 12, 44);
+      const boxHeight = isMobile ? 15 : 18;
+      const boxWidth = Math.max(textW + (isMobile ? 8 : 12), isMobile ? 32 : 44);
       const boxX = x - boxWidth / 2;
 
       if (isBuy || s.type === 'WAIT_SIDEWAY') {
@@ -225,15 +241,15 @@ class SuperTrendCloudPrimitive {
         const yBase = series.priceToCoordinate(priceVal);
         if (yBase === null) continue;
 
-        const arrowTipY = yBase + 4;
-        const arrowBaseY = yBase + 11;
-        const boxY = yBase + 13;
+        const arrowTipY = yBase + (isMobile ? 3 : 4);
+        const arrowBaseY = yBase + (isMobile ? 9 : 11);
+        const boxY = yBase + (isMobile ? 11 : 13);
 
         // 1. Mũi tên tam giác
         ctx.beginPath();
         ctx.moveTo(x, arrowTipY);
-        ctx.lineTo(x - 5, arrowBaseY);
-        ctx.lineTo(x + 5, arrowBaseY);
+        ctx.lineTo(x - (isMobile ? 4 : 5), arrowBaseY);
+        ctx.lineTo(x + (isMobile ? 4 : 5), arrowBaseY);
         ctx.closePath();
         ctx.fillStyle = isSideway ? '#64748b' : '#16a34a';
         ctx.fill();
@@ -290,15 +306,15 @@ class SuperTrendCloudPrimitive {
           strokeArrow = '#c2410c';
         }
 
-        const arrowTipY = yBase - 4;
-        const arrowBaseY = yBase - 11;
-        let boxY = yBase - 13 - boxHeight;
+        const arrowTipY = yBase - (isMobile ? 3 : 4);
+        const arrowBaseY = yBase - (isMobile ? 9 : 11);
+        let boxY = yBase - (isMobile ? 11 : 13) - boxHeight;
 
         // Chống đè chữ: nếu tín hiệu trước đó quá sát về tọa độ X và Y, đẩy boxY lên thêm 1 tầng
         for (const prev of placedTopBoxes) {
-          if (Math.abs(prev.x - x) < (boxWidth / 2 + prev.width / 2 + 6)) {
-            if (Math.abs(prev.y - boxY) < boxHeight + 4) {
-              boxY = Math.min(boxY, prev.y - boxHeight - 5);
+          if (Math.abs(prev.x - x) < (boxWidth / 2 + prev.width / 2 + (isMobile ? 4 : 6))) {
+            if (Math.abs(prev.y - boxY) < boxHeight + 3) {
+              boxY = Math.min(boxY, prev.y - boxHeight - (isMobile ? 3 : 5));
             }
           }
         }
@@ -307,8 +323,8 @@ class SuperTrendCloudPrimitive {
         // 1. Mũi tên tam giác
         ctx.beginPath();
         ctx.moveTo(x, arrowTipY);
-        ctx.lineTo(x - 5, arrowBaseY);
-        ctx.lineTo(x + 5, arrowBaseY);
+        ctx.lineTo(x - (isMobile ? 4 : 5), arrowBaseY);
+        ctx.lineTo(x + (isMobile ? 4 : 5), arrowBaseY);
         ctx.closePath();
         ctx.fillStyle = arrowColor;
         ctx.fill();
@@ -337,10 +353,10 @@ class SuperTrendCloudPrimitive {
 
         // 4. Nếu có mốc Kháng cự động khi gãy mây (như _ KC: 11.1 trong AmiBroker)
         if (s.kc) {
-          ctx.font = 'bold 9px ui-sans-serif, system-ui, sans-serif';
+          ctx.font = isMobile ? 'bold 7.5px ui-sans-serif, system-ui, sans-serif' : 'bold 9px ui-sans-serif, system-ui, sans-serif';
           ctx.fillStyle = '#f87171';
-          ctx.fillText(`_ KC: ${formatStockPrice(s.kc)}`, x, boxY - 5);
-          ctx.font = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+          ctx.fillText(`_ KC: ${formatStockPrice(s.kc)}`, x, boxY - (isMobile ? 3 : 5));
+          ctx.font = `bold ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
         }
       }
     }
@@ -476,6 +492,11 @@ export function setChartPriceLines(config = {}) {
   if (!chart || !candleSeries) return;
   clearChartPriceLines();
 
+  const container = document.getElementById("chartContainer");
+  const chartWidth = (container && container.clientWidth) || window.innerWidth || 800;
+  const isMobile = chartWidth < 640;
+  const isTablet = chartWidth >= 640 && chartWidth < 1024;
+
   const LineStyle = (window.LightweightCharts && window.LightweightCharts.LineStyle) || {
     Solid: 0,
     Dotted: 1,
@@ -493,15 +514,23 @@ export function setChartPriceLines(config = {}) {
   if (config.target && config.target > 0) {
     try {
       const lineColor = isExit ? '#f59e0b' : '#38bdf8';
-      let title = config.targetLabel || (isExit ? 'Kháng cự hạ tỷ trọng' : 'Target 1 (T+)');
-      if (!title.includes('%') && curP > 0) {
-        const pct = (((config.target - curP) / curP) * 100).toFixed(1);
-        title += ` (${pct >= 0 ? '+' : ''}${pct}%)`;
+      const pct = curP > 0 ? (((config.target - curP) / curP) * 100).toFixed(1) : null;
+      const pctStr = pct !== null ? ` (${pct >= 0 ? '+' : ''}${pct}%)` : '';
+
+      let title = '';
+      if (isMobile) {
+        title = isExit ? `Cản${pctStr}` : `T1${pctStr}`;
+      } else if (isTablet) {
+        title = isExit ? `Kháng cự${pctStr}` : `Target 1${pctStr}`;
+      } else {
+        title = config.targetLabel || (isExit ? 'Kháng cự hạ tỷ trọng' : 'Target 1 (T+)');
+        if (!title.includes('%')) title += pctStr;
       }
+
       const line = candleSeries.createPriceLine({
         price: config.target,
         color: lineColor,
-        lineWidth: 1.5,
+        lineWidth: isMobile ? 1 : 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
         title: title,
@@ -515,15 +544,23 @@ export function setChartPriceLines(config = {}) {
   // 1B. Đường Target 2 (Mục tiêu Xu hướng / Trend) - Tím / Purple / Indigo (Ẩn khi ở chế độ Cấm mua / Thoát vị thế)
   if (!isExit && config.target2 && config.target2 > 0) {
     try {
-      let title2 = config.target2Label || 'Target 2 (Trend)';
-      if (!title2.includes('%') && curP > 0) {
-        const pct2 = (((config.target2 - curP) / curP) * 100).toFixed(1);
-        title2 += ` (${pct2 >= 0 ? '+' : ''}${pct2}%)`;
+      const pct2 = curP > 0 ? (((config.target2 - curP) / curP) * 100).toFixed(1) : null;
+      const pct2Str = pct2 !== null ? ` (${pct2 >= 0 ? '+' : ''}${pct2}%)` : '';
+
+      let title2 = '';
+      if (isMobile) {
+        title2 = `T2${pct2Str}`;
+      } else if (isTablet) {
+        title2 = `Target 2${pct2Str}`;
+      } else {
+        title2 = config.target2Label || 'Target 2 (Trend)';
+        if (!title2.includes('%')) title2 += pct2Str;
       }
+
       const line = candleSeries.createPriceLine({
         price: config.target2,
         color: '#a855f7',
-        lineWidth: 1.5,
+        lineWidth: isMobile ? 1 : 1.5,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
         title: title2,
@@ -539,13 +576,23 @@ export function setChartPriceLines(config = {}) {
     try {
       const lineColor = isExit ? '#64748b' : '#10b981';
       const lineStyle = isExit ? LineStyle.SparseDotted : LineStyle.Dashed;
+
+      let buyTitle = '';
+      if (isMobile) {
+        buyTitle = isExit ? 'S1 (Tránh)' : 'Mua';
+      } else if (isTablet) {
+        buyTitle = isExit ? 'Hỗ trợ S1' : 'Vùng mua';
+      } else {
+        buyTitle = config.buyZoneLabel || (isExit ? 'Hỗ trợ S1 (Cấm bắt đáy)' : 'Vùng mua');
+      }
+
       const line = candleSeries.createPriceLine({
         price: config.buyZone,
         color: lineColor,
-        lineWidth: 1.5,
+        lineWidth: isMobile ? 1 : 1.5,
         lineStyle: lineStyle,
         axisLabelVisible: true,
-        title: config.buyZoneLabel || (isExit ? 'Hỗ trợ S1 (Cấm bắt đáy)' : 'Vùng mua'),
+        title: buyTitle,
       });
       activePriceLines.push(line);
     } catch (err) {
@@ -558,15 +605,23 @@ export function setChartPriceLines(config = {}) {
     try {
       const isLockProfit = !!config.isLockProfit || (config.stopLossLabel && (config.stopLossLabel.includes("Chặn lãi") || config.stopLossLabel.includes("Chốt hết") || config.stopLossLabel.includes("Khóa lãi")));
       const lineColor = isExit ? '#f43f5e' : (isLockProfit ? '#f59e0b' : '#f43f5e');
-      let titleSL = config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : (isLockProfit ? 'Hỗ trợ Chặn Lãi' : 'Cắt lỗ'));
-      if (!titleSL.includes('%') && curP > 0) {
-        const pctSL = (((config.stopLoss - curP) / curP) * 100).toFixed(1);
-        titleSL += ` (${pctSL >= 0 ? '+' : ''}${pctSL}%)`;
+      const pctSL = curP > 0 ? (((config.stopLoss - curP) / curP) * 100).toFixed(1) : null;
+      const pctSLStr = pctSL !== null ? ` (${pctSL >= 0 ? '+' : ''}${pctSL}%)` : '';
+
+      let titleSL = '';
+      if (isMobile) {
+        titleSL = isExit ? `Thoát${pctSLStr}` : (isLockProfit ? `Khóa lãi${pctSLStr}` : `SL${pctSLStr}`);
+      } else if (isTablet) {
+        titleSL = isExit ? `Thoát vị thế${pctSLStr}` : (isLockProfit ? `Chặn Lãi${pctSLStr}` : `Cắt lỗ${pctSLStr}`);
+      } else {
+        titleSL = config.stopLossLabel || (isExit ? 'Ngưỡng thoát vị thế' : (isLockProfit ? 'Hỗ trợ Chặn Lãi' : 'Cắt lỗ'));
+        if (!titleSL.includes('%')) titleSL += pctSLStr;
       }
+
       const line = candleSeries.createPriceLine({
         price: config.stopLoss,
         color: lineColor,
-        lineWidth: (isExit || isLockProfit) ? 2 : 1.5,
+        lineWidth: isMobile ? 1 : ((isExit || isLockProfit) ? 2 : 1.5),
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
         title: titleSL,
@@ -593,6 +648,9 @@ export function initChart() {
 
   const initialWidth = container.clientWidth || 800;
   const initialHeight = (container.clientHeight && container.clientHeight > 200) ? container.clientHeight : 520;
+  const isMobile = initialWidth < 640;
+  const isTablet = initialWidth >= 640 && initialWidth < 1024;
+  const responsiveFontSize = isMobile ? 9 : (isTablet ? 10 : 11);
 
   chart = window.LightweightCharts.createChart(container, {
     width: initialWidth,
@@ -604,7 +662,7 @@ export function initChart() {
     layout: {
       background: { color: '#090d16' },
       textColor: '#94a3b8',
-      fontSize: 11,
+      fontSize: responsiveFontSize,
       fontFamily: 'ui-sans-serif, system-ui, sans-serif'
     },
     grid: {
@@ -711,7 +769,17 @@ export function initChart() {
       const width = entry.contentRect.width;
       const height = entry.contentRect.height;
       if (width > 0 && height > 0) {
-        chart.applyOptions({ width, height });
+        const isMob = width < 640;
+        const isTab = width >= 640 && width < 1024;
+        const newFontSize = isMob ? 9 : (isTab ? 10 : 11);
+        chart.applyOptions({
+          width,
+          height,
+          layout: { fontSize: newFontSize }
+        });
+        if (cachedPriceLinesConfig) {
+          setChartPriceLines(cachedPriceLinesConfig);
+        }
       }
     });
     chartResizeObserver.observe(container);
@@ -722,10 +790,18 @@ export function initChart() {
     window.addEventListener('resize', () => {
       const c = document.getElementById("chartContainer");
       if (chart && c) {
+        const w = c.clientWidth;
+        const isMob = w < 640;
+        const isTab = w >= 640 && w < 1024;
+        const newFontSize = isMob ? 9 : (isTab ? 10 : 11);
         chart.applyOptions({
-          width: c.clientWidth,
+          width: w,
           height: c.clientHeight || 520,
+          layout: { fontSize: newFontSize },
         });
+        if (cachedPriceLinesConfig) {
+          setChartPriceLines(cachedPriceLinesConfig);
+        }
       }
     });
     isResizeListenerAttached = true;
