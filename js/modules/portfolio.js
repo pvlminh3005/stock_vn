@@ -21,13 +21,19 @@ let _portfolioData = {
     current_market_val: 0,
     unrealized_pnl: 0,
     unrealized_pnl_pct: 0,
+    realized_pnl: 0,
+    total_pnl: 0,
+    total_pnl_pct: 0,
     available_nav: 0,
     holdings_count: 0,
     closed_count: 0,
+    total_trades_count: 0,
   },
+  holdings: [],
   trades: [],
 };
 
+let _activeView = 'HOLDINGS'; // 'HOLDINGS' (Gom nhóm) | 'TRADES' (Nhật ký từng lệnh)
 let _currentFilter = 'ALL';
 let _searchTerm = '';
 let _initialized = false;
@@ -111,6 +117,18 @@ export function initUserPortfolioModule(callbacks = {}) {
       return;
     }
 
+    // A1. Nút chuyển View: Gom nhóm (Holdings) vs Nhật ký (Trades)
+    const viewHoldingsBtn = target.closest('#portfolioViewHoldingsBtn');
+    if (viewHoldingsBtn) {
+      switchPortfolioView('HOLDINGS');
+      return;
+    }
+    const viewTradesBtn = target.closest('#portfolioViewTradesBtn');
+    if (viewTradesBtn) {
+      switchPortfolioView('TRADES');
+      return;
+    }
+
     // B. Nút Toggle Loại Lệnh Mua / Bán
     const buyBtn = target.closest('#tradeTypeBuyBtn');
     if (buyBtn) {
@@ -154,13 +172,16 @@ export function initUserPortfolioModule(callbacks = {}) {
       return;
     }
 
-    // D. Nút Filter Chips
+    // D. Nút Filter Chips (Giữ cố định font-semibold & kích thước để chống nhích layout)
     const filterBtn = target.closest('.portfolio-filter-btn');
     if (filterBtn) {
+      const inactiveClass = 'portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:border-slate-700 font-semibold cursor-pointer whitespace-nowrap transition-colors';
+      const activeClass = 'portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-emerald-500/50 bg-emerald-600 text-white font-semibold cursor-pointer active whitespace-nowrap shadow-sm transition-colors';
+
       document.querySelectorAll('.portfolio-filter-btn').forEach(b => {
-        b.className = 'portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer';
+        b.className = inactiveClass;
       });
-      filterBtn.className = 'portfolio-filter-btn px-2.5 py-1 rounded-lg border border-slate-700 bg-emerald-600 text-white font-bold cursor-pointer active';
+      filterBtn.className = activeClass;
       _currentFilter = filterBtn.getAttribute('data-filter') || 'ALL';
       renderPortfolioTable(callbacks);
       return;
@@ -328,6 +349,34 @@ function initDatePickerDefault() {
   }
 }
 
+function switchPortfolioView(view) {
+  _activeView = view;
+  const holdingsBtn = document.getElementById('portfolioViewHoldingsBtn');
+  const tradesBtn = document.getElementById('portfolioViewTradesBtn');
+  const holdingsContainer = document.getElementById('portfolioHoldingsContainer');
+  const tradesContainer = document.getElementById('portfolioTradesContainer');
+
+  if (view === 'HOLDINGS') {
+    if (holdingsBtn) {
+      holdingsBtn.className = 'portfolio-view-tab-btn min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-emerald-600 text-white shadow-md active whitespace-nowrap';
+    }
+    if (tradesBtn) {
+      tradesBtn.className = 'portfolio-view-tab-btn min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-white whitespace-nowrap';
+    }
+    if (holdingsContainer) holdingsContainer.classList.remove('hidden');
+    if (tradesContainer) tradesContainer.classList.add('hidden');
+  } else {
+    if (tradesBtn) {
+      tradesBtn.className = 'portfolio-view-tab-btn min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-emerald-600 text-white shadow-md active whitespace-nowrap';
+    }
+    if (holdingsBtn) {
+      holdingsBtn.className = 'portfolio-view-tab-btn min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-white whitespace-nowrap';
+    }
+    if (tradesContainer) tradesContainer.classList.remove('hidden');
+    if (holdingsContainer) holdingsContainer.classList.add('hidden');
+  }
+}
+
 /**
  * Tải dữ liệu danh mục từ backend
  */
@@ -337,6 +386,7 @@ export async function loadPortfolioData(callbacks = {}) {
     if (data && data.success) {
       _portfolioData = data;
       updateSummaryCards(data.summary);
+      renderHoldingsTable(callbacks);
       renderPortfolioTable(callbacks);
     }
   } catch (err) {
@@ -356,14 +406,16 @@ function updateSummaryCards(summary) {
   const statInvestedRatio = document.getElementById('statInvestedRatio');
   const statAvailableNav = document.getElementById('statAvailableNav');
   const statAvailableRatio = document.getElementById('statAvailableRatio');
+  const statRealizedPnl = document.getElementById('statRealizedPnl');
   const statTotalPnl = document.getElementById('statTotalPnl');
   const statPnlIcon = document.getElementById('statPnlIcon');
 
   const totalNav = summary.total_nav || 0;
   const buyCost = summary.total_buy_cost || 0;
   const availNav = summary.available_nav || 0;
-  const pnlVal = summary.unrealized_pnl || 0;
-  const pnlPct = summary.unrealized_pnl_pct || 0;
+  const realizedPnl = summary.realized_pnl || 0;
+  const totalPnl = summary.total_pnl || 0;
+  const totalPnlPct = summary.total_pnl_pct || 0;
 
   if (navInput && totalNav > 0) {
     navInput.placeholder = formatDot(totalNav);
@@ -383,30 +435,40 @@ function updateSummaryCards(summary) {
     statAvailableRatio.textContent = `Tiền mặt khả dụng (${availRatio}% NAV)`;
   }
 
-  // P&L styling
+  // Realized PnL Card
+  if (statRealizedPnl) {
+    const isRealizedProfit = realizedPnl > 0;
+    const isRealizedLoss = realizedPnl < 0;
+    const signR = isRealizedProfit ? '+' : '';
+    statRealizedPnl.className = `text-base sm:text-lg font-black font-mono ${isRealizedProfit ? 'text-emerald-400' : isRealizedLoss ? 'text-rose-400' : 'text-slate-300'
+      }`;
+    statRealizedPnl.textContent = `${signR}${formatVND(realizedPnl)}`;
+  }
+
+  // Total P&L styling
   if (statTotalPnl) {
-    const isProfit = pnlVal > 0;
-    const isLoss = pnlVal < 0;
+    const isProfit = totalPnl > 0;
+    const isLoss = totalPnl < 0;
     const sign = isProfit ? '+' : '';
 
-    statTotalPnl.className = `text-base sm:text-lg font-black font-mono ${
-      isProfit ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-300'
-    }`;
-    statTotalPnl.innerHTML = `${sign}${formatVND(pnlVal)} <span class="text-xs font-semibold ml-1">(${sign}${pnlPct.toFixed(2)}%)</span>`;
+    statTotalPnl.className = `text-base sm:text-lg font-black font-mono ${isProfit ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-300'
+      }`;
+    statTotalPnl.innerHTML = `${sign}${formatVND(totalPnl)} <span class="text-xs font-semibold ml-1">(${sign}${totalPnlPct.toFixed(2)}%)</span>`;
 
     if (statPnlIcon) {
-      statPnlIcon.className = `fa-solid ${
-        isProfit ? 'fa-arrow-trend-up text-emerald-400' : isLoss ? 'fa-arrow-trend-down text-rose-400' : 'fa-chart-line text-slate-500'
-      }`;
+      statPnlIcon.className = `fa-solid ${isProfit ? 'fa-arrow-trend-up text-emerald-400' : isLoss ? 'fa-arrow-trend-down text-rose-400' : 'fa-chart-line text-slate-500'
+        }`;
     }
   }
 
-  // Cập nhật số lượng trên các nút Filter
+  // Cập nhật số lượng trên các nút Filter & Badges Tab
+  const holdings = _portfolioData.holdings || [];
   const trades = _portfolioData.trades || [];
-  const buyTrades = trades.filter(t => t.order_type === 'BUY');
-  const sellTrades = trades.filter(t => t.order_type === 'SELL');
-  const profitTrades = trades.filter(t => t.order_type === 'BUY' && t.pnl_val > 0);
-  const lossTrades = trades.filter(t => t.order_type === 'BUY' && t.pnl_val < 0);
+
+  const holdingsTabBadge = document.getElementById('holdingsTabBadge');
+  const tradesTabBadge = document.getElementById('tradesTabBadge');
+  if (holdingsTabBadge) holdingsTabBadge.textContent = summary.holdings_count || holdings.filter(h => h.holding_volume > 0).length;
+  if (tradesTabBadge) tradesTabBadge.textContent = trades.length;
 
   const countAll = document.getElementById('filterCountAll');
   const countBuy = document.getElementById('filterCountBuy');
@@ -414,15 +476,121 @@ function updateSummaryCards(summary) {
   const countProfit = document.getElementById('filterCountProfit');
   const countLoss = document.getElementById('filterCountLoss');
 
-  if (countAll) countAll.textContent = trades.length;
-  if (countBuy) countBuy.textContent = buyTrades.length;
-  if (countSell) countSell.textContent = sellTrades.length;
-  if (countProfit) countProfit.textContent = profitTrades.length;
-  if (countLoss) countLoss.textContent = lossTrades.length;
+  if (countAll) countAll.textContent = holdings.length;
+  if (countBuy) countBuy.textContent = holdings.filter(h => h.holding_volume > 0).length;
+  if (countSell) countSell.textContent = holdings.filter(h => h.holding_volume === 0).length;
+  if (countProfit) countProfit.textContent = holdings.filter(h => h.total_pnl > 0).length;
+  if (countLoss) countLoss.textContent = holdings.filter(h => h.total_pnl < 0).length;
 }
 
 /**
- * Render bảng danh sách giao dịch theo filter hiện tại
+ * Render bảng danh mục vị thế gom nhóm (Holdings View)
+ */
+function renderHoldingsTable(callbacks = {}) {
+  const tbody = document.getElementById('portfolioHoldingsTableBody');
+  if (!tbody) return;
+
+  const holdings = _portfolioData.holdings || [];
+
+  let filtered = holdings.filter(h => {
+    if (_searchTerm && !h.symbol.includes(_searchTerm)) return false;
+    if (_currentFilter === 'BUY') return h.holding_volume > 0;
+    if (_currentFilter === 'SELL') return h.holding_volume === 0;
+    if (_currentFilter === 'PROFIT') return h.total_pnl > 0;
+    if (_currentFilter === 'LOSS') return h.total_pnl < 0;
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="11" class="py-8 text-center text-slate-500 font-sans">
+          <i class="fa-solid fa-inbox text-2xl mb-2 block text-slate-600"></i>
+          Không có vị thế cổ phiếu nào khớp với bộ lọc hiện tại.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(h => {
+    const isHolding = h.holding_volume > 0;
+    const isUnrealizedProfit = h.unrealized_pnl > 0;
+    const isUnrealizedLoss = h.unrealized_pnl < 0;
+    const signU = isUnrealizedProfit ? '+' : '';
+    const colorU = isHolding ? (isUnrealizedProfit ? 'text-emerald-400' : isUnrealizedLoss ? 'text-rose-400' : 'text-slate-300') : 'text-slate-500';
+
+    const isRealizedProfit = h.realized_pnl > 0;
+    const isRealizedLoss = h.realized_pnl < 0;
+    const signR = isRealizedProfit ? '+' : '';
+    const colorR = isRealizedProfit ? 'text-emerald-400' : isRealizedLoss ? 'text-rose-400' : 'text-slate-500';
+
+    const isTotalProfit = h.total_pnl > 0;
+    const isTotalLoss = h.total_pnl < 0;
+    const signT = isTotalProfit ? '+' : '';
+    const colorT = isTotalProfit ? 'text-emerald-400' : isTotalLoss ? 'text-rose-400' : 'text-slate-300';
+
+    const changeSign = h.change_pct > 0 ? '+' : '';
+    const changeColor = h.change_pct > 0 ? 'text-emerald-400' : h.change_pct < 0 ? 'text-rose-400' : 'text-amber-300';
+
+    html += `
+      <tr class="hover:bg-slate-900/80 transition">
+        <td class="py-2.5 px-3 font-bold sticky-col-first-cell bg-slate-950/90">
+          <div class="flex items-center gap-1.5">
+            <button type="button" class="view-stock-btn text-white hover:text-blue-400 transition cursor-pointer underline decoration-dotted font-mono text-sm" data-symbol="${h.symbol}">
+              ${h.symbol}
+            </button>
+            <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">${h.exchange || 'HOSE'}</span>
+          </div>
+        </td>
+        <td class="py-2.5 px-3">
+          <span class="text-[11px] text-slate-300 truncate max-w-[130px] block font-sans">${h.sector || 'Thị trường chung'}</span>
+        </td>
+        <td class="py-2.5 px-3 text-right font-bold text-slate-100 font-mono">
+          ${formatNumber(h.holding_volume)}
+          ${!isHolding ? '<span class="text-[9px] text-slate-500 ml-1 block font-sans">Đã đóng</span>' : ''}
+        </td>
+        <td class="py-2.5 px-3 text-right font-mono text-amber-300 font-semibold">
+          ${formatNumber(h.avg_price)} đ
+        </td>
+        <td class="py-2.5 px-3 text-right font-mono font-bold">
+          <div class="text-white">${formatNumber(h.current_price)} đ</div>
+          <div class="text-[10px] ${changeColor}">(${changeSign}${h.change_pct}%)</div>
+        </td>
+        <td class="py-2.5 px-3 text-right text-slate-200 font-mono">
+          ${formatVND(h.current_value)}
+        </td>
+        <td class="py-2.5 px-3 text-right font-bold font-mono ${colorU}">
+          ${isHolding
+        ? `<div>${signU}${formatVND(h.unrealized_pnl)}</div>
+                 <div class="text-[10px]">(${signU}${h.unrealized_pnl_pct.toFixed(2)}%)</div>`
+        : `<span class="text-slate-600 text-[11px] font-sans">-</span>`
+      }
+        </td>
+        <td class="py-2.5 px-3 text-right font-bold font-mono ${colorR}">
+          ${h.realized_pnl !== 0 ? `${signR}${formatVND(h.realized_pnl)}` : '<span class="text-slate-600 text-[11px] font-sans">0 đ</span>'}
+        </td>
+        <td class="py-2.5 px-3 text-right font-black font-mono ${colorT} bg-slate-900/30">
+          <div>${signT}${formatVND(h.total_pnl)}</div>
+        </td>
+        <td class="py-2.5 px-3 text-right font-mono text-slate-300">
+          <span class="px-1.5 py-0.5 rounded bg-slate-800/80 text-[11px] font-semibold">${h.weight_pct}%</span>
+        </td>
+        <td class="py-2.5 px-3 text-center">
+          <button type="button" class="view-stock-btn px-2 py-1 rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-bold transition cursor-pointer" data-symbol="${h.symbol}" title="Phân tích mã ${h.symbol}">
+            <i class="fa-solid fa-chart-line mr-0.5"></i> Soi Kỹ Thuật
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+}
+
+/**
+ * Render bảng danh sách giao dịch (Trades View)
  */
 function renderPortfolioTable(callbacks = {}) {
   const tbody = document.getElementById('portfolioTableBody');
@@ -464,24 +632,23 @@ function renderPortfolioTable(callbacks = {}) {
 
     html += `
       <tr class="hover:bg-slate-900/80 transition">
-        <td class="py-2.5 px-3 font-bold">
+        <td class="py-2.5 px-3 font-bold sticky-col-first-cell bg-slate-950/90">
           <div class="flex items-center gap-1.5">
-            <button type="button" class="view-stock-btn text-white hover:text-blue-400 transition cursor-pointer underline decoration-dotted" data-symbol="${t.symbol}">
+            <button type="button" class="view-stock-btn text-white hover:text-blue-400 transition cursor-pointer underline decoration-dotted font-mono" data-symbol="${t.symbol}">
               ${t.symbol}
             </button>
-            <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400">${t.exchange || 'HOSE'}</span>
+            <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">${t.exchange || 'HOSE'}</span>
           </div>
         </td>
         <td class="py-2.5 px-3">
-          ${
-            isBuy
-              ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+          ${isBuy
+        ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   <i class="fa-solid fa-arrow-down-long text-[8px]"></i> Mua
                 </span>`
-              : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+        : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
                   <i class="fa-solid fa-arrow-up-long text-[8px]"></i> Bán
                 </span>`
-          }
+      }
         </td>
         <td class="py-2.5 px-3 text-right font-bold text-slate-200">${formatNumber(t.volume)}</td>
         <td class="py-2.5 px-3 text-right text-slate-300">${formatNumber(t.price)} đ</td>
@@ -491,12 +658,11 @@ function renderPortfolioTable(callbacks = {}) {
         </td>
         <td class="py-2.5 px-3 text-right text-slate-300">${formatVND(t.order_type === 'BUY' ? t.current_amount : t.invested_amount)}</td>
         <td class="py-2.5 px-3 text-right font-bold ${pnlColor}">
-          ${
-            isBuy
-              ? `<div>${pnlSign}${formatVND(t.pnl_val)}</div>
+          ${isBuy
+        ? `<div>${pnlSign}${formatVND(t.pnl_val)}</div>
                  <div class="text-[10px]">(${pnlSign}${t.pnl_pct.toFixed(2)}%)</div>`
-              : `<span class="text-slate-500 text-[11px] font-sans">Đã chốt bán</span>`
-          }
+        : `<span class="text-slate-500 text-[11px] font-sans">Đã chốt bán</span>`
+      }
         </td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px] font-sans">${t.trade_date || '-'}</td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px] font-sans max-w-[150px] truncate" title="${t.note || ''}">${t.note || '-'}</td>

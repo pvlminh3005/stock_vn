@@ -49,7 +49,7 @@ def init_portfolio_db() -> bool:
         return False
 
     try:
-        from pymongo import MongoClient, ASCENDING
+        from pymongo import MongoClient, ASCENDING, DESCENDING
         mongo_kwargs = {'serverSelectionTimeoutMS': 5000}
         try:
             import certifi
@@ -82,6 +82,8 @@ def init_portfolio_db() -> bool:
         _mongo_db['alert_states'].create_index([("symbol", ASCENDING)], unique=True)
         _mongo_db['telegram_alert_logs'].create_index([("key", ASCENDING)], unique=True)
         _mongo_db['telegram_alert_logs'].create_index([("sent_at", ASCENDING)], expireAfterSeconds=86400 * 7)
+        _mongo_db['telegram_sent_logs'].create_index([("sent_at", DESCENDING)])
+        _mongo_db['telegram_sent_logs'].create_index([("sent_at", ASCENDING)], expireAfterSeconds=86400 * 30)
 
         # 4. Index cho fundamentals & market snapshot
         _mongo_db['fundamentals'].create_index([("symbol", ASCENDING)], unique=True)
@@ -355,3 +357,90 @@ def record_alert_sent(alert_key: str, preview: str = '') -> bool:
     except Exception as e:
         logger.warning("MongoDB record_alert_sent error: %s", e)
         return False
+
+
+def save_telegram_sent_log(
+    alert_type: Any,
+    title: str = '',
+    stocks: Optional[list] = None,
+    market_regime: Optional[str] = None,
+    vnindex: Optional[dict] = None,
+    message_id: Optional[int] = None,
+    status: str = 'SUCCESS',
+) -> bool:
+    """
+    Lưu log cảnh báo đã push qua Telegram vào MongoDB Atlas.
+    Chỉ lưu các thông tin cần thiết và có cấu trúc (mã, giá, % thay đổi, action, vùng gom, R:R),
+    không lưu HTML dài để tối ưu dung lượng và tiện tra cứu audit.
+    Hỗ trợ cả truyền dict (log_meta) hoặc các tham số rời.
+    """
+    if not _use_mongo or _mongo_db is None:
+        return False
+
+    if isinstance(alert_type, dict):
+        d = alert_type
+        title = d.get('title', title)
+        stocks = d.get('stocks', stocks)
+        market_regime = d.get('market_regime', market_regime)
+        vnindex = d.get('vnindex', vnindex)
+        message_id = d.get('message_id', message_id)
+        status = d.get('status', status)
+        alert_type = d.get('alert_type', 'GENERAL_ALERT')
+
+    now_ts = int(time.time())
+    # Giờ chuẩn Việt Nam GMT+7
+    vn_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now_ts + 7 * 3600))
+
+    clean_stocks = []
+    for s in (stocks or []):
+        if not isinstance(s, dict):
+            continue
+        clean_stocks.append({
+            'symbol': s.get('symbol', '').upper(),
+            'name': s.get('name', ''),
+            'price': float(s.get('price', 0)),
+            'change_pct': float(s.get('change_pct') if s.get('change_pct') is not None else (s.get('changePct') if s.get('changePct') is not None else s.get('percentChange', 0.0))),
+            'vol_ratio': float(s.get('vol_ratio') if s.get('vol_ratio') is not None else (s.get('volRunRate') if s.get('volRunRate') is not None else s.get('volRatio', 1.0))),
+            'action': s.get('actionLabel') or s.get('action') or s.get('badge', ''),
+            'entry_zone': s.get('entry_zone') or s.get('entryZone') or s.get('buyZone', ''),
+            'target1': s.get('target1') or s.get('target1Display', ''),
+            'target2': s.get('target2') or s.get('target2Display', ''),
+            'stop_loss': s.get('stop_loss') or s.get('stopLoss') or s.get('stopLossDisplay', ''),
+            'net_rr': float(s.get('net_rr') if s.get('net_rr') is not None else (s.get('netRR', 0.0) if s.get('netRR') is not None else 0.0)),
+        })
+
+    log_doc = {
+        'alert_type': str(alert_type).upper(),
+        'title': title,
+        'sent_at': now_ts,
+        'sent_time_vn': vn_time_str,
+        'market_regime': market_regime,
+        'vnindex': vnindex,
+        'stocks': clean_stocks,
+        'message_id': message_id,
+        'status': status,
+    }
+
+    try:
+        res = _mongo_db['telegram_sent_logs'].insert_one(log_doc)
+        return str(res.inserted_id) if res.inserted_id else True
+    except Exception as e:
+        logger.warning("MongoDB save_telegram_sent_log error: %s", e)
+        return False
+
+
+def get_telegram_sent_logs(limit: int = 50) -> list:
+    """Lấy danh sách lịch sử cảnh báo Telegram đã gửi từ MongoDB Atlas."""
+    if not _use_mongo or _mongo_db is None:
+        return []
+
+    try:
+        cursor = _mongo_db['telegram_sent_logs'].find().sort('sent_at', -1).limit(limit)
+        results = []
+        for doc in cursor:
+            doc.pop('_id', None)
+            results.append(doc)
+        return results
+    except Exception as e:
+        logger.warning("MongoDB get_telegram_sent_logs error: %s", e)
+        return []

@@ -6,6 +6,7 @@ Xử lý các endpoint gói danh mục đầu tư theo vốn & gợi ý mã thay
 - /api/portfolio-sectors: Thống kê các nhóm ngành và khả năng mua lô 100 theo ngân sách
 """
 
+from typing import Any, Optional
 from backend.domain.portfolio_bundler import (
     generate_portfolio_bundle,
     get_alternative_candidates,
@@ -13,7 +14,7 @@ from backend.domain.portfolio_bundler import (
 )
 
 
-def handle_portfolio_bundle(capital=20_000_000, style='balanced'):
+def handle_portfolio_bundle(capital: Any = 20_000_000, style: str = 'balanced'):
   """Xử lý yêu cầu tạo gói danh mục theo số vốn (/api/portfolio-bundle)."""
   try:
     cap = float(capital)
@@ -23,11 +24,11 @@ def handle_portfolio_bundle(capital=20_000_000, style='balanced'):
 
 
 def handle_portfolio_alternatives(
-    current_symbol='',
-    sector='',
-    max_budget=10_000_000,
-    exclude_sector=None,
-    target_sector=None,
+    current_symbol: str = '',
+    sector: str = '',
+    max_budget: Any = 10_000_000,
+    exclude_sector: Optional[str] = None,
+    target_sector: Optional[str] = None,
 ):
   """Xử lý yêu cầu lấy mã thay thế (/api/portfolio-alternatives)."""
   try:
@@ -43,7 +44,7 @@ def handle_portfolio_alternatives(
   )
 
 
-def handle_portfolio_sectors(max_budget=10_000_000, exclude_sector=None):
+def handle_portfolio_sectors(max_budget: Any = 10_000_000, exclude_sector: Optional[str] = None):
   """Xử lý yêu cầu lấy danh sách nhóm ngành khả dụng theo ngân sách (/api/portfolio-sectors)."""
   try:
     budget = float(max_budget)

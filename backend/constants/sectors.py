@@ -43,49 +43,106 @@ CYCLICAL_SECTORS = {
 # Ngành định giá chính theo P/B
 PB_PRIMARY_SECTORS = FINANCIAL_SECTORS | CYCLICAL_SECTORS | {'Bất động sản'}
 
-# Bảng tra cứu nhóm ngành cho các cổ phiếu thanh khoản hàng đầu TTCK Việt Nam
-KNOWN_STOCK_SECTORS = {
-    # Ngân hàng
-    'VCB': 'Ngân hàng', 'BID': 'Ngân hàng', 'CTG': 'Ngân hàng', 'TCB': 'Ngân hàng',
-    'MBB': 'Ngân hàng', 'ACB': 'Ngân hàng', 'VPB': 'Ngân hàng', 'HDB': 'Ngân hàng',
-    'STB': 'Ngân hàng', 'SHB': 'Ngân hàng', 'TPB': 'Ngân hàng', 'LPB': 'Ngân hàng',
-    'MSB': 'Ngân hàng', 'VIB': 'Ngân hàng', 'EIB': 'Ngân hàng', 'OCB': 'Ngân hàng',
-    'SSB': 'Ngân hàng', 'NAB': 'Ngân hàng', 'BVB': 'Ngân hàng',
-    # Chứng khoán / Dịch vụ tài chính
-    'SSI': 'Chứng khoán', 'VND': 'Chứng khoán', 'VIX': 'Chứng khoán', 'HCM': 'Chứng khoán',
-    'VCI': 'Chứng khoán', 'SHS': 'Chứng khoán', 'MBS': 'Chứng khoán', 'BSI': 'Chứng khoán',
-    'FTS': 'Chứng khoán', 'CTS': 'Chứng khoán', 'ORS': 'Chứng khoán', 'AGR': 'Chứng khoán',
-    # Thép & Tài nguyên cơ bản
-    'HPG': 'Thép & VLXD', 'HSG': 'Thép & VLXD', 'NKG': 'Thép & VLXD', 'VGS': 'Thép & VLXD',
-    'TLH': 'Thép & VLXD', 'SMC': 'Thép & VLXD',
-    # Bất động sản dân dụng & KCN
-    'VHM': 'Bất động sản', 'VIC': 'Bất động sản', 'VRE': 'Bất động sản', 'KDH': 'Bất động sản',
-    'NLG': 'Bất động sản', 'PDR': 'Bất động sản', 'DIG': 'Bất động sản', 'DXG': 'Bất động sản',
-    'KBC': 'BĐS Khu công nghiệp', 'IDC': 'BĐS Khu công nghiệp', 'SZC': 'BĐS Khu công nghiệp',
-    'BCM': 'BĐS Khu công nghiệp', 'VGC': 'BĐS Khu công nghiệp', 'NVL': 'Bất động sản',
-    'CEO': 'Bất động sản', 'TCH': 'Bất động sản', 'HQC': 'Bất động sản', 'DPG': 'Bất động sản & Hạ tầng',
-    # Bán lẻ & Tiêu dùng
-    'MWG': 'Bán lẻ tiêu dùng', 'MSN': 'Bán lẻ & Tiêu dùng', 'PNJ': 'Bán lẻ trang sức',
-    'DGW': 'Phân phối ICT', 'FRT': 'Bán lẻ ICT & Dược', 'VNM': 'Thực phẩm & Đồ uống',
-    'SAB': 'Thực phẩm & Đồ uống', 'KDC': 'Thực phẩm & Đồ uống', 'MCH': 'Hàng tiêu dùng',
-    # Công nghệ thông tin
-    'FPT': 'Công nghệ thông tin', 'CMG': 'Công nghệ thông tin', 'ELC': 'Công nghệ thông tin',
-    # Dầu khí & Năng lượng
-    'GAS': 'Dầu khí', 'PVD': 'Dầu khí', 'PVS': 'Dầu khí', 'BSR': 'Dầu khí & Lọc hóa dầu',
-    'PLX': 'Dầu khí', 'POW': 'Năng lượng điện', 'PC1': 'Năng lượng & Xây lắp', 'REE': 'Năng lượng & Cơ điện',
-    'GELEX': 'Thiết bị điện & Hạ tầng', 'GEX': 'Thiết bị điện & Hạ tầng',
-    # Hóa chất & Phân bón
-    'DGC': 'Hóa chất cơ bản', 'DCM': 'Phân bón & Hóa chất', 'DPM': 'Phân bón & Hóa chất', 'CSV': 'Hóa chất cơ bản',
-    # Vận tải & Logistics
-    'HAH': 'Cảng biển & Vận tải biển', 'GMD': 'Cảng biển & Logistics', 'VSC': 'Cảng biển & Container',
-    'PVT': 'Vận tải dầu khí', 'VOS': 'Vận tải biển',
-    # Xây dựng & Hạ tầng
-    'VCG': 'Xây dựng & Hạ tầng', 'HHV': 'Hạ tầng giao thông', 'FCN': 'Nền móng & Công trình ngầm',
-    'CII': 'Hạ tầng cầu đường', 'CTD': 'Xây dựng dân dụng', 'HBC': 'Xây dựng dân dụng',
-    # Thủy sản & Nông nghiệp
-    'VHC': 'Thủy sản', 'ANV': 'Thủy sản', 'DBC': 'Chăn nuôi & Nông nghiệp', 'BAF': 'Chăn nuôi heo',
-    'PAN': 'Nông nghiệp & Thực phẩm', 'HAG': 'Nông nghiệp & Trái cây',
+# Tứ trụ dòng tiền thanh khoản cao nhất TTCK Việt Nam (Bank - Chứng - Thép - BĐS)
+CORE_PILLAR_SECTORS = {
+    'Ngân hàng',
+    'Chứng khoán',
+    'Thép & VLXD',
+    'Bất động sản',
+    'BĐS Khu công nghiệp',
 }
+
+
+class DynamicStockSectors(dict):
+    """
+    Bảng tra cứu nhóm ngành động tự nạp từ MongoDB Atlas collection 'companies' / 'company_directory'
+    hoặc RAM cache (1,626 mã niêm yết trên HOSE, HNX, UPCoM).
+    Loại bỏ hoàn toàn việc gán cứng (hardcode) danh mục mã cổ phiếu cố định.
+    Hỗ trợ đầy đủ các thao tác: KNOWN_STOCK_SECTORS[sym], .get(), in, .keys(), .items(), len().
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._loaded = False
+        self._loading = False
+
+    def _ensure_loaded(self):
+        """Lazy-load nạp 1,626 mã từ MongoDB/Cache khi được truy cập lần đầu."""
+        if self._loaded or self._loading:
+            return
+        self._loading = True
+        try:
+            from backend.data_providers.company_directory_provider import get_all_stock_sectors_map
+            mapping = get_all_stock_sectors_map()
+            if mapping:
+                self.clear()
+                self.update(mapping)
+                self._loaded = True
+        except Exception:
+            pass
+        finally:
+            self._loading = False
+
+    def __getitem__(self, key):
+        self._ensure_loaded()
+        k = str(key).strip().upper()
+        if k in self:
+            return super().__getitem__(k)
+        try:
+            from backend.data_providers.company_directory_provider import get_dynamic_sector
+            return get_dynamic_sector(k)
+        except Exception:
+            return 'Thị trường chung'
+
+    def get(self, key, default=None):
+        self._ensure_loaded()
+        k = str(key).strip().upper()
+        if k in self:
+            return super().get(k)
+        try:
+            from backend.data_providers.company_directory_provider import get_dynamic_sector
+            sec = get_dynamic_sector(k)
+            if sec and sec != 'Thị trường chung':
+                return sec
+        except Exception:
+            pass
+        return default if default is not None else 'Thị trường chung'
+
+    def __contains__(self, key):
+        self._ensure_loaded()
+        k = str(key).strip().upper()
+        if super().__contains__(k):
+            return True
+        try:
+            from backend.data_providers.company_directory_provider import is_valid_ticker
+            return is_valid_ticker(k)
+        except Exception:
+            return False
+
+    def keys(self):
+        self._ensure_loaded()
+        return super().keys()
+
+    def items(self):
+        self._ensure_loaded()
+        return super().items()
+
+    def values(self):
+        self._ensure_loaded()
+        return super().values()
+
+    def __iter__(self):
+        self._ensure_loaded()
+        return super().__iter__()
+
+    def __len__(self):
+        self._ensure_loaded()
+        return super().__len__()
+
+
+# Bảng tra cứu nhóm ngành động toàn diện (Dynamic Dictionary từ MongoDB 1,626 mã)
+KNOWN_STOCK_SECTORS = DynamicStockSectors()
+
 
 # Nhóm ngành phân loại vai trò
 CORE_SECTORS = {'Ngân hàng', 'Thép & VLXD', 'Bán lẻ tiêu dùng', 'Thực phẩm & Đồ uống', 'Công nghệ thông tin'}

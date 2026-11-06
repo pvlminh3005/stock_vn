@@ -1,435 +1,268 @@
-# Hướng Dẫn Thuật Toán Tính Thông Số & Tạo Lời Khuyên Cổ Phiếu
+# Hướng Dẫn Thuật Toán Tính Thông Số & Đặc Tả Hệ Thống Stock RT
 
-Tài liệu này giải thích chi tiết **cơ chế tính toán các chỉ số kỹ thuật (TA)**, **đánh giá cơ bản doanh nghiệp (FA)** và **thuật toán sinh lời khuyên / khuyến nghị hành động tự động** trong hệ thống **Stock Pro Analytics**.
-
----
-
-## 1. Kiến Trúc Hệ Thống Đánh Giá Đa Chiều
-
-Hệ thống kết hợp mô hình phân tích định lượng 2 trụ cột:
-```
-                     ┌───────────────────────────────────┐
-                     │     Dữ Liệu Đầu Vào Thời Gian Thực│
-                     └─────────────────┬─────────────────┘
-                                       │
-            ┌──────────────────────────┴──────────────────────────┐
-            ▼                                                     ▼
-┌───────────────────────────────┐             ┌───────────────────────────────────┐
-│     Phân Tích Kỹ Thuật (TA)   │             │     Phân Tích Cơ Bản (FA)         │
-│  - Entrade OHLCV 120 phiên    │             │  - Báo cáo tài chính quý/năm      │
-│  - SSI iBoard Mua/Bán chủ động│             │  - P/E, P/B, ROE, EPS, Nợ vay     │
-│  - Trọng số: 60%              │             │  - Trọng số: 40%                  │
-└───────────────┬───────────────┘             └─────────────────┬─────────────────┘
-                │                                               │
-                └──────────────────────┬────────────────────────┘
-                                       ▼
-                       ┌───────────────────────────────┐
-                       │  RULE-BASED INFERENCE ENGINE  │
-                       │   (Hệ thống quy tắc suy diễn) │
-                       └───────────────┬───────────────┘
-                                       ▼
-    ┌──────────────────────────────────┼──────────────────────────────────┐
-    ▼                                  ▼                                  ▼
-┌───────────────────────┐  ┌───────────────────────┐  ┌───────────────────────┐
-│  Thước Đo & Chỉ Báo   │  │   Khuyến Nghị T+      │  │  Khuyến Nghị Trung Hạn│
-│- TA Score & FA Score  │  │- Quyết định (MUA/BÁN) │  │- Tích sản / Chờ mua   │
-│- RSI, Vol Ratio, R:R  │  │- Entry, TP, Stop Loss │  │- Vùng gom, Luận điểm  │
-└───────────────────────┘  └───────────────────────┘  └───────────────────────┘
-```
+Tài liệu này giải thích chi tiết **kiến trúc hệ thống**, **cơ chế tính toán các chỉ số kỹ thuật (TA)**, **định giá & sức khỏe tài chính doanh nghiệp (FA)**, **công cụ quản trị rủi ro định lượng (Risk Engine)**, **bộ quy tắc ra quyết định hợp nhất (Unified Decision Engine)** và **hệ thống cảnh báo Telegram tự động (Telegram Alerts Ecosystem)** trong nền tảng **Stock RT (Realtime Analytics & Risk Management)**.
 
 ---
 
-## 2. Công Thức & Cách Tính Toán Các Thông Số Kỹ Thuật (TA)
+## 1. Kiến Trúc Tổng Thể & Luồng Dữ Liệu Thực Tế
 
-Tất cả các thông số kỹ thuật được tính toán trực tiếp trong hàm `analyze_technicals_and_scoring()` tại file [backend/server.py](file:///Users/minhpvl/Desktop/stock_rt/backend/server.py):
+Hệ thống được tổ chức theo mô hình **Clean Modular Architecture**, tuân thủ nguyên tắc độc lập giữa tầng thu thập dữ liệu (Providers), tầng nghiệp vụ định lượng (Domain Engines), tầng điều khiển (Controllers), và tầng lưu trữ phân tán đám mây (MongoDB Atlas):
 
-### 2.1. Chỉ số Sức mạnh Tương đối - RSI 14 phiên (Relative Strength Index)
+```mermaid
+flowchart TD
+    subgraph Sourcing ["1. DATA PROVIDERS (Dữ liệu Thời gian thực - 100% Live)"]
+        A1["Entrade Realtime Engine<br>(OHLCV 120 nến D1/W1/1M)"]
+        A2["SSI iBoard Orderbook<br>(Khớp lệnh & Mua/Bán chủ động)"]
+        A3["Simplize / vnstock Engine<br>(BCTC, P/E, P/B, ROE, OCF, NIM)"]
+    end
+
+    subgraph Domain ["2. QUANTITATIVE DOMAIN ENGINES (Tính toán & Định lượng)"]
+        B1["Technicals Engine<br>(SuperTrend, EMA9, MA20, RSI, StochRSI, ATR14, Pivots)"]
+        B2["Market Regime & Sentiment<br>(VN-Index Breadth, Fear & Greed 0-100)"]
+        B3["Securities Risk Engine<br>(3 Grounding Rules & 3 Risk Guardrails)"]
+        B4["Unified Decision Engine<br>(Đa khung thời gian T+ vs Trung & Dài hạn)"]
+        B5["VSR Smart Screener<br>(Top 8 Cơ hội T+ & Đèn Xanh Tứ Trụ)"]
+    end
+
+    subgraph Storage ["3. CLOUD STORAGE & CACHE (Pure MongoDB Atlas Cloud)"]
+        C1[("MongoDB Atlas Cloud<br>• telegram_sent_logs (TTL 30d)<br>• screener_snapshots<br>• portfolio_trades<br>• fundamentals & vci_history")]
+        C2["Smart Cache In-Memory<br>(TTL 60s - 180s, Zero Latency)"]
+    end
+
+    subgraph Presentation ["4. DELIVERY & USER INTERFACE"]
+        D1["Web Dashboard Realtime<br>(REST API :8000, Chart, Sổ Lệnh Portfolio)"]
+        D2["Telegram Alert Bot<br>(Đèn Xanh Mua Ngay T0, 5 Mốc Giờ Vàng, Cắt Lỗ/Chốt Lời)"]
+    end
+
+    Sourcing --> Domain
+    Domain <--> Storage
+    Domain --> Presentation
+```
+
+### Bản Đồ Thành Phần Source Code
+- **HTTP Server & REST Routing:** [backend/server.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/server.py)
+- **Controllers:**
+  - Chi tiết mã & Tổng hợp nến: [backend/controllers/stock_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/stock_controller.py)
+  - Bộ lọc cổ phiếu & VSR Top T+: [backend/controllers/screener_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/screener_controller.py)
+  - Sổ lệnh & Gói danh mục: [backend/controllers/portfolio_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/portfolio_controller.py)
+  - Xu hướng & Tâm lý thị trường: [backend/controllers/market_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/market_controller.py)
+- **Domain Engines:**
+  - Chỉ báo Kỹ thuật & SuperTrend: [backend/domain/technicals.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/technicals.py)
+  - Ra quyết định đa khung thời gian: [backend/domain/decision_engine.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/decision_engine.py)
+  - Bộ lọc Top T+ & Đèn Xanh: [backend/domain/screener_engine.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/screener_engine.py)
+  - Đánh giá Rủi ro Định lượng: [backend/domain/risk_engine.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/risk_engine.py)
+  - Phân loại Thị trường (Regime): [backend/domain/regime.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/regime.py)
+  - Nhóm ngành & Gói đầu tư: [backend/domain/portfolio_bundler.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/portfolio_bundler.py)
+- **Data Providers:**
+  - Bảng giá trực tuyến SSI: [backend/data_providers/market_board_provider.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/data_providers/market_board_provider.py)
+  - Lịch sử nến & Intraday Entrade: [backend/data_providers/entrade_provider.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/data_providers/entrade_provider.py)
+  - BCTC & Định giá Simplize/vnstock: [backend/data_providers/fundamental_provider.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/data_providers/fundamental_provider.py)
+- **Database & Telegram Utils:**
+  - Pure MongoDB Atlas Database: [backend/db/portfolio_db.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/db/portfolio_db.py)
+  - Telegram Alert Bot Engine: [backend/utils/telegram_bot.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/utils/telegram_bot.py)
+  - Scheduler giám sát danh mục: [backend/utils/portfolio_scheduler.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/utils/portfolio_scheduler.py)
+  - Định nghĩa Ngành nghề & Tứ Trụ: [backend/constants/sectors.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/constants/sectors.py)
+
+---
+
+## 2. Công Thức & Chỉ Báo Kỹ Thuật (Technical Analysis - TA)
+
+Mọi chỉ báo kỹ thuật được xử lý định lượng trong [backend/domain/technicals.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/technicals.py) dựa trên chuỗi nến lịch sử thực tế (không dùng mock/giả lập):
+
+### 2.1. Dải Xu Hướng SuperTrend Ribbon (ATR 10, Multiplier 3.0)
+SuperTrend đóng vai trò là "la bàn" chỉ báo xu hướng chủ đạo:
+- **Biên trên (Upper Band)**: $\text{Basic Upper} = \frac{\text{High} + \text{Low}}{2} + (3.0 \times \text{ATR10})$
+- **Biên dưới (Lower Band)**: $\text{Basic Lower} = \frac{\text{High} + \text{Low}}{2} - (3.0 \times \text{ATR10})$
+- **Trạng thái dải ruy-băng**:
+  - `VÙNG XANH (BULLISH)`: Giá đóng cửa nằm trên Lower Band $\rightarrow$ Nắm giữ / Canh điểm vào lệnh mua.
+  - `VÙNG HỒNG (BEARISH)`: Giá đóng cửa nằm dưới Upper Band $\rightarrow$ Xu hướng giảm, hạn chế bắt đáy ngược trend.
+  - `ĐẢO CHIỀU MUA (isFlipBuy)`: Phiên đầu tiên giá vượt từ Vùng Hồng sang Vùng Xanh $\rightarrow$ Tín hiệu nổ sóng sớm.
+
+### 2.2. Hệ Thống Đường Trung Bình Động (Moving Averages)
+- **EMA9 (Exponential Moving Average 9)**: Đường xung lực cực ngắn hạn, định hình điểm xoay cho các cổ phiếu có dòng tiền mạnh.
+- **MA20 (Simple Moving Average 20)**: Đường xu hướng ngắn hạn 1 tháng giao dịch. Giá $> MA20$ là điều kiện tiên quyết cho các lệnh mua T+.
+- **MA50 & MA200**: Các ngưỡng hỗ trợ trung và dài hạn cho các quỹ đầu tư tổ chức.
+
+### 2.3. Tỷ Lệ Đột Biến Khối Lượng Quy Chuẩn Phiên (Volume Run-Rate)
+Tránh sai số khối lượng vào đầu phiên sáng (khi thị trường mới mở cửa vol còn thấp):
 - **Công thức**:
-  - `RS = (Trung bình tăng 14 phiên) / (Trung bình giảm 14 phiên)`
-  - `RSI = 100 - (100 / (1 + RS))`
-- **Phân loại ngưỡng**:
-  - `RSI > 70`: **Vùng quá mua** &rarr; Cảnh báo rủi ro đảo chiều, hạn chế mua đuổi.
-  - `RSI < 35`: **Vùng quá bán** &rarr; Tiềm ẩn cơ hội bắt đáy nảy kỹ thuật.
-  - `46 <= RSI <= 68`: **Vùng tích lũy xung lực lành mạnh** &rarr; Lý tưởng để giải ngân.
+  $$\text{Vol Run-rate} = \frac{\text{Khối lượng khớp hiện tại}}{\text{Vol MA20} \times \text{Tỷ lệ thời gian giao dịch đã trôi qua}}$$
+- **Ý nghĩa thực chiến**:
+  - `Vol Run-rate >= 1.5x`: Tiền lớn bùng nổ vượt trội (Dấu chân Cá mập).
+  - `1.0x - 1.49x`: Thanh khoản tích cực, lực cầu duy trì đều đặn.
+  - `0.6x - 0.99x`: Thanh khoản trung tính, tích lũy.
+  - `<= 0.6x`: Cạn kiệt nguồn cung, rũ bỏ thành công.
+
+### 2.4. Tỷ Lệ Khớp Lệnh Mua Chủ Động (Active Buy Ratio)
+Khai thác trực tiếp từ luồng dữ liệu sổ lệnh SSI iBoard:
+$$\text{Buy Ratio} = \frac{\text{stockBUVol}}{\text{stockBUVol} + \text{stockSDVol}} \times 100\%$$
+- `Buy Ratio >= 55%`: Phe Mua chủ động ăn thẳng vào lệnh dư bán, chiếm quyền kiểm soát.
+- `Buy Ratio < 45%`: Phe Bán chủ động ép xả giá thấp.
+
+### 2.5. Chỉ Số Sức Mạnh Tương Đối RSI14 & Phân Kỳ Kỹ Thuật
+- `RSI > 70`: Vùng quá mua ngắn hạn $\rightarrow$ Cảnh báo rủi ro rung lắc chốt lời.
+- `RSI < 35`: Vùng quá bán $\rightarrow$ Tiềm năng đảo chiều phục hồi.
+- `45 <= RSI <= 68`: Vùng tích lũy động lượng tăng bền vững.
+- **Phân kỳ Bullish/Bearish Divergence**: Tự động phát hiện phân kỳ giữa giá và RSI/MACD để phát tín hiệu sớm trước khi giá đảo chiều.
+
+### 2.6. Điểm Xoay Fractal Pivots & Biên Độ Biến Động ATR14
+- **Hỗ trợ S1 & Kháng cự R1/R2**: Tính toán từ các điểm xoay cực trị Fractal cục bộ kết hợp ATR14, tuyệt đối không dùng công thức ngón tay cái cố định.
+- **Biên dao động chuẩn theo sàn**: Tự động căn chỉnh theo biên độ sàn thực tế:
+  - **HOSE:** $\pm 7.0\%$
+  - **HNX:** $\pm 10.0\%$
+  - **UPCoM:** $\pm 15.0\%$
 
 ---
 
-### 2.2. Đường Trung Bình Động MA20 & MA50
-- **MA20 (Ngắn hạn)**: Trung bình cộng giá đóng cửa của 20 phiên giao dịch gần nhất.
-- **MA50 (Trung hạn)**: Trung bình cộng giá đóng cửa của 50 phiên giao dịch gần nhất.
-- **Ý nghĩa**:
-  - `Giá >= MA20`: Cổ phiếu nằm trong **Kênh tăng ngắn hạn (Up-trend)**.
-  - `Giá < MA20`: Cổ phiếu suy yếu, áp lực điều chỉnh ngắn hạn.
-  - `MA20 cắt lên trên MA50`: Tín hiệu giao cắt vàng (Golden Cross), xu hướng tăng trung hạn được xác nhận.
+## 3. Hệ Thống Ra Quyết Định Đa Khung Thời Gian (Unified Decision Engine)
 
----
-
-### 2.3. Tỷ Lệ Đột Biến Khối Lượng (Volume Ratio)
-Đánh giá mức độ tham gia của dòng tiền lớn so với mức trung bình 20 phiên:
-- **Công thức**:
-  `Vol Ratio = (Khối lượng khớp lệnh hôm nay) / (Khối lượng bình quân 20 phiên - Vol MA20)`
-
-| Giá trị `Vol Ratio` | Tín hiệu dòng tiền | Màu sắc hiển thị |
-| :--- | :--- | :--- |
-| **`>= 1.5x`** | **BÙNG NỔ DÒNG TIỀN**: Dòng tiền cá mập nhập cuộc mạnh | `emerald` (Xanh ngọc) |
-| **`1.0x - 1.49x`** | **Thanh khoản tích cực**: Dòng tiền duy trì tốt | `blue` (Xanh dương) |
-| **`0.6x - 0.99x`** | **Thanh khoản bình quân**: Giao dịch ổn định | `slate` (Xám) |
-| **`<= 0.6x`** | **Cạn cung test nền**: Lực bán đã cạn kiệt, chờ bứt phá | `amber` (Vàng) |
-
----
-
-### 2.4. Tỷ Lệ Mua / Bán Chủ Động (Active Flow)
-Lấy trực tiếp từ dữ liệu sổ lệnh SSI iBoard:
-- `stockBUVol`: Khối lượng khớp chủ động vào giá Dư Bán (Bên mua chấp nhận mua lên).
-- `stockSDVol`: Khối lượng khớp chủ động vào giá Dư Mua (Bên bán chủ động xả xuống).
-- **Công thức**:
-  `Buy Ratio = (stockBUVol / (stockBUVol + stockSDVol)) * 100%`
-- **Ý nghĩa**: Nếu `Buy Ratio >= 55%`, phe Mua đang hoàn toàn làm chủ thế trận.
-
----
-
-### 2.5. Xác Định Vùng Hỗ Trợ & Kháng Cự Động (Dynamic Support / Resistance)
-Hệ thống quét biên độ dao động của **25 phiên giao dịch gần nhất** để tìm:
-- **Hỗ trợ cứng (`Support Level`)**: Giá thấp nhất trong 25 phiên (`min(lows[-25:])`).
-- **Kháng cự đỉnh (`Resistance Level`)**: Giá cao nhất trong 25 phiên (`max(highs[-25:])`).
-- **Cơ chế tự sửa lỗi logic**:
-  - Nếu `Support >= Current Price`: Tự động đặt lại hỗ trợ tại `Current Price * 0.96` (cách 4%).
-  - Nếu `Resistance <= Current Price`: Tự động đặt lại kháng cự tại `Current Price * 1.08` (cách 8%).
-
----
-
-### 2.6. Điểm Vào Lệnh (Entry), Chốt Lời (Target) & Cắt Lỗ (Stop Loss)
-- **Vùng mua gom (Entry)**:
-  - `Entry Min = max(Support * 1.01, Current Price * 0.985)`
-  - `Entry Max = Current Price * 0.995`
-- **Giá mục tiêu chốt lời (Target)**: Trùng với kháng cự đỉnh cũ (`Resistance Level`).
-- **Giá cắt lỗ (Stop Loss)**: Đặt dưới hỗ trợ cứng 3% để phòng thủ thủng nền:
-  - `Stop Loss = Support Level * 0.97`
-- **Tỷ lệ Lợi nhuận / Rủi ro (R:R Ratio)**:
-  - `Upside (%) = ((Target - Current Price) / Current Price) * 100%`
-  - `Downside (%) = ((Current Price - Stop Loss) / Current Price) * 100%`
-  - `R:R Ratio = Upside / Downside` *(Hệ thống ưu tiên các giao dịch có tỷ lệ R:R từ 1:2.0 trở lên)*.
-
----
-
-## 3. Thang Điểm Kỹ Thuật (TA Score / 100)
-
-Thang điểm kỹ thuật bắt đầu từ mốc cơ sở **40 điểm** và cộng/trừ điểm theo quy tắc định lượng:
-
-```python
-ta_score = 40
-
-# 1. Vị thế giá so với MA (Tối đa +35 điểm)
-if current_price >= ma20:
-  ta_score += 25  # Giữ được kênh tăng ngắn hạn
-if current_price >= ma50:
-  ta_score += 10  # Xu hướng trung hạn ủng hộ
-
-# 2. Xung lực RSI (Tối đa +15 điểm, trừ tối đa 15 điểm)
-if 50 <= rsi <= 65:
-  ta_score += 15  # Vùng xung lực đẹp nhất
-elif 40 <= rsi < 50:
-  ta_score += 8  # Chớm tích cực
-elif rsi > 70:
-  ta_score -= 15  # Trừ điểm vì rủi ro đu đỉnh quá mua
-elif rsi < 35:
-  ta_score += 5  # Thưởng điểm vì tiềm năng nảy kỹ thuật
-
-# 3. Đột biến Volume (Tối đa +15 điểm)
-if vol_ratio >= 1.5:
-  ta_score += 15  # Tiền lớn vào quyết liệt
-elif vol_ratio >= 1.1:
-  ta_score += 8  # Thanh khoản tốt
-
-# 4. Tỷ lệ Mua chủ động (Tối đa +10 điểm, trừ tối đa 5 điểm)
-if buy_ratio >= 55:
-  ta_score += 10  # Lực cầu chiếm ưu thế
-elif buy_ratio < 45:
-  ta_score -= 5  # Phe bán áp đảo
-
-# Giới hạn điểm số trong khoảng [10, 98]
-ta_score = max(10, min(98, ta_score))
-```
-
----
-
-## 4. Hệ Thống Quy Tắc Ra Lời Khuyên & Khuyến Nghị Tự Động
-
-### 4.1. Lời khuyên Lướt Sóng Ngắn Hạn (Card T+)
-Quyết định T+ được suy luận qua 5 tầng điều kiện ưu tiên:
-
-```
-                  ┌──────────────────────┐
-                  │    Kiểm tra RSI?     │
-                  └──────────┬───────────┘
-                             │
-            ┌────────────────┴────────────────┐
-            ▼ (> 72)                          ▼ (<= 72)
-┌──────────────────────────────┐     ┌──────────────────────┐
-│  QUÁ MUA - HẠN CHẾ ĐUA GIÁ   │     │  TA Score >= 75 và   │
-│- Type: danger (Đỏ)           │     │   Vol Ratio >= 1.2?  │
-│- Lý do: RSI quá cao, nguy cơ │     └──────────┬───────────┘
-│  chỉnh khi gặp đỉnh cũ       │                │
-└──────────────────────────────┘       ┌────────┴────────┐
-                                       ▼ (Đúng)          ▼ (Sai)
-                        ┌──────────────────────────────┐ ┌──────────────────────┐
-                        │ MUA MẠNH - BÙNG NỔ DÒNG TIỀN │ │ Price >= MA20 và     │
-                        │- Type: success (Xanh)        │ │  46 <= RSI <= 68?    │
-                        │- Lý do: Vượt MA20 + Vol bùng │ └──────────┬───────────┘
-                        │  nổ + Cầu chủ động cao       │            │
-                        └──────────────────────────────┘   ┌────────┴────────┐
-                                                           ▼ (Đúng)          ▼ (Sai)
-                                            ┌──────────────────────────────┐ ┌──────────────────────┐
-                                            │ MUA TÍCH LŨY T+ (ĐẠT CHUẨN)  │ │      RSI < 36?       │
-                                            │- Type: success (Xanh)        │ └──────────┬───────────┘
-                                            │- Lý do: Nền giá trên MA20,   │            │
-                                            │  RSI chuẩn, R/R tốt          │   ┌────────┴────────┐
-                                            └──────────────────────────────┘   ▼ (Đúng)          ▼ (Sai)
-                                                                ┌──────────────────────────────┐ ┌──────────────────────────────┐
-                                                                │  BẮT ĐÁY NẢY KỸ THUẬT        │ │  QUAN SÁT / CHƯA CÓ ĐIỂM VÀO │
-                                                                │- Type: warning (Vàng)        │ │- Type: danger (Đỏ)           │
-                                                                │- Lý do: Quá bán chạm hỗ trợ  │ │- Lý do: Giá dưới MA20, bán   │
-                                                                │  cứng, nhịp hồi T+3          │ │  chủ động áp đảo             │
-                                                                └──────────────────────────────┘ └──────────────────────────────┘
-```
-
-#### Chi tiết các trường hợp:
-1. **`RSI > 72`**:
-   - **Quyết định**: `QUÁ MUA - HẠN CHẾ ĐUA GIÁ` (Màu đỏ cảnh báo).
-   - **Lời khuyên**: RSI chạm vùng quá mua, giá tiệm cận kháng cự đỉnh cũ. Ưu tiên canh chốt lời, tuyệt đối không mua đuổi.
-2. **`TA Score >= 75` và `Vol Ratio >= 1.2`**:
-   - **Quyết định**: `MUA MẠNH - BÙNG NỔ DÒNG TIỀN` (Màu xanh ngọc).
-   - **Lời khuyên**: Giá giữ vững trên MA20, khối lượng bùng nổ gấp `x{vol_ratio}` lần bình quân. Lực mua chủ động áp đảo (`{buy_ratio}%`).
-3. **`Price >= MA20` và `46 <= RSI <= 68`**:
-   - **Quyết định**: `MUA TÍCH LŨY T+ (ĐẠT CHUẨN)` (Màu xanh ngọc).
-   - **Lời khuyên**: Nến duy trì trên MA20, RSI lành mạnh, tỷ lệ R:R đạt chuẩn `1:{rr_ratio}`. Mở vị thế gom trong các nhịp rung lắc.
-4. **`RSI < 36`**:
-   - **Quyết định**: `BẮT ĐÁY NẢY KỸ THUẬT (RỦI RO CAO)` (Màu vàng).
-   - **Lời khuyên**: Cổ phiếu chiết khấu sâu về vùng hỗ trợ cứng `{support} đ`. Đánh nhanh nhịp hồi phục T+3 kiểm định lại MA20.
-5. **Các trường hợp còn lại**:
-   - **Quyết định**: `QUAN SÁT / CHƯA CÓ ĐIỂM VÀO` (Màu xám/đỏ).
-   - **Lời khuyên**: Giá vận động dưới MA20, lực bán chủ động vẫn chiếm ưu thế. Cần chờ dòng tiền lớn xác nhận lại xu hướng.
-
----
-
-### 4.2. Lời khuyên Đầu Tư Trung & Dài Hạn (Card Trung Hạn)
-Dựa trên chất lượng doanh nghiệp (FA Score), ROE, P/E và vị thế giá so với đường MA50:
-
-1. **`FA Score >= 70` và `Current Price <= MA50 * 1.08`**:
-   - **Quyết định**: `GOM MUA TÍCH SẢN (VÙNG GIÁ TỐT)` (Màu xanh).
-   - **Lời khuyên**: Doanh nghiệp cơ bản xuất sắc (Hạng A), ROE `{roe}%`. Vùng giá đang chiết khấu an toàn gần MA50, thích hợp gom dần tích sản theo phương pháp DCA.
-2. **`P/E > 22.0`**:
-   - **Quyết định**: `CHỜ CHIẾT KHẤU THÊM (P/E CAO)` (Màu vàng).
-   - **Lời khuyên**: P/E hiện tại `{pe}x` đã phản ánh phần lớn kỳ vọng tương lai, biên an toàn chưa đủ dày để giải ngân tỷ trọng lớn.
-3. **Mặc định**:
-   - **Quyết định**: `NẮM GIỮ THEO DÕI NỀN` (Màu vàng).
-   - **Lời khuyên**: Định giá ở mức hợp lý, tiếp tục theo dõi báo cáo kết quả kinh doanh quý tiếp theo.
-
----
-
-### 4.3. Banner Kết Luận Toàn Diện (Overall Verdict)
-Tổng hợp điểm số chung theo trọng số:
-- **Công thức tính điểm**:
-  `Total Score = (TA Score * 0.60) + (FA Score * 0.40)`
-
-
-| Điều kiện | Danh hiệu & Đánh giá tổng hợp | Màu sắc |
-| :--- | :--- | :--- |
-| `TA Score >= 75` & `FA Score >= 70` | 🌟 **CỔ PHIẾU HOÀN HẢO**: FA xuất sắc & Dòng tiền T+ bùng nổ | `emerald` |
-| `TA Score >= 70` | ⚡ **DÒNG TIỀN T+ MẠNH**: Ưu tiên lướt sóng ngắn hạn | `blue` |
-| `FA Score >= 75` | 💎 **DOANH NGHIỆP GIÁ TRỊ**: Thích hợp gom tích sản trung hạn | `indigo` |
-| `TA Score < 45` & `FA Score < 50` | ⚠️ **CẢNH BÁO RỦI RO**: Cả kỹ thuật và cơ bản đều suy yếu | `rose` |
-| Trường hợp khác | ⏳ **TRẠNG THÁI TRUNG TÍNH**: Tích lũy chờ đợi tín hiệu mới | `amber` |
-
----
-
-## 5. Bảng Chỉ Số Tài Chính Cơ Bản (Fundamental Metrics - FA)
-
-Dữ liệu cơ bản được tự động tải từ **BCTC thực tế thông qua thư viện `vnstock`** và lưu đệm vào SQLite tại [backend/server.py](file:///Users/minhpvl/Desktop/stock_rt/backend/server.py):
-
-
-| Chỉ số | Ý nghĩa | Ngưỡng đánh giá tốt |
-| :--- | :--- | :--- |
-| **P/E (Price to Earnings)** | Định giá theo lợi nhuận | `<= 15.0x` (rẻ), `15 - 20x` (hợp lý), `> 22x` (cao) |
-| **P/B (Price to Book)** | Định giá theo giá trị sổ sách | `<= 1.8x` đối với ngân hàng, `<= 2.5x` đối với sản xuất |
-| **ROE (%)** | Hiệu quả sinh lời trên vốn chủ | `>= 18%` (Doanh nghiệp có lợi thế cạnh tranh bền vững) |
-| **EPS (VNĐ)** | Lợi nhuận kiếm được trên mỗi cổ phần | Càng cao càng tốt (tối thiểu `> 2.500 đ`) |
-| **Tăng trưởng DT / LN (%)** | Tốc độ tăng trưởng so với cùng kỳ | `> 15% / năm` thể hiện doanh nghiệp đang mở rộng quy mô |
-| **D/E (Nợ / Vốn chủ sở hữu)** | Đòn bẩy tài chính & sức khỏe nợ | `<= 1.0x` (Sản xuất), `<= 3.0x` (Xây lắp/BĐS) |
-
----
-
-## 6. Ví Dụ Cụ Thể Về Output Trả Về Của 1 Mã
-
-Khi gọi API `/api/stock?ticker=FPT&resolution=1D`, JSON trả về chứa đầy đủ các phân tích trên:
-
-```json
-{
-  "code": "FPT",
-  "name": "Công ty Cổ phần FPT",
-  "price": 62700,
-  "percentChange": 0.32,
-  "technicals": {
-    "rsi": 58.4,
-    "ma20": 61200,
-    "ma50": 58900,
-    "volRatio": 1.45,
-    "volSignal": "Thanh khoản tích cực (x1.45)",
-    "buyRatio": 59.2,
-    "support": 59500,
-    "resistance": 66000,
-    "rrRatio": 2.1,
-    "taScore": 82,
-    "totalScore": 84,
-    "overallStatus": "🌟 CỔ PHIẾU HOÀN HẢO: FA xuất sắc & Dòng tiền T+ bùng nổ",
-    "overallColor": "emerald",
-    "tPlus": {
-      "decision": "MUA MẠNH - BÙNG NỔ DÒNG TIỀN",
-      "type": "success",
-      "entry": "61.500 - 62.200 đ",
-      "target": "66.000 đ (+5.3%)",
-      "stop": "57.700 đ (-8.0%)",
-      "reason": "Giá giữ vững trên MA20 (61.200 đ), Volume bùng nổ gấp 1.45x lần trung bình 20 phiên. Lực cầu chủ động chiếm 59.2%."
-    },
-    "midTerm": {
-      "decision": "GOM MUA TÍCH SẢN (VÙNG GIÁ TỐT)",
-      "type": "success",
-      "entry": "59.000 - 62.000 đ",
-      "target": "75.000 đ (+19.6%)",
-      "stop": "55.000 đ",
-      "reason": "Doanh nghiệp FA loại A (Tập đoàn FPT), ROE đạt 27.5%. Giá chiết khấu hấp dẫn gom theo phương pháp DCA."
-    }
-  },
-  "fundamentals": {
-    "pe": 21.8,
-    "pb": 5.2,
-    "roe": 27.5,
-    "eps": 4850,
-    "faScore": 88
-  }
-}
-```
-
----
-
-## 7. Chuyên Gia Định Lượng & Đánh Giá Rủi Ro (Securities Risk Assessment Engine)
-
-Hệ thống tích hợp bộ công cụ định lượng độc lập và đánh giá rủi ro chuyên sâu chuẩn 5 phần, vận hành dựa trên **3 Nguyên tắc bất di bất dịch (Grounding Rules)** và **Hệ thống Ngưỡng chặn (Risk Guardrails)**:
-
-### 7.1. Ba Nguyên Tắc Bất Di Bất Dịch (Grounding Rules)
-1. **Không suy diễn ngoài dữ liệu**: Tuyệt đối không tự bịa đặt chỉ số tài chính, tin tức hay sự kiện không có trong payload đầu vào. Nếu một trường dữ liệu ghi "Không có", "Chưa cập nhật" hoặc rỗng, nêu rõ là *"Dữ liệu chưa ghi nhận"*.
-2. **Khách quan đa chiều**: Mọi nhận định tích cực phải đi kèm ít nhất một yếu tố rủi ro tương ứng được tìm thấy trong dữ liệu thực tế.
-3. **Phân biệt giữa Dự báo và Thực tế**: Luôn chỉ rõ số liệu nào là thực tế quá khứ/hiện tại và nhận định nào mang tính xác suất kịch bản.
-
-### 7.2. Ba Ngưỡng Chặn Rủi Ro (Risk Guardrails)
-- **🚨 Guardrail 1 (Hưng phấn quá mức + Khối ngoại xả hàng)**:
-  - Nếu `market_fear_greed_index > 80` (hoặc RSI > 72 & tâm lý hưng phấn) kết hợp khối ngoại bán ròng mạnh (`foreign_net < -50.000` cp): Buộc AI hạ tỷ trọng khuyến nghị mua mới, ưu tiên quản trị chốt lời bảo vệ thành quả.
-- **🛑 Guardrail 2 (Rủi ro pháp lý / Pha loãng sâu)**:
-  - Nếu phát hiện cờ cảnh báo về tranh chấp pháp lý (`legal_disputes`) hoặc kế hoạch phát hành riêng lẻ chiết khấu sâu: Chuyển trạng thái khuyến nghị sang *"Thận trọng / Hạn chế giao dịch"* bất chấp tín hiệu kỹ thuật.
-- **⚠️ Guardrail 3 (Chất lượng Lợi nhuận kém + Đòn bẩy Nợ cao)**:
-  - Nếu Dòng tiền thuần HĐKD (`OCF < 0`) kết hợp đòn bẩy Nợ/VCSH cao (`D/E > 1.8x`) hoặc Sức mạnh giá quá yếu (`RS < 40`): Cảnh báo rủi ro dòng tiền giấy/khoản phải thu, tự động thắt chặt trần giải ngân không quá 10% NAV và cấm dùng đòn bẩy Margin.
-
-### 7.3. Cấu Trúc Đầu Ra 5 Phần Bắt Buộc
-1. **Tổng quan tác động Vĩ mô & Ngành**: Đánh giá môi trường [Tích cực / Trung lập / Bất lợi], tác động từ lãi suất, tỷ giá, lạm phát đến biên LN & chi phí vốn.
-2. **Nội tại & Rủi ro pháp lý doanh nghiệp**: Chất lượng tăng trưởng (BCTC vs P/E, P/B, ROE, OCF & Gross/Net Margin) và rủi ro quản trị & pha loãng.
-3. **Dòng tiền & Tâm lý thị trường**: Dòng vốn khối ngoại, Fear & Greed Index, Sức mạnh giá tương đối RS O'Neil (1-99) và Alpha vs VN-Index.
-4. **Ma trận kịch bản kỳ vọng & Quản trị rủi ro**: Bull Case (kích hoạt, mục tiêu giá), Bear Case (rủi ro, hỗ trợ/cắt lỗ), Tỷ lệ R:R.
-5. **Kết luận hành động**: Trạng thái [Tích lũy / Theo dõi / Hạ tỷ trọng / Mở vị thế thăm dò / Thận trọng / Hạn chế giao dịch], Hướng dẫn quy mô vị thế (Pilot 35% vs Pyramid 65%), Lưu ý cốt lõi quan trọng nhất.
-
----
-
-## 8. Các Tiêu Chí Nâng Cao Chuẩn Quỹ Đầu Tư Định Lượng (Advanced Institutional Criteria)
-
-Để khắc phục hoàn toàn những hạn chế của phân tích kỹ thuật đơn lẻ hoặc phân tích tài chính tĩnh, hệ thống đã tích hợp 4 tiêu chí cốt lõi chuẩn Phố Wall và các Quỹ tương hỗ (Mutual Funds):
+Được hiện thực hóa trong [backend/domain/decision_engine.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/decision_engine.py), hệ thống cung cấp khuyến nghị minh bạch và dứt khoát chia theo **2 khung thời gian độc lập**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                 BỐN TRỤ CỘT ĐỊNH LƯỢNG NÂNG CAO (INSTITUTIONAL)              │
-├───────────────────────────────┬─────────────────────────────────────────────┤
-│ 1. SỨC MẠNH GIÁ RS O'NEIL     │ So sánh tương quan Alpha với VN-Index       │
-│    (CANSLIM Rating 1-99)      │ Phân loại Siêu cổ phiếu dẫn dắt (Leader)    │
-├───────────────────────────────┼─────────────────────────────────────────────┤
-│ 2. CHẤT LƯỢNG LỢI NHUẬN (OCF) │ Dòng tiền HĐKD thực tế vs LNST sổ sách      │
-│    & BIÊN LỢI NHUẬN / NIM     │ Nhận diện bẫy "lợi nhuận trên giấy"         │
-├───────────────────────────────┼─────────────────────────────────────────────┤
-│ 3. QUẢN TRỊ VỊ THẾ & NAV      │ Ngân sách rủi ro cố định 1.5% NAV           │
-│    (Position Sizing Guide)    │ Giải ngân Pilot (35%) -> Pyramid (65%)      │
-├───────────────────────────────┼─────────────────────────────────────────────┤
-│ 4. ĐA KHUNG THỜI GIAN         │ Đồng thuận Xu hướng D1 (MA20) & W1 (MA10)   │
-│    (Multi-Timeframe Confluence│ Tránh bẫy Bulltrap / Beartrap ngược xu thế  │
-└───────────────────────────────┴─────────────────────────────────────────────┘
+│                   UNIFIED DECISION ENGINE (ĐA KHUNG THỜI GIAN)               │
+├─────────────────────────────────────────────┬───────────────────────────────┤
+│ 1. NHÁNH LƯỚT SÓNG T+ (D1: 2 - 7 PHIÊN)     │ 2. NHÁNH TRUNG HẠN (W1/1M: 3 - 12 THÁNG)
+├─────────────────────────────────────────────┼───────────────────────────────┤
+│ • Focus: Dòng tiền, EMA9, Net R:R, Vol Rate │ • Focus: P/E, P/B, ROE, OCF, Vùng Fair Value
+│ • Điểm mua: Bùng nổ (Breakout) / Gom nền    │ • Điểm mua: Gom tích sản DCA vùng chiết khấu
+│ • Quản trị: Chốt lời TP1/TP2 & Cắt lỗ S1   │ • Quản trị: Vùng dừng lỗ theo vi phạm nền FA
+└─────────────────────────────────────────────┴───────────────────────────────┘
 ```
 
-### 8.1. Chỉ Số Sức Mạnh Giá Tương Đối RS Rating (1 - 99 vs VN-Index)
-Dựa trên nguyên lý **CANSLIM của William O'Neil**: Nhà đầu tư tổ chức luôn tìm kiếm cổ phiếu thể hiện sức mạnh vượt trội hơn thị trường chung.
+### 3.1. Chiến Lược Lướt Sóng T+ (Ngắn Hạn 2 - 7 Phiên)
+Tách biệt rõ ràng 2 nhánh vị thế:
 
-- **Dữ liệu đầu vào**:
-  - Chuỗi nến đóng cửa 120 phiên của cổ phiếu và chỉ số VN-Index (lấy từ cổng API Entrade Real-time).
-- **Công thức tính toán**:
-  - `Return 1 Tháng (1M) = (Close_t / Close_{t-20} - 1) * 100%`
-  - `Return 3 Tháng (3M) = (Close_t / Close_{t-60} - 1) * 100%`
-  - `Alpha 1M = Return_CP_1M - Return_VNI_1M`
-  - `Alpha 3M = Return_CP_3M - Return_VNI_3M`
-  - Điểm hiệu suất tổng hợp: `Weighted Return = (Return_1M * 0.40) + (Return_3M * 0.60)`
-  - Điểm hiệu suất VN-Index: `Weighted VNI = (VNI_1M * 0.40) + (VNI_3M * 0.60)`
-  - `Alpha Composite = Weighted Return - Weighted VNI`
-  - `RS Score = int(clamp(50 + (Alpha Composite * 1.5), 1, 99))`
+#### A. Vị thế Mua Mới (New Entry):
+1. **`MUA BÙNG NỔ (BREAKOUT T0)`**: $Vol\_RunRate \ge 1.2x$, $Buy\_Ratio \ge 55\%$, giá tăng $> +0.5\%$ bám trên EMA9, Net R:R $\ge 1.2$. Giải ngân Thăm dò Bước 1 ($30-40\%$ size).
+2. **`MUA NỀN (PULLBACK T+)`**: Giá giữ vững trên EMA9/MA20, sát nền $S1$ ($dist\_S1 \le 3.5\%$), RSI tích lũy $45-66$, Net R:R $\ge 1.4$.
+3. **`QUAN SÁT (SÁT CẢN R1 / R:R MỎNG)`**: Khi giá tiệm cận cản $R1$ (dư địa $< 2.5\%$), Net R:R $< 1.2$, hệ thống đưa ra khuyến nghị: **"Không mua đuổi giá cao. Đặt lệnh đón lõng tại Vùng gom nền khi có nhịp retest"**.
+4. **`QUAN SÁT (VÙNG HỒNG / DOWNTREND)`**: Cổ phiếu nằm dưới MA20 trong Vùng Hồng của SuperTrend $\rightarrow$ Đứng ngoài bảo vệ vốn, tránh bắt dao rơi.
+
+#### B. Vị thế Đang Nắm Giữ (Hold Strategy):
+- **Cắt lỗ kỷ luật S1 (`SELL` / 0% NAV)**: Kích hoạt ngay khi giá vi phạm thủng $S1$.
+- **Khóa lãi Trailing Stop (`SELL`)**: Khi cổ phiếu đã đạt mục tiêu TP1 và sau đó quay đầu thủng mốc chặn lãi Trailing Stop bám EMA9.
+- **Chốt lời đa tầng (Multi-tier Take Profit)**:
+  - **TP1 (Stage 1 - Chạm R1)**: Chốt lời chủ động $50\%$ vị thế.
+  - **TP2 (Stage 2 - Chạm R2)**: Chốt lời toàn bộ phần vị thế còn lại.
+
+---
+
+## 4. Bảng Chỉ Số Phân Tích Cơ Bản (FA) & Định Giá Doanh Nghiệp
+
+Được cung cấp bởi [backend/data_providers/fundamental_provider.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/data_providers/fundamental_provider.py):
+
+| Chỉ số | Cách tính toán & Nguồn dữ liệu | Ngưỡng đánh giá |
+| :--- | :--- | :--- |
+| **P/E (Price to Earnings)** | Thị giá / EPS trượt 4 quý gần nhất | $\le 15.0x$ (Hấp dẫn), $15 - 20x$ (Hợp lý), $> 22x$ (Đắt) |
+| **P/B (Price to Book)** | Thị giá / Giá trị sổ sách trên mỗi CP | $\le 1.8x$ (Bank/TC), $\le 2.2x$ (Sản xuất), $> 3.5x$ (Cao) |
+| **ROE (%)** | Lợi nhuận sau thuế / Vốn chủ sở hữu | $\ge 18\%$ (Lợi thế cạnh tranh Moat bền vững) |
+| **EPS (VNĐ)** | Thu nhập ròng trên mỗi cổ phần | Càng cao càng tốt (Tối thiểu $> 2.500$ đ) |
+| **Dòng tiền OCF** | Lưu chuyển tiền tệ thuần từ HĐKD | $OCF > 0$ và $OCF \ge LNST$: Chất lượng LN Loại A |
+| **Biên LN & NIM** | NIM (Ngân hàng), Biên gộp/ròng (SX) | NIM $\ge 3.5\%$ (Bank khỏe), Biên gộp $\ge 25\%$ (SX) |
+
+---
+
+## 5. Đánh Giá Rủi Ro Định Lượng (Securities Risk Engine)
+
+Vận hành tại [backend/domain/risk_engine.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/domain/risk_engine.py), áp dụng nghiêm ngặt các quy tắc:
+
+### 5.1. Ba Nguyên Tắc Bất Di Bất Dịch (Grounding Rules)
+1. **Không suy diễn ngoài dữ liệu**: Tuyệt đối không bịa đặt số liệu tài chính hoặc nhận định sai lệch. Nếu dữ liệu rỗng, thông báo trung thực là *"Dữ liệu chưa ghi nhận"*.
+2. **Khách quan đa chiều**: Mọi khuyến nghị tăng trưởng phải đi kèm cảnh báo rủi ro tương ứng tìm thấy trong dữ liệu thực tế.
+3. **Phân biệt Thực tế và Xác suất kịch bản**: Tách bạch giữa số liệu BCTC đã công bố và các kịch bản Bull/Bear xác suất.
+
+### 5.2. Ba Ngưỡng Chặn Rủi Ro (Risk Guardrails)
+- **🚨 Guardrail 1 (Quá hưng phấn & Khối ngoại bán ròng)**: Nếu chỉ số `Fear & Greed > 80` kết hợp khối ngoại bán ròng mạnh $> 50.000$ CP $\rightarrow$ Hạ tỷ trọng mua mới, ưu tiên bảo vệ lợi nhuận.
+- **🛑 Guardrail 2 (Rủi ro pháp lý & Pha loãng)**: Cảnh báo tranh chấp pháp lý hoặc phát hành riêng lẻ chiết khấu sâu $\rightarrow$ Khuyến nghị thận trọng, tạm dừng giải ngân.
+- **⚠️ Guardrail 3 (Lợi nhuận trên giấy OCF < 0 & Nợ cao D/E > 1.8x)**: Doanh nghiệp có nguy cơ kẹt thanh khoản $\rightarrow$ Giới hạn trần giải ngân không quá $10\%$ NAV, tuyệt đối không dùng margin.
+
+---
+
+## 6. Sức Mạnh Giá Tương Đối RS O'Neil (CANSLIM Rating 1 - 99)
+
+So sánh tương quan hiệu suất sức mạnh giá giữa cổ phiếu và VN-Index:
+- **Dữ liệu đầu vào**: Chuỗi giá đóng cửa 120 phiên từ Entrade Realtime API.
+- **Công thức**:
+  $$\text{Weighted Return} = (\text{Return}_{1M} \times 0.40) + (\text{Return}_{3M} \times 0.60)$$
+  $$\text{Alpha Composite} = \text{Weighted Return}_{\text{Stock}} - \text{Weighted Return}_{\text{VN-Index}}$$
+  $$\text{RS Score} = \text{clamp}(50 + (\text{Alpha Composite} \times 1.5),\; 1,\; 99)$$
 - **Phân loại cấp bậc (Tier)**:
-  - `RS >= 80`: **Siêu cổ phiếu (Top 20% dẫn dắt)** &rarr; Ưu tiên số 1 khi thị trường chung tạo đáy hoặc bứt phá.
-  - `65 <= RS < 80`: **Trên trung bình (Outperform)** &rarr; Cổ phiếu khỏe, thanh khoản tốt.
-  - `45 <= RS < 65`: **Trung bình (In-line thị trường)** &rarr; Vận động bám sát chỉ số chung.
-  - `RS < 45`: **Yếu hơn thị trường (Laggard)** &rarr; Tránh mua bắt đáy vì dòng tiền lớn chưa tham gia.
+  - $\text{RS} \ge 80$: **Siêu cổ phiếu dẫn dắt (Leader)** $\rightarrow$ Ưu tiên giải ngân số 1.
+  - $65 \le \text{RS} < 80$: **Khỏe hơn thị trường (Outperform)**.
+  - $45 \le \text{RS} < 65$: **Vận động theo chỉ số (In-line)**.
+  - $\text{RS} < 45$: **Yếu hơn thị trường (Laggard)** $\rightarrow$ Tránh mua bắt đáy.
 
 ---
 
-### 8.2. Đánh Giá Chất Lượng Lợi Nhuận (Quality of Earnings: OCF vs LNST) & Biên Lãi
-Một doanh nghiệp có LNST tăng trưởng cao vẫn có thể phá sản nếu dòng tiền kinh doanh bị âm liên tục do bị khách hàng chiếm dụng vốn (nợ đọng phải thu) hoặc tồn kho ứ đọng.
+## 7. Quy Mô Vị Thế & Quản Trị Danh Mục (Position Sizing Guide)
 
-- **Dòng tiền thuần HĐKD (Operating Cash Flow - OCF)**:
-  - Khai thác từ Báo cáo Lưu chuyển Tiền tệ quý gần nhất (nguồn BCTC chuẩn kiểm toán).
-  - So sánh `OCF` với Lợi nhuận Sau thuế (`LNST`):
-    - `OCF > 0` và `OCF >= LNST`: **Chất lượng LN loại A (Tiền tươi thóc thật)** &rarr; Khả năng trả nợ và chia cổ tức tiền mặt vững chắc.
-    - `OCF > 0` nhưng `OCF < LNST`: **Trung bình** &rarr; Doanh nghiệp cần vốn lưu động cho chu kỳ kinh doanh.
-    - `OCF < 0` trong khi LNST dương: **BÁO ĐỘNG ĐỎ** &rarr; Lợi nhuận chỉ nằm trên sổ sách, rủi ro nợ xấu và tắc nghẽn thanh khoản tiềm ẩn.
-- **Biên Lợi Nhuận (Gross / Net Margin)**:
-  - `Biên Lợi Nhuận Gộp = (Lợi nhuận gộp / Doanh thu thuần) * 100%`: Đo lường lợi thế cạnh tranh độc quyền (Moat) và năng lực chuyển áp lực giá đầu vào sang khách hàng.
-  - `Biên Lợi Nhuận Ròng = (LNST / Doanh thu thuần) * 100%`: Đo lường hiệu quả quản lý chi phí tài chính, bán hàng và quản lý DN.
-  - **Chỉ tiêu chuyên biệt cho Ngành Ngân Hàng**:
-    - **NIM (Net Interest Margin - Biên Lãi Thuần)**: Thước đo hiệu quả sinh lời cốt lõi của ngân hàng thương mại.
-    - **LDR (Loan to Deposit Ratio - Tỷ lệ Dư tín dụng / Vốn huy động)**: Giám sát an toàn thanh khoản theo quy định của Ngân hàng Nhà nước.
+- **Ngân sách rủi ro cố định ($1.5\%$ NAV)**: Không cho phép khoản lỗ tối đa của một vị thế vượt quá $1.5\%$ tổng NAV danh mục:
+  $$\text{Tỷ trọng tối đa \% NAV} = \min\left(25\%,\; \frac{1.5\%}{\% \text{Khoảng cách cắt lỗ S1}}\right)$$
+- **Chiến thuật Kim Tự Tháp 2 Bước (Pyramiding Strategy)**:
+  - **Bước 1 - Thăm dò (Pilot Position)**: $30-40\%$ quy mô mục tiêu khi đạt chuẩn tín hiệu ban đầu.
+  - **Bước 2 - Gia tăng (Pyramid Position)**: $60-70\%$ còn lại chỉ khi lô thăm dò đã sinh lãi đệm an toàn $+3\%$ đến $+5\%$. Tuyệt đối không bình quân giá xuống khi đang lỗ.
 
 ---
 
-### 8.3. Hướng Dẫn Quản Trị Vị Thế & Quy Mô Giải Ngân (Position Sizing Guide)
-Nhà đầu tư chuyên nghiệp không bao giờ "all-in" vào 1 lệnh hoặc mua bình quân giá xuống (averaging down) khi đang lỗ.
+## 8. Hệ Thống Cảnh Báo Telegram "Đèn Xanh Hành Động Ngay" (Dual-Engine Actionable Alerts)
 
-- **Ngân Sách Rủi Ro Cố Định (Fixed Portfolio Risk Budget = 1.5% NAV)**:
-  - Không cho phép khoản lỗ tối đa của một vị thế vượt quá **1.5% tổng tài sản ròng (NAV)**.
-  - Khoảng cách cắt lỗ: `% Stop Loss = (Entry Price - Stop Loss Price) / Entry Price * 100%`
-  - Quy mô vị thế tối đa được phép:
-    $$\text{Max \% NAV} = \min\left(25\%,\; \text{round}\left(\frac{1.5\%}{\% \text{Stop Loss}} \times 100\%\right)\right)$$
-    *(Khống chế trần không vượt quá 25% NAV cho một cổ phiếu riêng lẻ để đảm bảo đa dạng hóa danh mục).*
-- **Chiến Thuật Mua Kim Tự Tháp 2 Bước (Pyramiding Strategy)**:
-  - **Bước 1 - Vị thế Thăm dò (Pilot Position - 35% quy mô mục tiêu)**:
-    - Giải ngân khi cổ phiếu xuất hiện điểm mua kỹ thuật chuẩn (Pocket Pivot, Test MA20 thành công).
-  - **Bước 2 - Vị thế Gia tăng (Pyramid Position - 65% còn lại)**:
-    - **Chỉ kích hoạt** khi vị thế thăm dò đã chạy và sinh lãi đệm an toàn (`+3% đến +5%`).
-    - Tuyệt đối không gia tăng vị thế khi lô thăm dò đang bị âm tiền.
+Vận hành tại [backend/controllers/screener_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/screener_controller.py) và [backend/utils/telegram_bot.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/utils/telegram_bot.py):
+
+### 8.1. Mô Hình Hai Tầng Sóng (Dual-Engine Sector Model)
+Để vừa đảm bảo **an toàn thanh khoản cao (không sợ trượt giá)** vừa **không bao giờ bỏ sót Siêu cổ phiếu dẫn dắt của các ngành khác qua từng quý** (như FPT, FRT, DGC, PVD, HAH, CTR...), hệ thống vận hành mô hình 2 tầng định lượng:
+
+```mermaid
+flowchart TD
+    A["Bảng giá Realtime Toàn Thị Trường (1,626 mã)"] --> B{"TẦNG 1: TỨ TRỤ THANH KHOẢN?<br>(Bank, Chứng, Thép, BĐS)"}
+    
+    B -- Thuộc Tứ Trụ --> C{"Đạt chuẩn Đèn Xanh Tứ Trụ?<br>(+1.0% <= Change <= +3.2%<br>& dist_S1 <= 2.5% & Vol >= 1.0x)"}
+    C -- Đạt --> E["🟢 ĐÈN XANH: MUA NGAY T0"]
+    C -- Chưa đạt --> X1["Bỏ qua"]
+    
+    B -- Ngành Khác (Ngoài Tứ Trụ) --> D{"TẦNG 2: SIÊU CỔ PHIẾU DẪN DẮT?<br>(Market Leader CANSLIM)"}
+    D -- Đạt RS >= 78 & Vol >= 1.35x & Mua CĐ >= 58% --> F["⭐ ĐÈN XANH: SIÊU CỔ PHIẾU DẪN DẮT<br>(FPT, FRT, DGC, HAH, PVD, CTR...)"]
+    D -- Không đạt --> X2["Bỏ qua"]
+```
+
+### 8.2. Tiêu Chuẩn 2 Tầng Lọc Định Lượng
+
+#### Tầng 1: Đèn Xanh Tứ Trụ (Bank, Chứng, Thép, BĐS) - An toàn thanh khoản:
+1. **Nhóm ngành:** Thuộc `CORE_PILLAR_SECTORS` (`Ngân hàng`, `Chứng khoán`, `Thép & VLXD`, `Bất động sản`) chiếm >70% thanh khoản thị trường.
+2. **Sắc xanh chân sóng:** $+1.0\% \le \text{changePct} \le +3.2\%$ và $\text{dist\_s1} \le 2.5\%$ (không rủi ro đu đỉnh).
+3. **Dòng tiền xác nhận:** $Vol\_RunRate \ge 1.0\times$ TB20, $Buy\_Ratio \ge 55.0\%$, nến không bị rút râu trên ($Upper\_Wick \le 0.35$).
+4. **Dư địa sóng & Net R:R:** $\text{Upside to } R1 \ge 3.0\%$, $\text{Net R:R} \ge 1.4$ tính tại thị giá hiện tại.
+
+#### Tầng 2: Siêu Cổ Phiếu Dẫn Dắt Toàn Thị Trường (Market Leader) - Bắt trọn sóng chu kỳ:
+1. **Áp dụng toàn thị trường:** Bất kể ngành nào (Bán lẻ, Công nghệ, Dầu khí, Hóa chất, Cảng biển, Điện, Thủy sản...).
+2. **Sức mạnh giá siêu việt:** $\text{RS Rating} \ge 78/99$ (thuộc Top 22% cổ phiếu khỏe nhất toàn sàn chứng khoán, Alpha vượt trội VN-Index).
+3. **Bứt phá mạnh mẽ:** $+1.5\% \le \text{changePct} \le +4.5\%$, nến giữ vững trên EMA9 và $\text{dist\_s1} \le 3.8\%$.
+4. **Dòng tiền tổ chức/Cá mập bùng nổ:** $Vol\_RunRate \ge 1.35\times$ TB20, $Buy\_Ratio \ge 58.0\%$, $Upper\_Wick \le 0.35$.
+5. **Dư địa sóng & Net R:R:** $\text{Upside to } R1 \ge 3.5\%$, $\text{Net R:R} \ge 1.4$.
+
+### 8.3. Chốt Chặn Chống Whipsaw (Khóa 1 Lần / Ngày)
+- Khóa định danh: `ACTIONABLE_GREEN_{today}_{symbol}` với thời gian cooldown 24h (`86,400s`).
+- Mỗi mã chỉ rung chuông đúng **1 lần duy nhất trong ngày**. Dù sau đó thị giá có giằng co lên xuống quanh tham chiếu, hệ thống tuyệt đối không spam lặp lại.
+
+### 8.4. 5 Mốc Giờ Vàng Cảnh Báo Cố Định
+- **Mốc 0 (09:25 - 09:40):** Radar sóng sớm sau ATO (1-2 mã chớm bùng nổ chân sóng).
+- **Mốc 1 (10:15 - 10:45):** Sóng sớm bùng nổ T0.
+- **Mốc 2 (11:35 - 12:00):** Bản tin trưa tổng kết phiên sáng (Điểm số VN-Index, % chính xác và Top 4 cơ hội).
+- **Mốc 3 (14:05 - 14:25):** Điểm mua chuẩn Giờ Vàng sau khi thị trường hấp thụ lượng hàng T+2.5.
+- **Mốc 4 (14:50 - 15:15):** Tổng kết đóng cửa ATC & Xác nhận tín hiệu nến Daily cho ngày mai.
 
 ---
 
-### 8.4. Đồng Thuận Xu Hướng Đa Khung Thời Gian (Multi-Timeframe Trend Confluence)
-Tránh "nhìn một cây mà không thấy cả cánh rừng" bằng cách kết hợp khung Ngày (D1) và khung Tuần (W1):
+## 9. Lưu Trữ Dữ Liệu & Audit Log Tinh Gọn Trên MongoDB Atlas
 
-- **Khung Trung Hạn - Tuần (W1)**: Đường trung bình động **10 tuần (Weekly MA10)** đại diện cho chi phí vốn trung bình của các quỹ đầu tư lớn trong 2.5 tháng.
-- **Khung Ngắn Hạn - Ngày (D1)**: Đường trung bình động **20 ngày (Daily MA20)** định hướng điểm xoay T+.
-- **3 Trạng thái Đồng thuận**:
-  1. **ĐỒNG THUẬN TĂNG (BULLISH CONFLUENCE)**:
-     - `Giá > D1 MA20` **VÀ** `Giá > W1 MA10`: Xu hướng lớn và xu hướng ngắn hạn cùng ủng hộ. Độ an toàn cao nhất, tự tin giải ngân đủ tỷ trọng.
-  2. **ĐỒNG THUẬN GIẢM (BEARISH CONFLUENCE)**:
-     - `Giá < D1 MA20` **VÀ** `Giá < W1 MA10`: Cổ phiếu nằm trong kênh Downtrend trung - dài hạn. Mọi nhịp bật tăng ngắn hạn chỉ là bẫy Bulltrap. Khuyến nghị đứng ngoài.
-  3. **XUNG ĐỘT KHUNG THỜI GIAN (PULLBACK / DIVERGENCE)**:
-     - `Giá < MA20 ngày` nhưng `Giá > MA10 tuần`: Nhịp điều chỉnh bình thường trong một xu hướng tăng lớn (Cơ hội mua rung lắc).
-     - `Giá > MA20 ngày` nhưng `Giá < MA10 tuần`: Nhịp hồi kỹ thuật ngắn hạn gặp cản xu hướng tuần. Chỉ nên lướt sóng nhanh với tỷ trọng nhỏ (Pilot).
-
-
+Vận hành tại [backend/db/portfolio_db.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/db/portfolio_db.py):
+- **100% Pure MongoDB Atlas Cloud** (Loại bỏ hoàn toàn SQLite cục bộ, đồng bộ liên tục giữa Local và Render Cloud).
+- **Collections chính:**
+  - `telegram_sent_logs`: Lưu vết toàn bộ cảnh báo đã gửi qua Telegram.
+    - **Chính sách dữ liệu tinh gọn:** Tuyệt đối không lưu HTML dài. Chỉ lưu các trường định lượng (`symbol`, `price`, `change_pct`, `vol_ratio`, `action`, `entry_zone`, `target1`, `stop_loss`, `net_rr`, `message_id`).
+    - **TTL Index:** Tự động dọn dẹp sau 30 ngày (`sent_at` expireAfterSeconds = 2,592,000).
+    - **Endpoint tra cứu:** `GET /api/telegram/logs?limit=50`.
+  - `screener_snapshots`: Snapshot kết quả Top T+ phục vụ đồng bộ tức thì.
+  - `portfolio_trades`: Sổ lệnh mua bán và danh mục nắm giữ.
+  - `fundamentals`: Cache báo cáo tài chính và chỉ số định giá.
+  - `alert_states`: Bộ nhớ trạng thái cảnh báo SuperTrend và chống trùng lặp.

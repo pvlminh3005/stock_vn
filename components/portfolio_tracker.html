@@ -2,7 +2,8 @@
 <div id="userPortfolioSection" class="hidden space-y-5 p-4 sm:p-5 md:p-6 bg-slate-900/95 border-b border-slate-800">
 
   <!-- Header & Cấu hình Tổng NAV -->
-  <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950/40 border border-slate-800">
+  <div
+    class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950/40 border border-slate-800">
     <div class="space-y-1">
       <div class="flex items-center gap-2">
         <span class="p-2 rounded-xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-sm font-bold">
@@ -10,25 +11,27 @@
         </span>
         <h2 class="text-lg md:text-xl font-black text-white tracking-wide">
           Sổ Lệnh &amp; Danh Mục Đầu Tư Cá Nhân
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 ml-1">
+          <span
+            class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 ml-1">
             Realtime 15p &bull; Telegram Alert
           </span>
         </h2>
       </div>
       <p class="text-xs text-slate-400">
-        Theo dõi giá vốn bình quân, P&amp;L thời gian thực, sức mua NAV và tự động quét tín hiệu kỹ thuật để cảnh báo qua Telegram.
+        Theo dõi giá vốn bình quân, P&amp;L thời gian thực, sức mua NAV và tự động quét tín hiệu kỹ thuật để cảnh báo
+        qua Telegram.
       </p>
     </div>
 
     <!-- Nhập Tổng NAV -->
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-slate-950/80 p-3 sm:p-2.5 rounded-xl border border-slate-800 w-full sm:w-auto">
+    <div
+      class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-slate-950/80 p-3 sm:p-2.5 rounded-xl border border-slate-800 w-full sm:w-auto">
       <div class="flex items-center gap-1.5 text-xs text-slate-300 font-semibold">
         <i class="fa-solid fa-vault text-emerald-400"></i>
         <span>Tổng Vốn NAV:</span>
       </div>
       <div class="relative flex-1 sm:w-44">
-        <input type="text" id="userPortfolioNavInput" placeholder="Ví dụ: 500.000.000"
-          autocomplete="off"
+        <input type="text" id="userPortfolioNavInput" placeholder="Ví dụ: 500.000.000" autocomplete="off"
           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 sm:py-1.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500">
         <span class="absolute right-2.5 top-2 sm:top-1.5 text-[10px] text-slate-500 font-mono">đ</span>
       </div>
@@ -39,8 +42,8 @@
     </div>
   </div>
 
-  <!-- 1 Box Thống kê Lời/Lỗ & NAV còn lại (Summary Cards) -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+  <!-- 1 Box Thống kê Lời/Lỗ & NAV còn lại (Summary Cards - 5 Cards tài chính chuẩn) -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
     <!-- Card 1: Tổng NAV -->
     <div class="p-3.5 sm:p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1">
       <div class="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
@@ -64,15 +67,25 @@
     <!-- Card 3: Sức mua / NAV Còn lại -->
     <div class="p-3.5 sm:p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1">
       <div class="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
-        <span>NAV CÒN LẠI (SỨC MUA)</span>
+        <span>SỨC MUA TIỀN MẶT</span>
         <i class="fa-solid fa-shield-halved text-blue-400"></i>
       </div>
       <div id="statAvailableNav" class="text-base sm:text-lg font-black text-blue-400 font-mono">0 đ</div>
       <div id="statAvailableRatio" class="text-[10px] text-slate-500">Tiền mặt khả dụng</div>
     </div>
 
-    <!-- Card 4: Tổng Lời / Lỗ (P&L) -->
+    <!-- Card 4: Lãi Đã Chốt (Bỏ Túi) -->
     <div class="p-3.5 sm:p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1">
+      <div class="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+        <span>LÃI ĐÃ CHỐT (BỎ TÚI)</span>
+        <i class="fa-solid fa-sack-dollar text-emerald-400"></i>
+      </div>
+      <div id="statRealizedPnl" class="text-base sm:text-lg font-black text-emerald-400 font-mono">+0 đ</div>
+      <div id="statRealizedNote" class="text-[10px] text-slate-500">Từ các lệnh đã chốt bán</div>
+    </div>
+
+    <!-- Card 5: Tổng Lời / Lỗ Toàn Diện -->
+    <div class="p-3.5 sm:p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1 col-span-2 md:col-span-1">
       <div class="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
         <span>TỔNG LỜI / LỖ (P&amp;L)</span>
         <i id="statPnlIcon" class="fa-solid fa-chart-line text-emerald-400"></i>
@@ -80,7 +93,7 @@
       <div id="statTotalPnl" class="text-base sm:text-lg font-black text-emerald-400 font-mono">
         +0 đ <span id="statTotalPnlPct" class="text-xs font-semibold ml-1">(+0.00%)</span>
       </div>
-      <div id="statPnlNote" class="text-[10px] text-slate-500">Tạm tính theo giá khớp SSI</div>
+      <div id="statPnlNote" class="text-[10px] text-slate-500">Lãi đã chốt + Lãi đang chạy</div>
     </div>
   </div>
 
@@ -100,7 +113,8 @@
       <!-- 1. Mã CK -->
       <div class="space-y-1 w-full">
         <label for="tradeSymbolInput" class="block text-xs font-semibold text-slate-400">Mã CK *</label>
-        <input type="text" id="tradeSymbolInput" placeholder="Ví dụ: HPG, SSI, FPT..." required maxlength="10" autocomplete="off"
+        <input type="text" id="tradeSymbolInput" placeholder="Ví dụ: HPG, SSI, FPT..." required maxlength="10"
+          autocomplete="off"
           class="w-full min-h-[42px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white uppercase font-mono font-bold focus:outline-none focus:border-emerald-500 shadow-inner">
       </div>
 
@@ -159,91 +173,162 @@
     </form>
   </div>
 
-  <!-- Thanh Công Cụ: Filter & Reset Tổng (Tối ưu vuốt ngang trên Mobile) -->
-  <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
-    <!-- Nút Filter với các loại khác nhau -->
-    <div class="flex items-center gap-1.5 text-xs overflow-x-auto smooth-horizontal-scroll pb-1 sm:pb-0">
-      <span class="text-slate-400 font-semibold mr-1 text-[11px] whitespace-nowrap"><i class="fa-solid fa-filter mr-1"></i>Lọc:</span>
-      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-700 bg-emerald-600 text-white font-bold cursor-pointer active whitespace-nowrap" data-filter="ALL">
-        Tất cả (<span id="filterCountAll">0</span>)
+  <!-- Thanh Công Cụ: Chuyển Đổi Chế Độ Xem (Gom Nhóm vs Nhật Ký) & Filter & Reset Tổng -->
+  <div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 pt-1">
+
+    <!-- 1. Tabs chuyển đổi góc nhìn: Danh Mục Vị Thế vs Nhật Ký Khớp Lệnh -->
+    <div
+      class="flex items-center gap-1.5 p-1 bg-slate-950/90 border border-slate-800 rounded-xl overflow-x-auto smooth-horizontal-scroll">
+      <button type="button" id="portfolioViewHoldingsBtn"
+        class="portfolio-view-tab-btn min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-emerald-600 text-white shadow-md active whitespace-nowrap">
+        <i class="fa-solid fa-layer-group text-xs"></i>
+        <span>📊 Danh Mục Vị Thế (Gom Nhóm)</span>
+        <span id="holdingsTabBadge"
+          class="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-950/80 text-[10px] text-emerald-200 border border-emerald-500/30">0</span>
       </button>
-      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="BUY">
-        <i class="fa-solid fa-circle-dot text-emerald-400 text-[9px] mr-1"></i>Đang Mua (<span id="filterCountBuy">0</span>)
-      </button>
-      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="SELL">
-        <i class="fa-solid fa-circle-dot text-rose-400 text-[9px] mr-1"></i>Đã Bán (<span id="filterCountSell">0</span>)
-      </button>
-      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="PROFIT">
-        <i class="fa-solid fa-arrow-trend-up text-emerald-400 text-[9px] mr-1"></i>Đang Lãi (<span id="filterCountProfit">0</span>)
-      </button>
-      <button type="button" class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white cursor-pointer whitespace-nowrap" data-filter="LOSS">
-        <i class="fa-solid fa-arrow-trend-down text-rose-400 text-[9px] mr-1"></i>Đang Lỗ (<span id="filterCountLoss">0</span>)
+      <button type="button" id="portfolioViewTradesBtn"
+        class="portfolio-view-tab-btn min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-white whitespace-nowrap">
+        <i class="fa-solid fa-clock-rotate-left text-xs"></i>
+        <span>📝 Nhật Ký Khớp Lệnh</span>
+        <span id="tradesTabBadge"
+          class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-slate-400">0</span>
       </button>
     </div>
 
-    <!-- Ô tìm kiếm mã trong danh mục & Nút Reset Xóa Tổng -->
-    <div class="flex items-center gap-2">
-      <div class="relative flex-1 sm:w-44">
-        <input type="text" id="portfolioSearchInput" placeholder="Tìm mã..."
-          class="w-full min-h-[38px] sm:min-h-0 bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2.5 py-1 text-xs text-white uppercase font-mono focus:outline-none focus:border-slate-600">
-        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 sm:top-2 text-[10px] text-slate-500"></i>
+    <!-- 2. Nút Filter và Tìm kiếm / Thao tác -->
+    <div class="flex flex-wrap items-center gap-2 justify-between lg:justify-end flex-1">
+          <!-- Nút Filter trạng thái (giữ font-semibold & kích thước cố định để không bị nhích/nhảy UI) -->
+          <div id="portfolioFilterWrapper"
+            class="flex items-center gap-1.5 text-xs overflow-x-auto smooth-horizontal-scroll pb-1 sm:pb-0">
+            <button type="button"
+              class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-emerald-500/50 bg-emerald-600 text-white font-semibold cursor-pointer active whitespace-nowrap shadow-sm transition-colors"
+              data-filter="ALL">
+              Tất cả (<span id="filterCountAll">0</span>)
+            </button>
+              <button type="button"
+                class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:border-slate-700 font-semibold cursor-pointer whitespace-nowrap transition-colors"
+                data-filter="BUY">
+                <i class="fa-solid fa-circle-dot text-emerald-400 text-[9px] mr-1"></i>Đang Giữ (<span
+                  id="filterCountBuy">0</span>)
+              </button>
+                <button type="button"
+                  class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:border-slate-700 font-semibold cursor-pointer whitespace-nowrap transition-colors"
+                  data-filter="SELL">
+                  <i class="fa-solid fa-circle-dot text-rose-400 text-[9px] mr-1"></i>Đã Đóng (<span
+                    id="filterCountSell">0</span>)
+                </button>
+                  <button type="button"
+                    class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:border-slate-700 font-semibold cursor-pointer whitespace-nowrap transition-colors"
+                    data-filter="PROFIT">
+                    <i class="fa-solid fa-arrow-trend-up text-emerald-400 text-[9px] mr-1"></i>Đang Lãi (<span
+                      id="filterCountProfit">0</span>)
+                  </button>
+                    <button type="button"
+                      class="portfolio-filter-btn min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:border-slate-700 font-semibold cursor-pointer whitespace-nowrap transition-colors"
+                      data-filter="LOSS">
+                      <i class="fa-solid fa-arrow-trend-down text-rose-400 text-[9px] mr-1"></i>Đang Lỗ (<span
+                        id="filterCountLoss">0</span>)
+                    </button>
+          </div>
+
+          <!-- Ô tìm kiếm mã & Nút chức năng -->
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <div class="relative flex-1 sm:w-36">
+              <input type="text" id="portfolioSearchInput" placeholder="Tìm mã..."
+                class="w-full min-h-[36px] bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2 py-1 text-xs text-white uppercase font-mono focus:outline-none focus:border-slate-600">
+              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-[10px] text-slate-500"></i>
+            </div>
+
+            <button type="button" id="refreshPortfolioBtn" title="Cập nhật giá realtime"
+              class="min-h-[36px] px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition border border-slate-700 cursor-pointer whitespace-nowrap flex items-center justify-center">
+              <i class="fa-solid fa-rotate mr-1"></i> Làm mới
+            </button>
+
+            <button type="button" id="resetPortfolioBtn"
+              class="min-h-[36px] px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 hover:text-rose-300 rounded-lg text-xs font-semibold transition border border-rose-800/50 cursor-pointer whitespace-nowrap flex items-center justify-center">
+              <i class="fa-solid fa-trash-can mr-1"></i> Xóa Tổng
+            </button>
+          </div>
       </div>
-      
-      <!-- Nút Refresh Cập nhật giá -->
-      <button type="button" id="refreshPortfolioBtn" title="Cập nhật giá realtime"
-        class="min-h-[38px] sm:min-h-0 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition border border-slate-700 cursor-pointer whitespace-nowrap flex items-center justify-center">
-        <i class="fa-solid fa-rotate mr-1"></i> Làm mới
-      </button>
-
-      <!-- Nút Reset (Xóa Tổng) -->
-      <button type="button" id="resetPortfolioBtn"
-        class="min-h-[38px] sm:min-h-0 px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 hover:text-rose-300 rounded-lg text-xs font-semibold transition border border-rose-800/50 cursor-pointer whitespace-nowrap flex items-center justify-center">
-        <i class="fa-solid fa-trash-can mr-1"></i> Xóa Tổng
-      </button>
     </div>
-  </div>
 
-  <!-- Bảng Danh Sách Giao Dịch & Realtime Tracker (Hỗ trợ Sticky Column trên Mobile) -->
-  <div class="overflow-x-auto smooth-horizontal-scroll rounded-xl border border-slate-800 bg-slate-950/80 shadow-inner">
-    <table class="w-full text-left text-xs whitespace-nowrap">
-      <thead class="bg-slate-900/90 text-slate-400 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-800">
-        <tr>
-          <th class="py-2.5 px-3 sticky-col-first-header">Mã CK</th>
-          <th class="py-2.5 px-3">Loại</th>
-          <th class="py-2.5 px-3 text-right">Khối Lượng</th>
-          <th class="py-2.5 px-3 text-right">Giá Khớp</th>
-          <th class="py-2.5 px-3 text-right">Giá Hiện Tại</th>
-          <th class="py-2.5 px-3 text-right">Thành Tiền</th>
-          <th class="py-2.5 px-3 text-right">Lời / Lỗ (P&amp;L)</th>
-          <th class="py-2.5 px-3">Ngày GD</th>
-          <th class="py-2.5 px-3">Ghi Chú</th>
-          <th class="py-2.5 px-3 text-center">Xóa</th>
-        </tr>
-      </thead>
-      <tbody id="portfolioTableBody" class="divide-y divide-slate-800/60 font-mono">
-        <!-- Render động từ JS -->
-        <tr>
-          <td colspan="10" class="py-8 text-center text-slate-500 font-sans">
-            <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
-            Chưa có giao dịch nào trong sổ lệnh. Hãy nhập lệnh Mua/Bán ở form trên!
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Banner thông tin cơ chế Realtime & Telegram Alert -->
-  <div class="p-3 rounded-xl bg-slate-950 border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
-    <div class="flex items-center gap-2">
-      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      <span>
-        <strong>Hệ thống giám sát tự động:</strong> Quét 15 phút/lần các mã <code>Mua</code> đang giữ. Tín hiệu vi phạm hoặc chạm Target sẽ được gửi ngay qua Telegram.
-      </span>
+    <!-- CONTAINER 1: BẢNG DANH MỤC VỊ THẾ GOM NHÓM (HOLDINGS VIEW - MẶC ĐỊNH) -->
+    <div id="portfolioHoldingsContainer"
+      class="overflow-x-auto smooth-horizontal-scroll rounded-xl border border-slate-800 bg-slate-950/80 shadow-inner">
+      <table class="w-full text-left text-xs whitespace-nowrap">
+        <thead
+          class="bg-slate-900/90 text-slate-400 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-800">
+          <tr>
+            <th class="py-2.5 px-3 sticky-col-first-header">Mã CP</th>
+            <th class="py-2.5 px-3">Nhóm Ngành</th>
+            <th class="py-2.5 px-3 text-right">KL Nắm Giữ</th>
+            <th class="py-2.5 px-3 text-right">Giá Vốn TB (VWAP)</th>
+            <th class="py-2.5 px-3 text-right">Giá Thị Trường</th>
+            <th class="py-2.5 px-3 text-right">Giá Trị Hiện Tại</th>
+            <th class="py-2.5 px-3 text-right">Lãi Đang Chạy (Realtime)</th>
+            <th class="py-2.5 px-3 text-right">Lãi Đã Chốt</th>
+            <th class="py-2.5 px-3 text-right">Tổng Lời/Lỗ</th>
+            <th class="py-2.5 px-3 text-right">Tỷ Trọng (% NAV)</th>
+            <th class="py-2.5 px-3 text-center">Thao Tác</th>
+          </tr>
+        </thead>
+        <tbody id="portfolioHoldingsTableBody" class="divide-y divide-slate-800/60 font-mono">
+          <!-- Render động từ JS -->
+          <tr>
+            <td colspan="11" class="py-8 text-center text-slate-500 font-sans">
+              <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
+              Chưa có vị thế nào trong danh mục. Hãy nhập lệnh Mua/Bán ở form trên!
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-    <div class="text-[11px] text-amber-400/90 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">
-      <i class="fa-regular fa-clock mr-1"></i> Tín hiệu nhấp nháy Xanh/Hồng Daily được chốt gửi vào <strong>14:30</strong> cuối phiên.
+
+    <!-- CONTAINER 2: BẢNG NHẬT KÝ CHI TIẾT TỪNG LỆNH (TRADES HISTORY VIEW) -->
+    <div id="portfolioTradesContainer"
+      class="hidden overflow-x-auto smooth-horizontal-scroll rounded-xl border border-slate-800 bg-slate-950/80 shadow-inner">
+      <table class="w-full text-left text-xs whitespace-nowrap">
+        <thead
+          class="bg-slate-900/90 text-slate-400 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-800">
+          <tr>
+            <th class="py-2.5 px-3 sticky-col-first-header">Mã CK</th>
+            <th class="py-2.5 px-3">Loại</th>
+            <th class="py-2.5 px-3 text-right">Khối Lượng</th>
+            <th class="py-2.5 px-3 text-right">Giá Khớp</th>
+            <th class="py-2.5 px-3 text-right">Giá Hiện Tại</th>
+            <th class="py-2.5 px-3 text-right">Thành Tiền</th>
+            <th class="py-2.5 px-3 text-right">Lời / Lỗ (P&amp;L)</th>
+            <th class="py-2.5 px-3">Ngày GD</th>
+            <th class="py-2.5 px-3">Ghi Chú</th>
+            <th class="py-2.5 px-3 text-center">Xóa</th>
+          </tr>
+        </thead>
+        <tbody id="portfolioTableBody" class="divide-y divide-slate-800/60 font-mono">
+          <!-- Render động từ JS -->
+          <tr>
+            <td colspan="10" class="py-8 text-center text-slate-500 font-sans">
+              <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
+              Chưa có giao dịch nào trong sổ lệnh. Hãy nhập lệnh Mua/Bán ở form trên!
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
+
+    <!-- Banner thông tin cơ chế Realtime & Telegram Alert -->
+    <div
+      class="p-3 rounded-xl bg-slate-950 border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
+      <div class="flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span>
+          <strong>Hệ thống giám sát tự động:</strong> Quét 15 phút/lần các mã <code>Mua</code> đang giữ. Tín hiệu vi
+          phạm hoặc chạm Target sẽ được gửi ngay qua Telegram.
+        </span>
+      </div>
+      <div class="text-[11px] text-amber-400/90 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">
+        <i class="fa-regular fa-clock mr-1"></i> Tín hiệu nhấp nháy Xanh/Hồng Daily được chốt gửi vào
+        <strong>14:30</strong> cuối phiên.
+      </div>
+    </div>
+
   </div>
-
-</div>
-

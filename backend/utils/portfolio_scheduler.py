@@ -162,7 +162,19 @@ def scan_portfolio_alerts():
                 if last_alert != 'STOPLOSS_TRIGGERED' and not is_alert_already_sent(sl_key, min_interval_seconds=14400):
                     # Bắn Telegram lần đầu khi vi phạm
                     msg, btns = format_portfolio_alert(sym, 'STOPLOSS_TRIGGERED', alert_data)
-                    if send_telegram_message(msg, buttons=btns):
+                    log_meta = {
+                        'alert_type': 'PORTFOLIO_STOPLOSS',
+                        'title': f'Cảnh báo Cắt lỗ S1: {sym}',
+                        'stocks': [{
+                            'symbol': sym,
+                            'price': current_price,
+                            'change_pct': change_pct,
+                            'stop_loss': s1,
+                            'target1': r1,
+                            'action': 'STOPLOSS_TRIGGERED'
+                        }]
+                    }
+                    if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
                         record_alert_sent(sl_key, preview=f'Stoploss {sym}')
                         state['last_alert_type'] = 'STOPLOSS_TRIGGERED'
                         state['last_alert_time'] = now_ts
@@ -173,7 +185,19 @@ def scan_portfolio_alerts():
                 if last_alert != 'TARGET_TRIGGERED' and not is_alert_already_sent(tp_key, min_interval_seconds=14400):
                     # Bắn Telegram lần đầu khi chạm mục tiêu
                     msg, btns = format_portfolio_alert(sym, 'TARGET_TRIGGERED', alert_data)
-                    if send_telegram_message(msg, buttons=btns):
+                    log_meta = {
+                        'alert_type': 'PORTFOLIO_TARGET',
+                        'title': f'Cảnh báo Chốt lời R1: {sym}',
+                        'stocks': [{
+                            'symbol': sym,
+                            'price': current_price,
+                            'change_pct': change_pct,
+                            'stop_loss': s1,
+                            'target1': r1,
+                            'action': 'TARGET_TRIGGERED'
+                        }]
+                    }
+                    if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
                         record_alert_sent(tp_key, preview=f'Target {sym}')
                         state['last_alert_type'] = 'TARGET_TRIGGERED'
                         state['last_alert_time'] = now_ts
@@ -191,26 +215,25 @@ def scan_portfolio_alerts():
 
 def send_daily_ribbon_digest():
     """
-    Gửi báo cáo tổng kết xác nhận tín hiệu nến SuperTrend Daily lúc 14:30 các ngày Thứ 2 đến Thứ 6.
+    Gửi báo cáo tổng kết xác nhận tín hiệu nến SuperTrend Daily chốt phiên (lúc 15:02 sau khi sàn đóng cửa) các ngày Thứ 2 đến Thứ 6.
+    Lấy giá đóng cửa chính thức chuẩn 100% từ nến ngày 1D của Entrade Engine.
     Gom toàn bộ các mã nhấp nháy hoặc thay đổi xu hướng trong ngày vào 1 tin nhắn duy nhất.
     """
     symbols = get_active_holding_symbols()
     if not symbols:
         return
 
-    logger.info("Bắt đầu tạo Báo cáo Tín hiệu SuperTrend Cuối Phiên 14:30 cho %d mã...", len(symbols))
+    logger.info("Bắt đầu tạo Báo cáo Tín hiệu SuperTrend Chốt Phiên EOD (15:00) cho %d mã...", len(symbols))
+    from backend.controllers.user_portfolio_controller import get_entrade_stock_quote
     board_data = get_market_board_data() or {}
     digest_items = []
 
     for sym in symbols:
         try:
             state = get_alert_state(sym)
-            board_item = board_data.get(sym, {})
-            raw_p = board_item.get('matchedPrice') or board_item.get('lastPrice') or board_item.get('refPrice') or 0
-            p = float(raw_p)
-            if 0 < p < 1000:
-                p *= 1000
-            pct = float(board_item.get('priceChangePercent') or board_item.get('changePercent') or 0.0)
+            quote = get_entrade_stock_quote(sym, board_data)
+            p = float(quote.get('current_price', 0.0))
+            pct = float(quote.get('change_pct', 0.0))
             sign = '+' if pct >= 0 else ''
 
             detail = handle_stock_detail(sym)
@@ -227,7 +250,7 @@ def send_daily_ribbon_digest():
                 note_whipsaw = f" <i>(⚠️ Trong phiên nhấp nháy giằng co {flip_count} lần)</i>"
 
             digest_items.append(
-                f"• <b>{sym}</b>: {color_icon} <b>{color_name}</b> | Giá: {p:,.0f} đ ({sign}{pct:.2f}%){note_whipsaw}"
+                f"• <b>{sym}</b>: {color_icon} <b>{color_name}</b> | Giá chốt phiên: <b>{p:,.0f} đ</b> ({sign}{pct:.2f}%){note_whipsaw}"
             )
 
             # Reset lại flip_count cho ngày hôm sau
@@ -246,12 +269,12 @@ def send_daily_ribbon_digest():
 
     today_str = get_vn_now().strftime('%d/%m/%Y')
     msg = (
-        f"📊 <b>XÁC NHẬN TÍN HIỆU SUPERTREND CUỐI PHIÊN (14:30)</b>\n"
+        "📊 <b>XÁC NHẬN TÍN HIỆU SUPERTREND CHỐT PHIÊN (15:00)</b>\n"
         f"📅 <i>Ngày {today_str} - Danh mục đang nắm giữ</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         + "\n".join(digest_items) + "\n\n"
-        f"💡 <i>Tín hiệu nến Daily đã xác nhận trước khi bước vào phiên ATC. "
-        f"Hãy theo dõi mức đóng cửa để đưa ra quyết định tái cơ cấu danh mục.</i>"
+        "💡 <i>Mức giá đóng cửa chính thức sau phiên ATC và tín hiệu nến Daily đã xác nhận hoàn tất. "
+        "Hãy theo dõi để đưa ra quyết định tái cơ cấu danh mục cho phiên tiếp theo.</i>"
     )
 
     buttons = [
@@ -259,11 +282,18 @@ def send_daily_ribbon_digest():
         {'text': '🌐 Mở Stock RT Live Web', 'url': home_link}
     ]
 
-    ribbon_key = f'RIBBON_DIGEST_1430_{today_str}'
+    ribbon_key = f'RIBBON_DIGEST_EOD_{today_str}'
     if not is_alert_already_sent(ribbon_key, min_interval_seconds=14400):
-        if send_telegram_message(msg, buttons=buttons):
-            record_alert_sent(ribbon_key, preview='14:30 Ribbon Digest')
-            logger.info("Đã gửi Báo cáo Tín hiệu SuperTrend Cuối Phiên 14:30 qua Telegram.")
+        log_meta = {
+            'alert_type': 'RIBBON_DIGEST_EOD',
+            'title': f'Xác nhận tín hiệu SuperTrend chốt phiên (15:00) - Ngày {today_str}',
+            'stocks': [
+                {'symbol': s, 'action': 'SUPERTREND_CHECK'} for s in symbols
+            ]
+        }
+        if send_telegram_message(msg, buttons=buttons, log_meta=log_meta):
+            record_alert_sent(ribbon_key, preview='EOD Ribbon Digest')
+            logger.info("Đã gửi Báo cáo Tín hiệu SuperTrend Chốt Phiên EOD qua Telegram.")
 
 
 def portfolio_worker_loop():
@@ -276,9 +306,9 @@ def portfolio_worker_loop():
             now = get_vn_now()
             today_str = now.strftime('%Y-%m-%d')
 
-            # 1. Kiểm tra gửi Báo cáo 14h30 (từ 14:30 đến 14:35, các ngày T2 - T6)
+            # 1. Kiểm tra gửi Báo cáo Chốt Phiên EOD (từ 15:02 đến 15:10, các ngày T2 - T6 sau khi kết thúc toàn phiên 15:00)
             if is_trading_day(now):
-                if now.hour == 14 and 30 <= now.minute <= 35:
+                if now.hour == 15 and 2 <= now.minute <= 10:
                     if _last_digest_date != today_str:
                         _last_digest_date = today_str
                         send_daily_ribbon_digest()

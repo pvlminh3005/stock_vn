@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from backend.constants.sectors import KNOWN_STOCK_SECTORS
 from backend.constants.urls import build_entrade_chart_url
-from backend.data_providers.entrade_provider import fetch_intraday_snapshot, fetch_chart_data
+from backend.data_providers.entrade_provider import fetch_intraday_snapshot
 from backend.utils.network import fetch_json
 
 logger = logging.getLogger('market_board_provider')
@@ -69,7 +69,11 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
   Không bị chặn IP quốc tế trên Render/AWS/Cloudflare.
   """
   if not symbols:
-    symbols = list(KNOWN_STOCK_SECTORS.keys())
+    cached = _load_snapshot_from_mongo()
+    if cached and len(cached) >= 20:
+      symbols = list(cached.keys())
+    else:
+      symbols = list(KNOWN_STOCK_SECTORS.keys())[:80]
 
   board_map = {}
 
@@ -124,7 +128,6 @@ def get_market_board_data(force_refresh=False) -> dict:
   2. Entrade Engine: Quét song song ~100 mã cốt lõi (< 1.5s).
   3. MongoDB Atlas Snapshot: Đọc dự phòng nếu cold-start hoặc offline.
   """
-  global _BOARD_CACHE
   now = time.time()
 
   # 1. Trả về từ RAM Cache nếu còn hiệu lực

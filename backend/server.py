@@ -394,6 +394,17 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         self.send_json(500, {'error': str(e)})
       return
 
+    # 8.1 API: Lịch sử tin nhắn cảnh báo Telegram đã gửi (tracking)
+    if path == '/api/telegram/logs':
+      limit_str = params.get('limit', ['50'])[0]
+      try:
+        limit_val = int(limit_str) if limit_str.isdigit() else 50
+        from backend.db.portfolio_db import get_telegram_sent_logs
+        self.send_json(200, {'status': 'success', 'data': get_telegram_sent_logs(limit=limit_val)})
+      except Exception as e:
+        self.send_json(500, {'error': str(e)})
+      return
+
     # 9. API: Sổ Lệnh / Danh Mục Cá Nhân
     if path == '/api/portfolio':
       try:
@@ -454,6 +465,7 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
     content_length = int(self.headers.get('Content-Length', 0))
     post_body = {}
     if content_length > 0:
+      raw_body = ''
       try:
         raw_body = self.rfile.read(content_length).decode('utf-8')
         post_body = json.loads(raw_body)
@@ -473,7 +485,7 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
       return
 
     if path == '/api/portfolio/trade/delete':
-      trade_id = post_body.get('id') or params.get('id', [''])[0]
+      trade_id = str(post_body.get('id') or params.get('id', [''])[0])
       try:
         res = handle_delete_trade(trade_id)
         self.send_json(200 if res.get('success') else 400, res)
@@ -520,5 +532,5 @@ if __name__ == '__main__':
     if e.errno == 48:
       print(f'\n❌ Cổng {PORT} đang bị tiến trình khác chiếm dụng!')
       print(f'👉 Bạn có thể giải phóng cổng bằng lệnh: lsof -ti :{PORT} | xargs kill -9')
-      print(f'👉 Hoặc chỉ định cổng khác: ./start.sh 8080  (hoặc PORT=8080 python3 backend/server.py)\n')
+      print('👉 Hoặc chỉ định cổng khác: ./start.sh 8080  (hoặc PORT=8080 python3 backend/server.py)\n')
     raise

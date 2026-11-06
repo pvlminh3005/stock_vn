@@ -13,10 +13,10 @@ Stock RT - Screener Engine (VSR Smart Screener)
 """
 
 import datetime
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.domain.portfolio_bundler import KNOWN_STOCK_SECTORS, get_stock_sector
+from backend.constants.sectors import CORE_PILLAR_SECTORS
 from backend.domain.technicals import analyze_technicals_and_scoring
 from backend.domain.regime import evaluate_market_regime
 from backend.data_providers.market_board_provider import get_market_board_data
@@ -202,9 +202,12 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
       return None
 
     # Tính điểm xếp hạng cơ hội (Opportunity Composite Score)
+    is_core_sector = bool(sector in CORE_PILLAR_SECTORS)
     score = (net_rr * 15.0) + (buy_ratio * 0.3) + (vol_run_rate * 8.0) - (abs(dist_s1) * 2.0)
     if is_breakout:
       score += 15.0
+    if is_core_sector:
+      score += 20.0  # Ưu tiên nhóm Tứ trụ (Bank, Chứng, Thép, BĐS) thanh khoản cao
 
     if is_breakout:
       tag_type = 'BREAKOUT_T0'
@@ -254,11 +257,65 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
     sl_pct = round(((stop_loss - p) / p) * 100, 1)
     tp1_pct = round(((target1 - p) / p) * 100, 1)
 
+    # ==================== MÔ HÌNH HAI TẦNG SÓNG (DUAL-ENGINE SECTOR MODEL) ====================
+    rs_score = tech.get('relativeStrength', {}).get('rsScore', 50)
+
+    # TẦNG 1: ĐÈN XANH TỨ TRỤ (Bank, Chứng, Thép, BĐS) - An toàn thanh khoản cao
+    is_pillar_green_buy = (
+        is_core_sector and
+        1.0 <= pct_change <= 3.2 and
+        dist_s1 <= 2.5 and
+        vol_run_rate >= 1.0 and
+        buy_ratio >= 55.0 and
+        upper_wick <= 0.35 and
+        tp1_pct >= 3.0 and
+        net_rr >= 1.4 and
+        not is_market_adverse
+    )
+
+    # TẦNG 2: SIÊU CỔ PHIẾU DẪN DẮT TOÀN THỊ TRƯỜNG (Market Leader / Bất kể ngành nào)
+    # Bắt trọn các sóng tăng bứt phá của FPT, FRT, DGC, PVD, HAH, CTR... qua từng quý
+    is_market_leader = (
+        not is_market_adverse and
+        rs_score >= 78 and
+        1.5 <= pct_change <= 4.5 and
+        p >= ema9 and
+        dist_s1 <= 3.8 and
+        vol_run_rate >= 1.35 and
+        buy_ratio >= 58.0 and
+        upper_wick <= 0.35 and
+        tp1_pct >= 3.5 and
+        net_rr >= 1.4
+    )
+
+    is_actionable_green_buy = is_pillar_green_buy or is_market_leader
+
+    if is_market_leader:
+      score += 45.0  # Thưởng điểm tối đa cho Siêu cổ phiếu dẫn dắt
+    elif is_pillar_green_buy:
+      score += 35.0  # Thưởng điểm cho Đèn Xanh Tứ Trụ
+
     if is_market_adverse:
       action_status = 'MARKET_RISK'
       action_label = '⚠️ THỊ TRƯỜNG RỦI RO'
       action_badge_color = 'rose'
       action_guide = 'VN-Index chịu áp lực bán lớn. Tạm dừng mở vị thế mua để bảo vệ vốn.'
+    elif is_market_leader:
+      action_status = 'ACTIONABLE_LEADER_BUY'
+      action_label = '⭐ SIÊU CỔ PHIẾU DẪN DẮT'
+      action_badge_color = 'indigo'
+      action_guide = f'Siêu cổ phiếu {sector} bứt phá đỉnh (RS {rs_score}/99, Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.1f}%). Sóng ngành dẫn dắt, dư địa R1 +{tp1_pct:.1f}%, Net R:R 1:{net_rr:.1f}. Vào lệnh Mua đón sóng.'
+      alloc_advice = 'Giải ngân Mua mới 30-40% vị thế T0 ngay tại thị giá'
+      alloc_pct = 35
+      timing_note = f'Điểm nổ Siêu cổ phiếu Market Leader (RS {rs_score}/99, Vol x{vol_run_rate:.1f} TB20). Vào lệnh trực tiếp.'
+    elif is_pillar_green_buy:
+      action_status = 'ACTIONABLE_BUY_NOW'
+      action_label = '🟢 ĐÈN XANH: MUA NGAY'
+      action_badge_color = 'emerald'
+      action_guide = f'Cổ phiếu {sector} nổ vol chuẩn (+{pct_change:.1f}%, Vol x{vol_run_rate:.1f} TB20). Sát chân sóng, dư địa R1 +{tp1_pct:.1f}%, Net R:R 1:{net_rr:.1f}. Mở vị thế Mua ngay thị giá.'
+      alloc_advice = 'Giải ngân Mua mới 30-40% vị thế T0 ngay tại thị giá'
+      alloc_pct = 35
+      timing_note = f'Điểm mua Đèn Xanh chuẩn T+ (Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.1f}%). Vào lệnh trực tiếp.'
     elif is_overextended:
       action_status = 'OVER_EXTENDED'
       action_label = '⛔ ĐÃ CHẠY XA'
@@ -272,23 +329,36 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         action_badge_color = 'emerald'
         action_guide = f'Chớm bùng nổ chân sóng (+{pct_change:.1f}%, Vol x{vol_run_rate:.1f} TB20). Vào thăm dò 30% vị thế (5-7% NAV), chiều xác nhận gia tăng.'
       elif not is_breakout and -1.8 <= pct_change <= 0.8 and dist_s1 <= 2.5:
-        action_status = 'BUY_PROBE'
-        action_label = '🟢 GOM THĂM DÒ'
-        action_badge_color = 'emerald'
-        action_guide = f'Sát nền hỗ trợ {s1:,.0f} đ, cạn cung. Gom thăm dò 30-40% vị thế, kiên nhẫn đợi dòng tiền bứt phá.'
+        # Nếu giá treo cao hơn vùng gom hoặc sát cản R1 (tp1_pct < 2.5%) -> Canh gom đón lõng thay vì gom đuổi
+        if tp1_pct < 2.5 or p > reversal_price * 1.008:
+          action_status = 'WAIT_PULLBACK'
+          action_label = f'🎯 CANH GOM {entry_zone}'
+          action_badge_color = 'amber'
+          action_guide = f'Thị giá {p:,.0f} đ sát cản R1 ({r1:,.0f} đ, +{tp1_pct}%). Không mua đuổi, kiên nhẫn đặt lệnh đón lõng tại Vùng gom {entry_zone}.'
+        else:
+          action_status = 'BUY_PROBE'
+          action_label = '🟢 GOM THĂM DÒ'
+          action_badge_color = 'emerald'
+          action_guide = f'Sát nền hỗ trợ {s1:,.0f} đ trong vùng {entry_zone}, cạn cung. Gom thăm dò 30-40% vị thế, kiên nhẫn đợi dòng tiền bứt phá.'
       else:
         action_status = 'WAITING_CONFIRMATION'
         action_label = '⏳ CHỜ PHIÊN CHIỀU'
         action_badge_color = 'amber'
         action_guide = f'Đang giữ nhịp sóng (+{pct_change:.1f}%). Chờ sau 13:45 hấp thụ hàng T+ trước khi chốt giải ngân.'
     else:
-      action_status = 'BUY_READY'
-      action_label = '🟢 MUA NGAY'
-      action_badge_color = 'emerald'
-      if is_breakout:
-        action_guide = f'Đã xác nhận sau 13:45, Vol nổ x{vol_run_rate:.1f} TB20. Vào lệnh mua mới 100% size (10-15% NAV).'
+      if not is_breakout and (tp1_pct < 2.5 or p > reversal_price * 1.008):
+        action_status = 'WAIT_PULLBACK'
+        action_label = f'🎯 CANH GOM {entry_zone}'
+        action_badge_color = 'amber'
+        action_guide = f'Thị giá {p:,.0f} đ sát cản R1 ({r1:,.0f} đ, +{tp1_pct}%). Không mua đuổi, kiên nhẫn đặt lệnh đón lõng tại Vùng gom {entry_zone}.'
       else:
-        action_guide = f'Test nền chuẩn, cạn kiệt vol, rủi ro thấp. Gom thăm dò 30-50% size sát vùng {s1:,.0f} đ.'
+        action_status = 'BUY_READY'
+        action_label = '🟢 MUA NGAY'
+        action_badge_color = 'emerald'
+        if is_breakout:
+          action_guide = f'Đã xác nhận sau 13:45, Vol nổ x{vol_run_rate:.1f} TB20. Vào lệnh mua mới 100% size (10-15% NAV).'
+        else:
+          action_guide = f'Test nền chuẩn trong vùng {entry_zone}, cạn kiệt vol, rủi ro thấp. Gom thăm dò 30-50% size sát vùng {s1:,.0f} đ.'
 
     return {
         'symbol': symbol,
@@ -327,6 +397,10 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         'tp1Pct': tp1_pct,
         'reversalPrice': reversal_price,
         'isEarlyBird': is_early_bird,
+        'isCoreSector': is_core_sector,
+        'isActionableGreenBuy': is_actionable_green_buy,
+        'isMarketLeader': is_market_leader,
+        'rsScore': rs_score,
         'isSectorWave': False,
         'sectorLeader': None,
     }

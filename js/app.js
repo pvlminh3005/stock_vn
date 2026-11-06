@@ -1,12 +1,12 @@
-import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.7';
-import { getStockDetail, getChartData } from './api.js?v=5.7';
-import { API_ENDPOINTS, buildApiUrl } from './constants/apiUrls.js?v=5.7';
-import { initChart, updateChartData } from './modules/chart.js?v=5.7';
-import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.7';
-import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.7';
-import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.7';
-import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.7';
-import { initUserPortfolioModule } from './modules/portfolio.js?v=5.7';
+import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.8';
+import { getStockDetail, getChartData, searchStocks } from './api.js?v=5.8';
+import { API_ENDPOINTS, buildApiUrl } from './constants/apiUrls.js?v=5.8';
+import { initChart, updateChartData } from './modules/chart.js?v=5.8';
+import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.js?v=5.8';
+import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.8';
+import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.8';
+import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.8';
+import { initUserPortfolioModule } from './modules/portfolio.js?v=5.9';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';
@@ -479,30 +479,93 @@ export async function loadStock(ticker) {
 function setupAutocomplete() {
   if (!DOM.input || !DOM.searchSuggestions) return;
 
-  DOM.input.addEventListener("input", (e) => {
-    const val = e.target.value.trim().toUpperCase();
-    if (!val) {
-      DOM.searchSuggestions.classList.add("hidden");
-      return;
-    }
+  let searchDebounceTimer = null;
 
-    const matches = POPULAR_STOCKS.filter(s => s.ticker.includes(val) || s.name.toUpperCase().includes(val));
-    if (matches.length === 0) {
-      DOM.searchSuggestions.classList.add("hidden");
-      return;
-    }
-
-    DOM.searchSuggestions.innerHTML = matches.map(s => `
-      <div class="p-2.5 px-3 hover:bg-slate-800/90 cursor-pointer flex items-center justify-between gap-3 transition suggestion-item" data-ticker="${s.ticker}" title="${s.ticker} - ${s.name}">
-        <div class="flex items-center gap-2.5 min-w-0 flex-1 pointer-events-none">
-          <span class="font-mono font-bold text-xs text-blue-400 bg-blue-950/80 border border-blue-800/60 px-2 py-0.5 rounded flex-shrink-0">${s.ticker}</span>
-          <span class="text-slate-200 text-xs truncate min-w-0 font-medium whitespace-nowrap">${s.name}</span>
+  const renderSuggestions = (matches) => {
+    if (!matches || matches.length === 0) {
+      DOM.searchSuggestions.innerHTML = `
+        <div class="p-3 text-center text-slate-500 text-xs">
+          Không tìm thấy mã hoặc doanh nghiệp phù hợp
         </div>
-        <span class="text-[10px] text-slate-400 font-mono bg-slate-950/80 border border-slate-800 px-2 py-0.5 rounded flex-shrink-0 whitespace-nowrap pointer-events-none">${s.sector}</span>
-      </div>
-    `).join("");
+      `;
+      DOM.searchSuggestions.classList.remove("hidden");
+      return;
+    }
+
+    DOM.searchSuggestions.innerHTML = matches.map(s => {
+      const sym = s.symbol || s.ticker;
+      const name = s.name || '';
+      const sector = s.sector || 'Thị trường chung';
+      const exchange = s.exchange || 'HOSE';
+      const price = Number(s.price) || 0;
+      const pct = Number(s.percentChange) || 0;
+
+      let priceHtml = '';
+      if (price > 0) {
+        const colorClass = pct > 0 ? 'text-emerald-400' : pct < 0 ? 'text-rose-400' : 'text-amber-400';
+        const sign = pct > 0 ? '+' : '';
+        priceHtml = `
+          <div class="text-right flex-shrink-0 pointer-events-none">
+            <div class="font-mono font-bold text-xs ${colorClass}">${price.toLocaleString('vi-VN')} đ</div>
+            <div class="text-[10px] font-mono ${colorClass}">${sign}${pct.toFixed(2)}%</div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="p-2.5 px-3 hover:bg-slate-800/90 cursor-pointer flex items-center justify-between gap-3 transition suggestion-item" data-ticker="${sym}" title="${sym} - ${name}">
+          <div class="flex items-center gap-2.5 min-w-0 flex-1 pointer-events-none">
+            <span class="font-mono font-bold text-xs text-blue-400 bg-blue-950/80 border border-blue-800/60 px-2 py-0.5 rounded flex-shrink-0">${sym}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-slate-200 text-xs truncate font-medium">${name}</div>
+              <div class="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                <span class="px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[9px]">${exchange}</span>
+                <span class="truncate">${sector}</span>
+              </div>
+            </div>
+          </div>
+          ${priceHtml}
+        </div>
+      `;
+    }).join("");
 
     DOM.searchSuggestions.classList.remove("hidden");
+  };
+
+  DOM.input.addEventListener("input", (e) => {
+    const rawVal = e.target.value.trim();
+    if (!rawVal) {
+      DOM.searchSuggestions.classList.add("hidden");
+      return;
+    }
+
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(async () => {
+      try {
+        const results = await searchStocks(rawVal);
+        if (results && results.length > 0) {
+          renderSuggestions(results);
+          return;
+        }
+      } catch (err) {
+        console.debug("Lỗi gọi searchStocks API, fallback tìm cục bộ:", err);
+      }
+
+      // Fallback tìm kiếm cục bộ trên POPULAR_STOCKS
+      const upperVal = rawVal.toUpperCase();
+      const localMatches = POPULAR_STOCKS.filter(s =>
+        s.ticker.includes(upperVal) || s.name.toUpperCase().includes(upperVal)
+      );
+      renderSuggestions(localMatches);
+    }, 120);
+  });
+
+  DOM.input.addEventListener("focus", () => {
+    const val = DOM.input.value.trim();
+    if (!val) {
+      // Hiển thị nhanh các mã phổ biến khi mới click vào ô tìm kiếm
+      renderSuggestions(POPULAR_STOCKS.slice(0, 8));
+    }
   });
 
   DOM.searchSuggestions.addEventListener("mousedown", (e) => {
@@ -666,7 +729,7 @@ async function initAuthProtection() {
         }
         try {
           await fetch(buildApiUrl(API_ENDPOINTS.AUTH_LOGOUT));
-        } catch (e) {}
+        } catch (e) { }
         showOverlay();
         if (input) {
           input.value = "";
@@ -729,7 +792,7 @@ function initApp() {
       }
       try {
         await fetch(buildApiUrl(API_ENDPOINTS.AUTH_LOGOUT));
-      } catch (e) {}
+      } catch (e) { }
       const overlay = document.getElementById("authPinOverlay");
       if (overlay) overlay.classList.remove("hidden");
       const input = document.getElementById("authPinInput");

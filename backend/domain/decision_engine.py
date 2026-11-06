@@ -358,7 +358,8 @@ def evaluate_tplus_strategy(
       new_subtag = 'WAIT_POOR_RR'
       new_reason = (
           f"Dòng tiền vào đột biến x{vol_ratio} TB20 nhưng khoảng cách đến cản R1 ({resist_r1:,.0f} đ) quá gần, "
-          f"Net R:R chỉ 1:{rr_ratio:.2f}. Tránh mua đuổi giá cao sát kháng cự."
+          f"Net R:R chỉ 1:{rr_ratio:.2f}. Tránh mua đuổi giá cao sát kháng cự. "
+          f"Đặt lệnh đón lõng tại Vùng gom {entry_a_min:,.0f} - {entry_a_max:,.0f} đ khi có nhịp rung lắc retest nền."
       )
       new_alloc = 0.0
     elif not st_bullish and current_price < ma20:
@@ -398,9 +399,11 @@ def evaluate_tplus_strategy(
           f"Rủi ro rung lắc chốt lời T+2 cao. Kiên nhẫn chờ nhịp chỉnh test lại nền {entry_a_max:,.0f} đ."
       )
     elif upside_r1_pct < 2.5 and not has_strong_momentum:
+      new_badge = 'QUAN SÁT (SÁT CẢN R1 - CANH GOM NỀN)'
+      new_subtag = 'WAIT_RESISTANCE_PULLBACK'
       new_reason = (
-          f"Giá hiện tại đang áp sát ngay ngưỡng cản rung lắc {resist_r1:,.0f} đ (dư địa chỉ còn +{upside_r1_pct}%) "
-          f"khi chưa có dòng tiền lớn bùng nổ để vượt cản. Tránh mua đuổi sát cản T+, kiên nhẫn chờ chỉnh retest nền {entry_a_max:,.0f} đ."
+          f"Giá hiện tại ({current_price:,.0f} đ) đang áp sát ngay ngưỡng cản rung lắc {resist_r1:,.0f} đ (dư địa chỉ còn +{upside_r1_pct:.1f}%), "
+          f"chưa đủ biên độ an toàn để mua đuổi khi chưa có bùng nổ vol. Đặt lệnh đón lõng tại Vùng gom {entry_a_min:,.0f} - {entry_a_max:,.0f} đ, kiên nhẫn chờ nhịp chỉnh test nền."
       )
     else:
       new_reason = (
@@ -594,7 +597,7 @@ def evaluate_tplus_strategy(
           'coreQuestions': {
               'why': [
                   f"Lực mua chủ động trong phiên đạt {buy_ratio}% với khối lượng x{vol_ratio} TB20.",
-                  f"Xung lực RSI {rsi}" + (f" (Phát hiện phân kỳ dương đảo chiều)" if has_bull_div else f", giá vận động quanh EMA9 ({ema9:,.0f} đ)."),
+                  f"Xung lực RSI {rsi}" + (" (Phát hiện phân kỳ dương đảo chiều)" if has_bull_div else f", giá vận động quanh EMA9 ({ema9:,.0f} đ)."),
                   f"Tỷ lệ Net R:R ngắn hạn đạt 1:{rr_ratio} với mục tiêu sóng {primary_target:,.0f} đ (+{primary_target_pct}%); cản rung lắc 1 tại {resist_r1:,.0f} đ (+{upside_r1_pct}%).",
               ],
               'whyNotBuyNow': (
@@ -1048,7 +1051,7 @@ def evaluate_unified_decision(
           'type': 'caution',
       }
   else:
-    tail_risk = risk_engine_report.get('tailLockRisk', False) or tplus_data['hardRules']['triggeredCount'] > 0
+    tail_risk = risk.get('tailLockRisk', False) or tplus_data['hardRules']['triggeredCount'] > 0
     if tail_risk:
       overall_signal = {
           'status': 'DANGER',

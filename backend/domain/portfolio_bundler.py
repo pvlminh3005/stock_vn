@@ -7,14 +7,13 @@ Tạo các gói đầu tư tối ưu theo quy mô vốn (15tr, 20tr, 25tr, 50tr.
 - Cung cấp danh sách cổ phiếu tương đương để đổi mã linh hoạt
 """
 
+from typing import Optional, Dict, Any, List
 import time
-from concurrent.futures import ThreadPoolExecutor
 from backend.data_providers.market_board_provider import get_market_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data
 from backend.domain.regime import evaluate_market_regime
 from backend.domain.technicals import analyze_technicals_and_scoring
 from backend.constants.sectors import (
-    SECTOR_MAP,
     KNOWN_STOCK_SECTORS,
     CORE_SECTORS,
     MOMENTUM_SECTORS,
@@ -58,11 +57,19 @@ def match_sector_group(stock_sector, target_group):
 
 
 def get_stock_sector(symbol, company_name=''):
-  """Xác định nhóm ngành của cổ phiếu từ từ điển hoặc tên công ty."""
+  """Xác định nhóm ngành của cổ phiếu từ từ điển seed hoặc danh bạ động Simplize."""
   sym = symbol.strip().upper()
   if sym in KNOWN_STOCK_SECTORS:
     return KNOWN_STOCK_SECTORS[sym]
-  
+
+  try:
+    from backend.data_providers.company_directory_provider import get_dynamic_sector, _DIRECTORY_CACHE
+    cached_comp = _DIRECTORY_CACHE.get('by_ticker', {}).get(sym)
+    if cached_comp:
+      return get_dynamic_sector(sym, cached_comp.get('nameVi', company_name), cached_comp.get('bcEconomicSectorId'))
+  except Exception:
+    pass
+
   name = (company_name or '').lower()
   if 'ngân hàng' in name:
     return 'Ngân hàng'
@@ -253,7 +260,7 @@ def _enrich_stock_technicals(stock_summary, market_board, regime):
     }
 
 
-def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
+def generate_portfolio_bundle(capital: float = 20_000_000, style: str = 'balanced'):
   """
   Động cơ sinh Gói danh mục tối ưu theo số vốn:
   - capital: Số vốn đầu tư (VND), mặc định 20.000.000 đ
@@ -467,7 +474,13 @@ def generate_portfolio_bundle(capital=20_000_000, style='balanced'):
   }
 
 
-def get_alternative_candidates(current_symbol, sector, max_budget=10_000_000, exclude_sector=None, target_sector=None):
+def get_alternative_candidates(
+    current_symbol: str,
+    sector: str,
+    max_budget: float = 10_000_000,
+    exclude_sector: Optional[str] = None,
+    target_sector: Optional[str] = None,
+):
   """
   Lấy danh sách cổ phiếu tương đương theo ngành hoặc toàn sàn:
   - target_sector: Nhóm ngành người dùng muốn lọc (None hoặc 'Tất cả' để lấy tự do)
@@ -534,7 +547,7 @@ def get_alternative_candidates(current_symbol, sector, max_budget=10_000_000, ex
   return {'alternatives': alternatives[:12], 'targetSector': target_sector or 'Tất cả'}
 
 
-def get_available_sectors_for_budget(slot_budget=10_000_000, exclude_sector=None):
+def get_available_sectors_for_budget(slot_budget: float = 10_000_000, exclude_sector: Optional[str] = None):
   """
   Thống kê tất cả các nhóm ngành trên sàn và khả năng mua lô 100 theo ngân sách:
   - Trả về danh sách nhóm ngành kèm số lượng mã hợp lệ, giá tối thiểu để mua 1 lô 100

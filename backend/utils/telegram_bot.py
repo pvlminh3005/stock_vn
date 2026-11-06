@@ -8,18 +8,35 @@ Quản lý gửi cảnh báo real-time qua Telegram Bot API:
 
 import logging
 import os
+from typing import Optional, List, Dict, Any, Tuple
 import requests
 
 from backend.constants.urls import build_telegram_url
 
 logger = logging.getLogger('telegram_bot')
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_env_path = os.path.join(BASE_DIR, '.env')
+if os.path.isfile(_env_path):
+  try:
+    with open(_env_path, 'r', encoding='utf-8') as _f:
+      for _line in _f:
+        _line = _line.strip()
+        if _line and not _line.startswith('#') and '=' in _line:
+          _k, _v = _line.split('=', 1)
+          _k = _k.strip()
+          _v = _v.strip().strip("'\"")
+          if _k and _k not in os.environ:
+            os.environ[_k] = _v
+  except Exception:
+    pass
+
 # Cấu hình mặc định từ biến môi trường (Bảo mật: không hardcode key/id trên Git)
 DEFAULT_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 DEFAULT_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
 
 
-def get_public_url(public_url: str = None) -> str:
+def get_public_url(public_url: Optional[str] = None) -> str:
   """
   Tự động nhận diện URL:
   1. Ưu tiên tham số public_url truyền vào
@@ -39,13 +56,20 @@ def get_public_url(public_url: str = None) -> str:
 APP_PUBLIC_URL = get_public_url()
 
 
-def send_telegram_message(text: str, buttons: list = None, chat_id: str = None, token: str = None) -> bool:
+def send_telegram_message(
+    text: str,
+    buttons: Optional[List[Dict[str, str]]] = None,
+    chat_id: Optional[str] = None,
+    token: Optional[str] = None,
+    log_meta: Optional[Dict[str, Any]] = None,
+) -> bool:
   """
   Gửi tin nhắn định dạng HTML tới Telegram qua Bot API.
   :param text: Nội dung tin nhắn (hỗ trợ thẻ <b>, <i>, <a>, <code>)
   :param buttons: Danh sách nút bấm Inline, ví dụ: [{'text': 'Xem SSI', 'url': 'https://.../?ticker=SSI'}]
   :param chat_id: ID người nhận (mặc định lấy DEFAULT_CHAT_ID)
   :param token: Bot token (mặc định lấy DEFAULT_BOT_TOKEN)
+  :param log_meta: Metadata cảnh báo có cấu trúc (chỉ gồm mã, giá, action, vùng gom, v.v.) để lưu tracking MongoDB
   :return: True nếu gửi thành công, False nếu lỗi
   """
   bot_token = token or DEFAULT_BOT_TOKEN or os.environ.get('TELEGRAM_BOT_TOKEN', '')
@@ -93,6 +117,25 @@ def send_telegram_message(text: str, buttons: list = None, chat_id: str = None, 
   try:
     resp = requests.post(url, json=payload, timeout=8)
     if resp.status_code == 200:
+      msg_id = None
+      try:
+        msg_id = resp.json().get('result', {}).get('message_id')
+      except Exception:
+        pass
+      if log_meta and isinstance(log_meta, dict):
+        try:
+          from backend.db.portfolio_db import save_telegram_sent_log
+          save_telegram_sent_log(
+              alert_type=log_meta.get('alert_type', 'GENERAL'),
+              title=log_meta.get('title', 'Thông báo thị trường'),
+              stocks=log_meta.get('stocks', []),
+              market_regime=log_meta.get('market_regime'),
+              vnindex=log_meta.get('vnindex'),
+              message_id=msg_id,
+              status='SUCCESS'
+          )
+        except Exception as e_log:
+          logger.warning('Lỗi lưu log Telegram vào MongoDB: %s', e_log)
       return True
     else:
       logger.warning('Telegram API trả về lỗi: %s - %s', resp.status_code, resp.text)
@@ -102,7 +145,11 @@ def send_telegram_message(text: str, buttons: list = None, chat_id: str = None, 
     return False
 
 
-def format_breakout_alert(stock: dict, public_url: str = None, header_title: str = None) -> tuple:
+def format_breakout_alert(
+    stock: dict,
+    public_url: Optional[str] = None,
+    header_title: Optional[str] = None,
+) -> Tuple[str, List[Dict[str, str]]]:
   """
   Soạn nội dung tin nhắn và nút bấm khi phát hiện mã BÙNG NỔ T0 / SÓNG SỚM SAU ATO.
   Toàn bộ số liệu và nhận định được tính toán động 100% từ nến kỹ thuật thực tế (VSR Engine).
@@ -252,7 +299,90 @@ def format_breakout_alert(stock: dict, public_url: str = None, header_title: str
   return msg, buttons
 
 
-def format_session_digest(title: str, stocks: list, regime: str, public_url: str = None, vnindex_summary: dict = None) -> tuple:
+def format_actionable_buy_alert(
+    stock: dict,
+    public_url: Optional[str] = None,
+) -> Tuple[str, List[Dict[str, str]]]:
+  """
+  Soạn tin cảnh báo ĐÈN XANH: MUA NGAY T0 cho cổ phiếu nhóm Tứ trụ (Bank, Chứng, Thép, BĐS).
+  Định dạng tối ưu hóa để nhà đầu tư ra quyết định tức thì trong 30 giây:
+  - Giá vào lệnh cụ thể (ngay tại thị giá)
+  - Khối lượng nổ & Mua chủ động
+  - Target R1, Cắt lỗ S1, Net R:R
+  - Khuyến nghị tỷ trọng dứt khoát
+  """
+  base_url = get_public_url(public_url)
+  symbol = str(stock.get('symbol', '')).upper()
+  name = stock.get('name', symbol)
+  price = float(stock.get('price', 0))
+  sector = stock.get('sector', 'Tứ Trụ Dòng Tiền')
+
+  change_pct = stock.get('changePct')
+  if change_pct is None:
+    change_pct = stock.get('pct_change', stock.get('percentChange', 0.0))
+  change_pct = float(change_pct or 0.0)
+
+  vol_rate = stock.get('volRunRate')
+  if vol_rate is None:
+    vol_rate = stock.get('vol_run_rate', stock.get('volRatio', 1.0))
+  vol_run_rate = float(vol_rate or 1.0)
+
+  buy_ratio = float(stock.get('buyRatio', stock.get('buy_ratio', 55.0)) or 55.0)
+  net_rr = float(stock.get('net_rr', stock.get('netRR', 1.5)) or 1.5)
+  s1 = float(stock.get('support', stock.get('s1', 0)))
+  r1 = float(stock.get('target1', stock.get('resistance', 0)))
+  stop_loss = float(stock.get('stop_loss', stock.get('stopLoss', s1)))
+
+  sign = '+' if change_pct >= 0 else ''
+  upside_pct = round(((r1 - price) / price * 100), 1) if price > 0 and r1 > price else 5.0
+  downside_pct = round(((stop_loss - price) / price * 100), 1) if price > 0 and stop_loss > 0 else -3.0
+
+  entry_max = round(price * 1.005, -2)
+  entry_range = f"{price:,.0f} - {entry_max:,.0f} đ"
+
+  access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
+  auth_param = f"&auth={access_pin}" if access_pin else ""
+  deep_link = f'{base_url}/?ticker={symbol}{auth_param}'
+
+  is_leader = bool(stock.get('isMarketLeader') or 'LEADER' in str(stock.get('actionStatus', '')).upper())
+  rs_score = stock.get('rsScore') or stock.get('rs_score')
+  rs_line = f"🏆 <b>Sức mạnh giá:</b> RS Rating <b>{rs_score}/99</b> (Vượt trội thị trường)\n" if rs_score else ""
+
+  if is_leader:
+    header = f"⭐ <b>ĐÈN XANH: SIÊU CỔ PHIẾU DẪN DẮT: {symbol}</b> <i>(Sóng {sector})</i>"
+    action_text = "⭐ MUA NGAY (MARKET LEADER)"
+    note_text = "Siêu cổ phiếu bứt phá đỉnh dẫn dắt toàn thị trường, dòng tiền lớn áp đảo."
+  else:
+    header = f"🟢 <b>ĐÈN XANH: MUA NGAY T0: {symbol}</b> <i>(Nhóm {sector})</i>"
+    action_text = "🟢 MUA NGAY T0"
+    note_text = "Dòng tiền Tứ trụ vào mạnh chân sóng, sát nền hỗ trợ, không rủi ro đu đỉnh."
+
+  msg = (
+      f"{header}\n"
+      f"🏢 {name}\n\n"
+      f"💰 <b>Vùng vào lệnh:</b> <b>{entry_range}</b> ({sign}{change_pct:.2f}%)\n"
+      f"{rs_line}"
+      f"📊 <b>Dòng tiền:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
+      f"🎯 <b>Mục tiêu R1:</b> <b>{r1:,.0f} đ</b> (+{upside_pct:.1f}%)\n"
+      f"🛡️ <b>Cắt lỗ kỷ luật (S1):</b> <b>{stop_loss:,.0f} đ</b> ({downside_pct:.1f}%)\n"
+      f"⚖️ <b>Tỷ lệ Net R:R:</b> <b>1:{net_rr:.2f}</b> (Đạt chuẩn T+ an toàn)\n\n"
+      f"💡 <b>Hành động:</b> <b>{action_text}</b> <i>(Tỷ trọng: 30-40% vị thế)</i>\n"
+      f"📝 <b>Đặc điểm:</b> {note_text}\n"
+  )
+
+  buttons = [
+      {'text': f'📊 Mở Phân Tích {symbol}', 'url': deep_link}
+  ]
+  return msg, buttons
+
+
+def format_session_digest(
+    title: str,
+    stocks: list,
+    regime: str,
+    public_url: Optional[str] = None,
+    vnindex_summary: Optional[dict] = None,
+) -> Tuple[str, List[Dict[str, str]]]:
   """
   Soạn tin tổng kết phiên (Bản tin trưa 11:35 hoặc Tổng kết ATC 14:50) kèm điểm số VN-Index và % cổ phiếu chính xác.
   """
@@ -292,8 +422,13 @@ def format_session_digest(title: str, stocks: list, regime: str, public_url: str
     vol_rate = float(vol_rate or 1.0)
 
     badge = s.get('actionLabel') or s.get('badge', 'BÙNG NỔ')
+    entry_zone = s.get('entryZone') or s.get('buyZone')
     sign = '+' if pct >= 0 else ''
-    msg += f"<b>{idx}. {sym}</b>: {p:,.0f} đ ({sign}{pct:.2f}%) | Vol x{vol_rate:.1f} TB20 | {badge}\n"
+    if entry_zone and entry_zone not in badge:
+      zone_suffix = f" <i>(Vùng gom: {entry_zone})</i>"
+    else:
+      zone_suffix = ""
+    msg += f"<b>{idx}. {sym}</b>: {p:,.0f} đ ({sign}{pct:.2f}%) | Vol x{vol_rate:.1f} TB20 | {badge}{zone_suffix}\n"
 
   msg += "\n👉 <i>Bấm nút bên dưới để xem chi tiết danh mục và biểu đồ kỹ thuật.</i>"
 

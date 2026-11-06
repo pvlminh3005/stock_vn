@@ -9,6 +9,9 @@ Bộ lọc cổ phiếu và tìm kiếm:
 import os
 import threading
 import time
+import logging
+
+logger = logging.getLogger('screener_controller')
 
 from backend.data_providers.market_board_provider import (
     get_market_board_data,
@@ -17,13 +20,13 @@ from backend.data_providers.market_board_provider import (
 from backend.domain.screener_engine import (
     build_top_tplus_opportunities,
     is_market_hours,
-    _build_synthetic_board_from_entrade,
     get_vn_now,
 )
 from backend.utils.telegram_bot import (
     send_telegram_message,
     format_breakout_alert,
     format_session_digest,
+    format_actionable_buy_alert,
 )
 from backend.db.portfolio_db import (
     is_alert_already_sent,
@@ -75,6 +78,39 @@ def _evaluate_telegram_alerts(screener_data):
   opps = screener_data.get('topOpportunities', [])
   regime = screener_data.get('marketRegime', 'TÍCH CỰC')
 
+  # ==================== ĐÈN XANH HÀNH ĐỘNG NGAY: TỨ TRỤ BANK - CHỨNG - THÉP - BĐS ====================
+  # Quét liên tục trong suốt phiên giao dịch (09:20 - 11:30 và 13:00 - 14:30)
+  # Chốt chặn Anti-Whipsaw: Mỗi mã chỉ rung chuông duy nhất 1 lần trong ngày (cooldown 86,400s)
+  if (560 <= mins <= 690) or (780 <= mins <= 870):
+    actionable_candidates = [
+        s for s in opps
+        if s.get('isActionableGreenBuy') or (
+            s.get('isCoreSector') and
+            1.0 <= float(s.get('changePct', 0)) <= 3.2 and
+            float(s.get('distToS1', 99)) <= 2.5 and
+            float(s.get('volRunRate', 0)) >= 1.0 and
+            float(s.get('buyRatio', 0)) >= 55.0 and
+            float(s.get('tp1Pct', 0)) >= 3.0 and
+            float(s.get('netRR', 0)) >= 1.4
+        )
+    ]
+    for stock in actionable_candidates[:2]:
+      sym = stock.get('symbol')
+      action_key = f'ACTIONABLE_GREEN_{today_str}_{sym}'
+      if sym not in _ALERT_TRACKER['sent_symbols'] and not is_alert_already_sent(action_key, min_interval_seconds=86400):
+        msg, btns = format_actionable_buy_alert(stock)
+        is_leader = stock.get('isMarketLeader') or 'LEADER' in str(stock.get('actionStatus', ''))
+        alert_title = f'Siêu Cổ Phiếu Dẫn Dắt: {sym}' if is_leader else f'Đèn Xanh Mua Ngay T0: {sym}'
+        log_meta = {
+            'alert_type': 'ACTIONABLE_LEADER_BUY' if is_leader else 'ACTIONABLE_GREEN_BUY',
+            'title': alert_title,
+            'stocks': [stock],
+            'market_regime': regime
+        }
+        if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
+          record_alert_sent(action_key, preview=f'Actionable Green Buy {sym}')
+          _ALERT_TRACKER['sent_symbols'].add(sym)
+
   # ==================== MỐC 0: 09:25 - 09:40 (RADAR SÓNG SỚM SAU ATO) ====================
   if 565 <= mins <= 580:
     m0_batch_key = f'MOC0_ATO_BATCH_{today_str}'
@@ -93,7 +129,7 @@ def _evaluate_telegram_alerts(screener_data):
         sym_key = f'MOC0_STOCK_{today_str}_{sym}'
         if not is_alert_already_sent(sym_key, min_interval_seconds=86400):
           msg, btns = format_breakout_alert(stock, header_title=f"🚀 <b>RADAR SÓNG SỚM SAU ATO: {sym}</b>")
-          if send_telegram_message(msg, buttons=btns):
+          if send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'EARLY_BIRD', 'title': f'Radar Sóng Sớm Sau ATO: {sym}', 'stocks': [stock]}):
             record_alert_sent(sym_key, preview=f'Early ATO Breakout {sym}')
             _ALERT_TRACKER['sent_symbols'].add(sym)
             sent_any = True
@@ -114,7 +150,7 @@ def _evaluate_telegram_alerts(screener_data):
         sym_key = f'MOC1_STOCK_{today_str}_{sym}'
         if not is_alert_already_sent(sym_key, min_interval_seconds=86400):
           msg, btns = format_breakout_alert(stock)
-          if send_telegram_message(msg, buttons=btns):
+          if send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'BREAKOUT_T0', 'title': f'Sóng Sớm Bùng Nổ T0: {sym}', 'stocks': [stock]}):
             record_alert_sent(sym_key, preview=f'Breakout {sym}')
             _ALERT_TRACKER['sent_symbols'].add(sym)
             sent_any = True
@@ -127,7 +163,7 @@ def _evaluate_telegram_alerts(screener_data):
     if 'MIDDAY' not in _ALERT_TRACKER['sent_digests'] and not is_alert_already_sent(midday_key, min_interval_seconds=14400):
       vni_summary = get_vnindex_summary()
       msg, btns = format_session_digest('Bản Tin Trưa - Kết Phiên Sáng', opps, regime, vnindex_summary=vni_summary)
-      if send_telegram_message(msg, buttons=btns):
+      if send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'DIGEST_MIDDAY', 'title': 'Bản Tin Trưa - Kết Phiên Sáng', 'stocks': opps[:4], 'market_regime': regime, 'vnindex': vni_summary}):
         record_alert_sent(midday_key, preview='Midday Digest')
         _ALERT_TRACKER['sent_digests'].add('MIDDAY')
 
@@ -145,7 +181,7 @@ def _evaluate_telegram_alerts(screener_data):
         sym_key = f'MOC3_STOCK_{today_str}_{sym}'
         if not is_alert_already_sent(sym_key, min_interval_seconds=86400):
           msg, btns = format_breakout_alert(stock)
-          if send_telegram_message(msg, buttons=btns):
+          if send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'GOLDEN_HOUR', 'title': f'Điểm Mua Giờ Vàng Chiều: {sym}', 'stocks': [stock]}):
             record_alert_sent(sym_key, preview=f'Golden Buy {sym}')
             _ALERT_TRACKER['sent_symbols'].add(sym)
             sent_any = True
@@ -158,7 +194,7 @@ def _evaluate_telegram_alerts(screener_data):
     if 'ATC' not in _ALERT_TRACKER['sent_digests'] and not is_alert_already_sent(atc_key, min_interval_seconds=14400):
       vni_summary = get_vnindex_summary()
       msg, btns = format_session_digest('Tổng Kết Đóng Cửa ATC & Xu Hướng', opps, regime, vnindex_summary=vni_summary)
-      if send_telegram_message(msg, buttons=btns):
+      if send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'DIGEST_ATC', 'title': 'Tổng Kết Đóng Cửa ATC & Xu Hướng', 'stocks': opps[:4], 'market_regime': regime, 'vnindex': vni_summary}):
         record_alert_sent(atc_key, preview='ATC Digest')
         _ALERT_TRACKER['sent_digests'].add('ATC')
 
@@ -230,40 +266,13 @@ def start_screener_worker():
 
 
 def handle_search(query):
-  """Tìm kiếm mã cổ phiếu từ bảng giá realtime."""
-  q = (query or '').strip().upper()
-  if not q:
+  """Tìm kiếm mã cổ phiếu động trên toàn bộ 1,626 mã niêm yết (HOSE, HNX, UPCoM)."""
+  try:
+    from backend.data_providers.company_directory_provider import search_companies
+    return search_companies(query, limit=15)
+  except Exception as e:
+    logger.warning("Lỗi tìm kiếm dynamic: %s", e)
     return []
-  board = get_market_board_data()
-  results = []
-  for sym, item in board.items():
-    if sym.startswith(q) or q in str(item.get('companyNameVi', '')).upper():
-      results.append({
-          'symbol': sym,
-          'name': item.get('companyNameVi', item.get('clientName', sym)),
-          'exchange': item.get('exchange', 'HOSE'),
-          'price': item.get('matchedPrice', item.get('refPrice', 0)),
-          'change': item.get('priceChange', 0),
-          'percentChange': item.get('priceChangePercent', 0),
-      })
-      if len(results) >= 15:
-        break
-
-  # Fallback nếu mã tìm kiếm chưa có trong board (hoặc mã riêng lẻ)
-  if len(results) == 0 and len(q) == 3:
-    from backend.data_providers.entrade_provider import fetch_intraday_snapshot
-    snap = fetch_intraday_snapshot(q)
-    if snap and snap.get('matchedPrice', 0) > 0:
-      results.append({
-          'symbol': q,
-          'name': f'CTCP {q}',
-          'exchange': 'HOSE',
-          'price': snap.get('matchedPrice', 0),
-          'change': snap.get('priceChange', 0),
-          'percentChange': snap.get('priceChangePercent', 0),
-      })
-
-  return results
 
 
 def handle_screener():
@@ -421,7 +430,7 @@ def handle_telegram_test(ticker='SSI'):
   }
 
   msg, btns = format_breakout_alert(stock_data)
-  ok = send_telegram_message(msg, buttons=btns)
+  ok = send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'TEST_ALERT', 'title': f'Thử nghiệm cảnh báo: {ticker}', 'stocks': [stock_data]})
   bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
   chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
   return {
