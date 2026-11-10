@@ -13,7 +13,7 @@ TPLUS_INTRADAY_TIMEFRAME = '1H'
 
 # SuperTrend T+ (chuẩn Ribbon co thắt động AmiBroker: bắt nhịp nhanh, trailing stop bám sát đệm lãi)
 TPLUS_SUPERTREND_PERIOD = 10
-TPLUS_SUPERTREND_MULTIPLIER = 1.15
+TPLUS_SUPERTREND_MULTIPLIER = 1.8
 
 # Stochastic RSI T+ (14, 14, 3, 3) - Bắt điểm xoay đảo chiều T+2.5
 STOCH_RSI_PERIOD = 14

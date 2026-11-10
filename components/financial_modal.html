@@ -1,42 +1,42 @@
 <!-- MODAL HỘP THOẠI XEM CHI TIẾT CHỈ SỐ TÀI CHÍNH & SỨC KHỎE DOANH NGHIỆP (BCTC THỰC TẾ) -->
 <div id="financialModal"
-  class="hidden fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+  class="hidden fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-5 overflow-y-auto">
   <div
-    class="max-w-5xl w-full bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl relative my-auto max-h-[92vh] flex flex-col overflow-hidden animate-fadeIn">
+    class="max-w-5xl w-full bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl relative my-auto max-h-[96vh] sm:max-h-[92vh] flex flex-col overflow-hidden animate-fadeIn">
 
-    <!-- Modal Header: Tiêu đề, Audit Badge & Nút đóng -->
+    <!-- Modal Header: Tiêu đề, Audit Badge & Nút đóng (Touch target >= 44px) -->
     <div
-      class="px-5 py-4 border-b border-slate-800 bg-slate-900/95 flex items-center justify-between gap-3 flex-shrink-0">
-      <div class="flex items-center gap-3 min-w-0">
+      class="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-900/95 flex items-center justify-between gap-3 flex-shrink-0">
+      <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
         <div
-          class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner flex-shrink-0">
-          <i class="fa-solid fa-file-invoice-dollar text-lg"></i>
+          class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner flex-shrink-0">
+          <i class="fa-solid fa-file-invoice-dollar text-base sm:text-lg"></i>
         </div>
         <div class="min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
-            <h3 class="text-sm sm:text-base font-black text-white tracking-wide truncate">
+            <h3 class="text-xs sm:text-base font-black text-white tracking-wide truncate">
               BÁO CÁO TÀI CHÍNH &amp; CHỈ SỐ DOANH NGHIỆP (BCTC THỰC TẾ)
             </h3>
             <span id="auditBadge"
-              class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 whitespace-nowrap">
+              class="text-[10px] sm:text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 whitespace-nowrap">
               ⏳ Dữ Liệu BCTC Đang Cập Nhật
             </span>
           </div>
-          <p class="text-xs text-slate-400 mt-0.5 truncate">
+          <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">
             Dữ liệu tài chính kiểm toán chuẩn hóa • Đánh giá chất lượng lợi nhuận, đòn bẩy nợ &amp; rủi ro quản trị
           </p>
         </div>
       </div>
 
-      <!-- Close Button (X) -->
+      <!-- Close Button (X) - Đảm bảo kích thước chạm tối thiểu 44x44px trên Mobile -->
       <button id="closeFinancialModalBtn" type="button" aria-label="Đóng"
-        class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition border border-slate-700 cursor-pointer flex-shrink-0">
-        <i class="fa-solid fa-xmark text-sm"></i>
+        class="w-11 h-11 sm:w-9 sm:h-9 rounded-xl sm:rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition border border-slate-700 cursor-pointer flex-shrink-0 active:scale-95 shadow-sm">
+        <i class="fa-solid fa-xmark text-base sm:text-sm"></i>
       </button>
     </div>
 
     <!-- Modal Body: Scrollable -->
-    <div class="p-5 md:p-6 overflow-y-auto space-y-6">
+    <div class="p-3.5 sm:p-5 md:p-6 overflow-y-auto space-y-5 sm:space-y-6">
 
       <!-- 1. Vùng hiển thị 8 chỉ số tài chính cốt lõi -->
       <div>

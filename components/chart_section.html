@@ -1,17 +1,17 @@
 <!-- KHU VỰC BIỂU ĐỒ NẾN TRỰC QUAN (TRADINGVIEW LIGHTWEIGHT CHARTS) -->
-<div class="px-5 md:px-6 pt-5 pb-2 border-b border-slate-800 bg-slate-950/60">
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-    <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
-      <span class="text-sm font-bold text-white flex items-center gap-1.5">
-        <i class="fa-solid fa-chart-candlestick text-blue-400"></i> Biểu Đồ Nến Kỹ Thuật &amp; Khối Lượng
+<div class="px-2.5 sm:px-5 md:px-6 pt-3 sm:pt-5 pb-2 border-b border-slate-800 bg-slate-950/60">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 sm:mb-3">
+    <div class="flex flex-wrap items-center gap-1.5 sm:gap-3">
+      <span class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+        <i class="fa-solid fa-chart-candlestick text-blue-400"></i> Biểu Đồ Nến &amp; Vol
       </span>
-      <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 shadow-inner">
-        <i class="fa-solid fa-clock text-[10px] text-blue-400"></i>
-        <span class="text-[11px] text-slate-400 font-medium">Khung:</span>
-        <select id="chartTimeframeSelect" class="bg-transparent text-xs text-white font-mono font-bold focus:outline-none cursor-pointer">
-          <option value="1D" class="bg-slate-900 text-white" selected>D1 (Ngày - Mặc định)</option>
-          <option value="1W" class="bg-slate-900 text-white">W1 (Tuần - Trung hạn)</option>
-          <option value="1M" class="bg-slate-900 text-white">1M (Tháng - Dài hạn)</option>
+      <div class="flex items-center gap-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2 sm:px-2.5 py-0.5 sm:py-1 min-h-[30px] sm:min-h-0 shadow-inner">
+        <i class="fa-solid fa-clock text-[9px] sm:text-[10px] text-blue-400"></i>
+        <span class="text-[10px] sm:text-[11px] text-slate-400 font-medium">Khung:</span>
+        <select id="chartTimeframeSelect" class="bg-transparent text-[11px] sm:text-xs text-white font-mono font-bold focus:outline-none cursor-pointer">
+          <option value="1D" class="bg-slate-900 text-white" selected>D1 (Ngày)</option>
+          <option value="1W" class="bg-slate-900 text-white">W1 (Tuần)</option>
+          <option value="1M" class="bg-slate-900 text-white">1M (Tháng)</option>
           <option value="1H" class="bg-slate-900 text-white">1H (1 Giờ)</option>
           <option value="15" class="bg-slate-900 text-white">15m (15 Phút)</option>
         </select>
@@ -19,22 +19,22 @@
 
       <!-- SuperTrend Ribbon Signal Badge (Thời gian thực) -->
       <div id="superTrendSignalBadge"
-        class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-mono text-xs font-bold shadow-md">
-        <i class="fa-solid fa-circle-notch fa-spin text-slate-400 text-[11px]"></i>
-        <span id="superTrendSignalText">Đang tải tín hiệu...</span>
+        class="flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 min-h-[30px] sm:min-h-0 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px] sm:text-xs font-bold shadow-md">
+        <i class="fa-solid fa-circle-notch fa-spin text-slate-400 text-[10px]"></i>
+        <span id="superTrendSignalText">Đang tải...</span>
       </div>
 
       <!-- Toggle SuperTrend Ribbon Mode -->
       <button id="btnToggleSuperTrend" type="button"
-        class="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs font-mono text-slate-300 hover:text-white transition cursor-pointer shadow-inner"
+        class="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2 sm:px-2.5 py-0.5 sm:py-1 min-h-[30px] sm:min-h-0 text-[10px] sm:text-xs font-mono text-slate-300 hover:text-white transition cursor-pointer shadow-inner"
         title="Bật/Tắt hệ thống chỉ báo SuperTrend Ribbon (Xanh Vào - Hồng Ra)">
-        <span id="superTrendToggleDot" class="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+        <span id="superTrendToggleDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
         <span id="superTrendToggleLabel">SuperTrend: BẬT</span>
       </button>
     </div>
 
     <!-- Legend info hover -->
-    <div id="chartLegend" class="text-xs font-mono text-slate-300 flex flex-wrap items-center gap-3">
+    <div id="chartLegend" class="text-[10px] sm:text-xs font-mono text-slate-300 flex flex-wrap items-center gap-1.5 sm:gap-3">
       <span>O: <span id="legOpen" class="text-white font-semibold">--</span></span>
       <span>H: <span id="legHigh" class="text-emerald-400 font-semibold">--</span></span>
       <span>L: <span id="legLow" class="text-rose-400 font-semibold">--</span></span>
@@ -44,69 +44,75 @@
   </div>
 
   <!-- BẢNG TỔNG QUAN TÍN HIỆU XANH VÀO - HỒNG RA (MÔ PHỎNG CHUẨN MẪU STB) -->
-  <div id="superTrendSummaryCard" class="mb-3 p-3.5 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs font-mono">
-    <div class="space-y-1">
-      <div class="flex flex-wrap items-center gap-2">
-        <span id="stbSummaryTicker" class="text-base font-black text-white font-sans tracking-wide">--</span>
-        <span class="font-black text-xs px-2.5 py-0.5 rounded-md bg-blue-950/80 text-blue-400 border border-blue-700/80 tracking-wider">XANH VÀO - HỒNG RA</span>
-        <span id="stbSummaryRecommendation" class="font-bold text-xs text-emerald-400">Khuyến nghị: Đang tải...</span>
+  <div id="superTrendSummaryCard" class="mb-2 sm:mb-3 p-2.5 sm:p-3.5 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-3 text-[11px] sm:text-xs font-mono">
+    <div class="space-y-0.5 sm:space-y-1">
+      <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <span id="stbSummaryTicker" class="text-sm sm:text-base font-black text-white font-sans tracking-wide">--</span>
+        <span class="font-bold text-[9px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 rounded-md bg-blue-950/80 text-blue-400 border border-blue-700/80 tracking-wider">XANH VÀO - HỒNG RA</span>
+        <span id="stbSummaryRecommendation" class="font-semibold text-[10px] sm:text-xs text-emerald-400">Khuyến nghị: Đang tải...</span>
       </div>
-      <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-slate-300 text-[11px] pt-0.5">
+      <div class="flex flex-wrap items-center gap-x-3 sm:gap-x-5 gap-y-0.5 text-slate-300 text-[10px] sm:text-[11px] pt-0.5">
         <div>Tín hiệu: <span id="stbSummaryLastOrder" class="font-bold text-white">--</span></div>
         <div>Hiệu suất: <span id="stbSummaryProfit" class="font-bold text-emerald-400">--</span></div>
         <div>Ngày phát lệnh: <span id="stbSummaryDate" class="text-slate-400 font-semibold">--</span></div>
         <div>Giá hiện tại: <span id="stbSummaryCurrentPrice" class="font-bold text-white">--</span></div>
       </div>
     </div>
-    <div class="flex items-center gap-2 text-[11px] self-start md:self-auto">
-      <div class="bg-slate-950/90 px-2.5 py-1.5 rounded-lg border border-slate-800 shadow-inner">
-        <div class="text-[10px] text-slate-400 flex items-center justify-between gap-1.5">
-          <span id="stbSummaryTargetLabel">TARGET 1 (T+)</span>
-          <span id="stbSummaryTargetPct" class="text-[10px] font-bold font-mono text-sky-400"></span>
+    <div class="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] self-start md:self-auto overflow-x-auto smooth-horizontal-scroll w-full md:w-auto pb-1 md:pb-0">
+      <div class="bg-slate-950/90 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border border-slate-800 shadow-inner flex-shrink-0">
+        <div class="text-[9px] sm:text-[10px] text-slate-400 font-medium tracking-wide">
+          <span id="stbSummaryTargetLabel">TARGET 1</span>
         </div>
-        <div id="stbSummaryTarget" class="font-bold text-sky-400 text-xs mt-0.5">--</div>
-      </div>
-      <div id="stbSummaryTarget2Box" class="bg-slate-950/90 px-2.5 py-1.5 rounded-lg border border-slate-800 shadow-inner hidden">
-        <div class="text-[10px] text-slate-400 flex items-center justify-between gap-1.5">
-          <span>TARGET 2 (TREND)</span>
-          <span id="stbSummaryTarget2Pct" class="text-[10px] font-bold font-mono text-purple-400"></span>
+        <div class="flex items-baseline gap-1 mt-0.5">
+          <span id="stbSummaryTarget" class="font-bold text-sky-400 text-[11px] sm:text-xs">--</span>
+          <span id="stbSummaryTargetPct" class="text-[9px] sm:text-[10px] font-bold font-mono text-sky-400"></span>
         </div>
-        <div id="stbSummaryTarget2" class="font-bold text-purple-400 text-xs mt-0.5">--</div>
       </div>
-      <div class="bg-slate-950/90 px-2.5 py-1.5 rounded-lg border border-slate-800 shadow-inner">
-        <div class="text-[10px] text-slate-400 flex items-center justify-between gap-1.5">
+      <div id="stbSummaryTarget2Box" class="bg-slate-950/90 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border border-slate-800 shadow-inner hidden flex-shrink-0">
+        <div class="text-[9px] sm:text-[10px] text-slate-400 font-medium tracking-wide">
+          <span id="stbSummaryTarget2Label">TARGET 2</span>
+        </div>
+        <div class="flex items-baseline gap-1 mt-0.5">
+          <span id="stbSummaryTarget2" class="font-bold text-purple-400 text-[11px] sm:text-xs">--</span>
+          <span id="stbSummaryTarget2Pct" class="text-[9px] sm:text-[10px] font-bold font-mono text-purple-400"></span>
+        </div>
+      </div>
+      <div class="bg-slate-950/90 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border border-slate-800 shadow-inner flex-shrink-0">
+        <div class="text-[9px] sm:text-[10px] text-slate-400 font-medium tracking-wide">
           <span id="stbSummaryStopLossLabel">CẮT LỖ (SL)</span>
-          <span id="stbSummaryStopLossPct" class="text-[10px] font-bold font-mono text-rose-400"></span>
         </div>
-        <div id="stbSummaryStopLoss" class="font-bold text-rose-400 text-xs mt-0.5">--</div>
+        <div class="flex items-baseline gap-1 mt-0.5">
+          <span id="stbSummaryStopLoss" class="font-bold text-rose-400 text-[11px] sm:text-xs">--</span>
+          <span id="stbSummaryStopLossPct" class="text-[9px] sm:text-[10px] font-bold font-mono text-rose-400"></span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Container vẽ biểu đồ -->
+  <!-- Container vẽ biểu đồ (Tối ưu độ cao co giãn trên Mobile 320px / Tablet 400px / Desktop 520px) -->
   <div id="chartContainer"
-    class="w-full h-[520px] rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative"></div>
-  <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-500 pt-2 pb-1 gap-2">
-    <div class="flex flex-wrap items-center gap-3 sm:gap-4">
-      <span class="flex items-center gap-1.5 text-emerald-400 font-bold">
-        <span class="w-3.5 h-3.5 rounded bg-emerald-500/40 border border-emerald-400 inline-block"></span>
-        Vùng Xanh (Nắm giữ / Mua)
+    class="w-full h-[320px] sm:h-[400px] lg:h-[520px] rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative"></div>
+  <div class="flex flex-wrap items-center justify-between text-[10px] sm:text-[11px] text-slate-400 pt-1.5 sm:pt-2 pb-1 gap-1.5 sm:gap-2">
+    <div class="flex flex-wrap items-center gap-2 sm:gap-4">
+      <span class="flex items-center gap-1 text-emerald-400 font-semibold">
+        <span class="w-2.5 sm:w-3.5 h-2.5 sm:h-3.5 rounded bg-emerald-500/40 border border-emerald-400 inline-block"></span>
+        Vùng Xanh (Mua/Giữ)
       </span>
-      <span class="flex items-center gap-1.5 text-pink-400 font-bold">
-        <span class="w-3.5 h-3.5 rounded bg-pink-500/40 border border-pink-400 inline-block"></span>
-        Vùng Hồng (Canh bán / Cắt lỗ)
+      <span class="flex items-center gap-1 text-pink-400 font-semibold">
+        <span class="w-2.5 sm:w-3.5 h-2.5 sm:h-3.5 rounded bg-pink-500/40 border border-pink-400 inline-block"></span>
+        Vùng Hồng (Bán/SL)
       </span>
-      <span class="flex items-center gap-1.5 text-slate-400 font-bold">
-        <span class="w-3.5 h-3.5 rounded bg-slate-600/40 border border-slate-400 inline-block"></span>
-        Chờ Trend (ADX &lt; 20)
+      <span class="flex items-center gap-1 text-slate-400 font-semibold">
+        <span class="w-2.5 sm:w-3.5 h-2.5 sm:h-3.5 rounded bg-slate-600/40 border border-slate-400 inline-block"></span>
+        Chờ Trend
       </span>
-      <span class="flex items-center gap-1.5 text-amber-400 font-bold">
-        <span class="w-3.5 h-3.5 rounded bg-amber-500/40 border border-amber-400 inline-block"></span>
-        Chốt Lời (TP chủ động)
+      <span class="flex items-center gap-1 text-amber-400 font-semibold">
+        <span class="w-2.5 sm:w-3.5 h-2.5 sm:h-3.5 rounded bg-amber-500/40 border border-amber-400 inline-block"></span>
+        Chốt Lời (TP)
       </span>
-      <span class="flex items-center gap-1"><span class="w-2.5 h-2 bg-blue-600 inline-block rounded-xs"></span> Nến Tăng</span>
-      <span class="flex items-center gap-1"><span class="w-2.5 h-2 bg-rose-500 inline-block rounded-xs"></span> Nến Giảm</span>
+      <span class="flex items-center gap-1"><span class="w-2 h-1.5 sm:w-2.5 sm:h-2 bg-blue-600 inline-block rounded-xs"></span> Nến Tăng</span>
+      <span class="flex items-center gap-1"><span class="w-2 h-1.5 sm:w-2.5 sm:h-2 bg-rose-500 inline-block rounded-xs"></span> Nến Giảm</span>
     </div>
-    <span class="italic text-slate-400">Đồng bộ mốc Target 1 &amp; 2 > Vùng Mua/Pullback > Trailing Stop &amp; Dải mây SuperTrend</span>
+    <span class="italic text-slate-500 hidden md:inline">Đồng bộ mốc Target 1 &amp; 2 > Vùng Mua/Pullback > Trailing Stop &amp; Dải mây SuperTrend</span>
   </div>
 </div>

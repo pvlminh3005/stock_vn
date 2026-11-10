@@ -86,35 +86,154 @@
     <ul id="heroHardRulesList" class="space-y-0.5 pl-5 list-disc text-slate-300 text-[11px] leading-relaxed"></ul>
   </div>
 
-  <!-- BỘ LỌC VỊ THẾ NHANH (SEGMENTED CONTROL): GIÚP USER ĐỊNH VỊ CHÍNH XÁC TRONG 1 GIÂY -->
-  <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-    <div class="flex items-center gap-2">
-      <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-        <i class="fa-solid fa-user-check text-blue-400"></i> Vị thế của bạn:
-      </span>
-      <span class="text-[11px] text-slate-500 hidden sm:inline">(Chọn để làm nổi bật chiến lược phù hợp)</span>
-    </div>
-
-    <div class="flex items-center gap-2 flex-wrap">
-      <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono">
-        <button id="filterPosAll" type="button" class="px-3 py-1.5 rounded-md font-bold transition flex items-center gap-1.5 bg-blue-600 text-white shadow cursor-pointer">
-          <i class="fa-solid fa-table-columns"></i> <span>Tất cả</span>
-        </button>
-        <button id="filterPosNew" type="button" class="px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 cursor-pointer">
-          <i class="fa-solid fa-cart-plus text-emerald-400"></i> <span>Chưa có hàng (Mua mới)</span>
-        </button>
-        <button id="filterPosHolding" type="button" class="px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 cursor-pointer">
-          <i class="fa-solid fa-briefcase text-amber-400"></i> <span>Đang nắm giữ</span>
-        </button>
+  <!-- ========================================================================= -->
+  <!-- VÉ LỆNH QUYẾT ĐỊNH NGAY TRONG 3 GIÂY (INSTANT ACTION TICKET) -->
+  <!-- ========================================================================= -->
+  <div id="instantOrderTicket" class="p-4 sm:p-5 rounded-2xl border-2 transition-all duration-300 shadow-2xl space-y-3.5 bg-slate-950/90 border-blue-500/50">
+    
+    <!-- Top row: Huy hiệu hành động lớn & Lý do tóm tắt -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+      <div class="space-y-1">
+        <div class="flex items-center gap-2.5 flex-wrap">
+          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">LỆNH HÀNH ĐỘNG TRỌNG TÂM:</span>
+          <div id="instantActionBadge" class="px-3.5 py-1 rounded-xl text-xs sm:text-sm font-black font-mono uppercase tracking-wider shadow-lg inline-flex items-center gap-1.5 bg-emerald-950 text-emerald-300 border border-emerald-600">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="instantActionText">🟢 ĐẠT ĐIỂM MUA AN TOÀN</span>
+          </div>
+        </div>
+        <p id="instantActionReason" class="text-xs sm:text-sm font-medium text-slate-200 leading-relaxed font-sans">
+          Đang tính toán lệnh hành động tối ưu...
+        </p>
       </div>
 
-      <!-- Khung nhập giá vốn tiện ích (khi đang nắm giữ) -->
-      <div id="costPriceWidget" class="hidden flex items-center gap-1.5 bg-slate-900 border border-amber-900/40 rounded-lg px-2.5 py-1 text-xs font-mono">
-        <span class="text-[11px] text-amber-400">Giá vốn:</span>
-        <input id="userCostInput" type="number" step="100" placeholder="Giá mua (đ)..." class="w-28 px-2 py-0.5 text-xs bg-slate-950 border border-slate-700 rounded text-white font-mono focus:border-amber-500 focus:outline-none">
-        <span id="userPnLBadge" class="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">--%</span>
+      <!-- Tag trạng thái thị giá đối chiếu -->
+      <div class="flex items-center gap-2 self-start md:self-auto">
+        <span id="instantPriceStatusTag" class="px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase tracking-wider border shadow-md bg-slate-800 text-slate-300 border-slate-700">
+          👀 ĐANG ĐỐI CHIẾU THỊ GIÁ
+        </span>
       </div>
     </div>
+
+    <!-- Cảnh báo Xu hướng Vùng Hồng (Hiện nổi bật nếu SuperTrend Bearish) -->
+    <div id="instantTrendAlert" class="hidden p-3 rounded-xl border border-rose-600/60 bg-rose-950/40 text-rose-200 text-xs flex items-start gap-2.5 shadow-md">
+      <i class="fa-solid fa-hand text-base text-rose-400 flex-shrink-0 mt-0.5"></i>
+      <div>
+        <strong class="font-bold text-rose-300">🛑 CẢNH BÁO XU HƯỚNG: ĐANG Ở VÙNG HỒNG (DOWNTREND DƯỚI MA20)</strong>
+        <p class="text-[11px] text-slate-300 mt-0.5">
+          Cổ phiếu đang chịu áp lực bán trong kênh giảm. Mọi nhịp nảy động lượng chỉ mang tính hồi phục kỹ thuật ngắn hạn. Nhà đầu tư an toàn nên <strong>ĐỨNG NGOÀI</strong> chờ dải mây SuperTrend lật sang VÙNG XANH.
+        </p>
+      </div>
+    </div>
+
+    <!-- Cảnh báo Ngữ cảnh Thị trường (Market Regime Alert) -->
+    <div id="instantRegimeAlert" class="hidden p-2.5 rounded-xl border border-amber-600/50 bg-amber-950/30 text-amber-200 text-xs flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-shield-halved text-amber-400 text-xs"></i>
+        <span><strong class="text-amber-300">Thị trường DEFENSIVE:</strong> Quy mô giải ngân tự động giới hạn ở mức thăm dò phòng thủ (Tối đa 15-20% NAV).</span>
+      </div>
+      <span class="text-[10px] text-amber-400 font-mono font-bold uppercase">Bảo vệ vốn</span>
+    </div>
+
+    <!-- Grid 4 Thông Số Đặt Lệnh Trực Tiếp Trong 3 Giây -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs font-mono">
+      <!-- 1. Vùng Giá Đặt Lệnh Gom -->
+      <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between shadow-inner">
+        <span class="text-[10px] text-slate-400 font-sans block mb-1">1. Vùng giá mua gom:</span>
+        <div>
+          <span id="instantBuyZone" class="text-sm sm:text-base font-black text-emerald-400 block truncate">-- đ</span>
+          <span id="instantBuyZoneSub" class="text-[10px] text-slate-400 font-sans block mt-0.5">Sát nền hỗ trợ S1</span>
+        </div>
+      </div>
+
+      <!-- 2. Tỷ Trọng Giải Ngân Vị Thế -->
+      <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between shadow-inner">
+        <span class="text-[10px] text-slate-400 font-sans block mb-1">2. Tỷ trọng giải ngân:</span>
+        <div>
+          <span id="instantAllocPct" class="text-sm sm:text-base font-black text-blue-400 block truncate">--% NAV</span>
+          <span id="instantAllocSub" class="text-[10px] text-slate-400 font-sans block mt-0.5">Vị thế Bước 1</span>
+        </div>
+      </div>
+
+      <!-- 3. Mục Tiêu Chốt Lời TP1 -->
+      <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between shadow-inner">
+        <span class="text-[10px] text-slate-400 font-sans block mb-1">3. Mục tiêu chốt lời (TP1):</span>
+        <div>
+          <div class="flex items-baseline gap-1.5 flex-wrap">
+            <span id="instantTPPrice" class="text-sm sm:text-base font-black text-sky-400 block truncate">-- đ</span>
+            <span id="instantTPPct" class="text-xs font-bold text-emerald-400 font-mono">(+--%)</span>
+          </div>
+          <span class="text-[10px] text-slate-400 font-sans block mt-0.5">Kháng cự R1 (Chốt 50%)</span>
+        </div>
+      </div>
+
+      <!-- 4. Ngưỡng Cắt Lỗ Kỷ Luật & Net R:R -->
+      <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between shadow-inner">
+        <span class="text-[10px] text-slate-400 font-sans block mb-1">4. Cắt lỗ & Tỷ lệ R/R:</span>
+        <div>
+          <div class="flex items-baseline gap-1.5 flex-wrap">
+            <span id="instantSLPrice" class="text-sm sm:text-base font-black text-rose-400 block truncate">-- đ</span>
+            <span id="instantSLPct" class="text-xs font-bold text-rose-400 font-mono">(--%)</span>
+          </div>
+          <span id="instantRRSub" class="text-[10px] text-amber-400 font-mono font-bold block mt-0.5">Net R/R: 1 : --</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BỘ ĐIỀU HƯỚNG KÉP: VỊ THẾ & KHUNG THỜI GIAN (Tối ưu nút bấm cảm ứng trên Mobile/Tablet) -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    
+    <!-- 1. BỘ LỌC VỊ THẾ NHANH -->
+    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-user-check text-blue-400"></i> Vị thế:
+        </span>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono w-full sm:w-auto justify-between sm:justify-start">
+          <button id="filterPosAll" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
+            <i class="fa-solid fa-table-columns"></i> <span>Tất cả</span>
+          </button>
+          <button id="filterPosNew" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-bold transition flex items-center justify-center gap-1 bg-emerald-600 text-white shadow cursor-pointer flex-1 sm:flex-initial">
+            <i class="fa-solid fa-cart-plus text-emerald-400"></i> <span>Mua mới</span>
+          </button>
+          <button id="filterPosHolding" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
+            <i class="fa-solid fa-briefcase text-amber-400"></i> <span>Nắm giữ</span>
+          </button>
+        </div>
+
+        <!-- Khung nhập giá vốn tiện ích (khi đang nắm giữ) -->
+        <div id="costPriceWidget" class="hidden flex items-center gap-1 bg-slate-900 border border-amber-900/40 rounded-lg px-2 py-0.5 text-xs font-mono">
+          <span class="text-[10px] text-amber-400">Giá vốn:</span>
+          <input id="userCostInput" type="text" inputmode="decimal" placeholder="14,85" autocomplete="off" class="w-24 sm:w-28 min-h-[32px] px-1.5 py-0.5 text-xs bg-slate-950 border border-slate-700 rounded text-white font-mono focus:border-amber-500 focus:outline-none">
+          <span id="userPnLBadge" class="text-[10px] font-bold px-1 py-0.5 rounded bg-slate-800 text-slate-400">--%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. BỘ CHUYỂN ĐỔI KHUNG THỜI GIAN (HORIZON TOGGLE: TRIỆT TIÊU XUNG ĐỘT) -->
+    <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-clock text-amber-400"></i> Chiến lược:
+        </span>
+      </div>
+
+      <div class="inline-flex p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono w-full sm:w-auto justify-between sm:justify-start">
+        <button id="toggleHorizonTPlus" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-bold transition flex items-center justify-center gap-1 bg-blue-600 text-white shadow cursor-pointer flex-1 sm:flex-initial">
+          <i class="fa-solid fa-bolt text-amber-400"></i> <span>⚡ Lướt T+</span>
+        </button>
+        <button id="toggleHorizonMidterm" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
+          <i class="fa-solid fa-gem text-cyan-400"></i> <span>💎 Trung Hạn</span>
+        </button>
+        <button id="toggleHorizonBoth" type="button" class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition flex items-center justify-center gap-1 cursor-pointer flex-1 sm:flex-initial">
+          <i class="fa-solid fa-columns"></i> <span>Cả Hai</span>
+        </button>
+      </div>
+    </div>
+
   </div>
 
   <!-- KHỐI 2 CỘT CHIẾN LƯỢC CHÍNH (THEO ĐÚNG WIREFRAME) -->
@@ -245,7 +364,7 @@
         <span id="tplusIndVol">Vol: --x TB20</span>
         <span id="tplusIndBuyRatio">Mua CĐ: --%</span>
         <span id="tplusIndRSI">RSI: --</span>
-        <span id="tplusIndStochRSI" class="text-amber-400 font-semibold">StochRSI: --</span>
+        <span id="tplusIndStochRSI" class="text-amber-400 font-semibold cursor-help" title="Stochastic RSI: Chỉ báo động lượng ngắn hạn. Dưới 20 là vùng quá bán (canh nảy kỹ thuật), trên 80 là vùng quá mua (canh chốt lời).">StochRSI: --</span>
         <span id="tplusIndAlloc" class="text-emerald-400 font-bold">Giải ngân: --% NAV</span>
       </div>
     </div>

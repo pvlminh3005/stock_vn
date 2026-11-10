@@ -9,8 +9,9 @@ import time
 
 from backend.constants.config import DAILY_HISTORY_DAYS
 from backend.utils.ohlc_helpers import format_candles, merge_live_candle_to_chart_data
-from backend.data_providers.ssi_provider import get_ssi_board_data
-from backend.data_providers.entrade_provider import fetch_chart_data
+from backend.utils.time_utils import vn_date, VN_UTC_OFFSET_SEC
+from backend.data_providers.market_board_provider import get_market_board_data
+from backend.data_providers.entrade_provider import fetch_chart_data, fetch_intraday_snapshot
 from backend.data_providers.news_provider import fetch_live_multi_sources
 from backend.domain.valuation import get_fundamental_profile
 from backend.domain.technicals import analyze_technicals_and_scoring
@@ -22,14 +23,20 @@ from backend.domain.decision_engine import evaluate_unified_decision
 def handle_stock_detail(ticker, resolution='1D'):
   """Tổng hợp toàn bộ thông tin mã cổ phiếu (bảng giá, nến, cơ bản, kỹ thuật, tin tức, rủi ro)."""
   ticker = ticker.strip().upper()
-  ssi_board = get_ssi_board_data()
-  ssi_item = ssi_board.get(ticker, {})
+  market_board = get_market_board_data()
+  board_item = market_board.get(ticker, {})
+
+  # Nếu bảng giá ngoài phiên rỗng -> Tự động Fallback sang Entrade Intraday Live 1-min
+  if not board_item or board_item.get('matchedPrice', 0) <= 0:
+    entrade_snap = fetch_intraday_snapshot(ticker)
+    if entrade_snap and entrade_snap.get('matchedPrice', 0) > 0:
+      board_item = entrade_snap
 
   # Toàn bộ phân tích (RSI, MA, ATR, hỗ trợ/kháng cự, kế hoạch T+) luôn chạy trên nến NGÀY;
   # resolution chỉ quyết định dữ liệu nến vẽ biểu đồ.
-  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', ssi_item=ssi_item)
-  # Ghép cây nến realtime tại thời điểm search từ SSI vào chuỗi nến ngày
-  chart_data = merge_live_candle_to_chart_data(chart_data, ssi_item, resolution='1D')
+  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', market_item=board_item)
+  # Ghép cây nến realtime tại thời điểm search từ Entrade vào chuỗi nến ngày
+  chart_data = merge_live_candle_to_chart_data(chart_data, board_item, resolution='1D')
 
   t_list = chart_data.get('t', [])
   h_list = chart_data.get('h', [])
@@ -41,56 +48,78 @@ def handle_stock_detail(ticker, resolution='1D'):
     raise ValueError(f'Không tìm thấy dữ liệu cho mã {ticker}')
 
   scale = 1000 if c_list[-1] < 1000 else 1
-  latest_c = c_list[-1] * scale
-  prev_c = (c_list[-2] * scale) if len(c_list) > 1 else latest_c
+  now_vn = time.gmtime(time.time() + VN_UTC_OFFSET_SEC)
+  today_str = time.strftime('%Y-%m-%d', now_vn)
+  last_candle_date = vn_date(t_list[-1]) if t_list else None
 
-  # Dữ liệu realtime từ SSI nếu có phiên đang mở
-  if ssi_item and ssi_item.get('matchedPrice', 0) > 0:
-    current_price = ssi_item['matchedPrice']
-    price_change = ssi_item.get('priceChange', current_price - prev_c)
-    pct_change = ssi_item.get(
-        'priceChangePercent',
-        round((price_change / prev_c) * 100, 2) if prev_c else 0,
+  # Xác định giá tham chiếu và nến đóng cửa trước đó:
+  # Nếu nến cuối cùng trong t_list trùng ngày hôm nay (sau khi merge nến live hoặc Entrade đã chốt phiên):
+  # thì Tham chiếu là nến c_list[-2]. Nếu chưa có nến hôm nay: Tham chiếu là c_list[-1].
+  if last_candle_date == today_str and len(c_list) > 1:
+    ref_from_chart = c_list[-2] * scale
+    latest_c = c_list[-1] * scale
+  else:
+    ref_from_chart = c_list[-1] * scale
+    latest_c = ref_from_chart
+
+  # Xác định tham chiếu chuẩn:
+  # Ưu tiên refPrice của board_item nếu hợp lệ (> 0) và khác matchedPrice;
+  # nếu board_item có refPrice == matchedPrice hoặc <= 0, lấy từ nến ngày ref_from_chart
+  board_ref = float(board_item.get('refPrice') or 0)
+  board_matched = float(board_item.get('matchedPrice') or 0)
+  if board_ref > 0 and (board_matched <= 0 or abs(board_ref - board_matched) > 1e-4):
+    ref_price = board_ref
+  else:
+    ref_price = ref_from_chart if ref_from_chart > 0 else (board_matched if board_matched > 0 else latest_c)
+
+  # Dữ liệu realtime từ Entrade Market Board nếu có phiên đang mở
+  if board_item and board_matched > 0:
+    current_price = board_matched
+    price_change = round(current_price - ref_price, 2)
+    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
+    open_price = float(board_item.get('openPrice') or current_price)
+    company_name = board_item.get(
+        'companyNameVi', board_item.get('clientName', f'Cổ phiếu {ticker}')
     )
-    company_name = ssi_item.get(
-        'companyNameVi', ssi_item.get('clientName', f'Cổ phiếu {ticker}')
-    )
-    exchange = ssi_item.get('exchange', 'HOSE').upper()
-    ceiling = ssi_item.get('ceiling', round(current_price * 1.07))
-    floor = ssi_item.get('floor', round(current_price * 0.93))
-    ref_price = ssi_item.get('refPrice', prev_c)
-    highest_price = ssi_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
-    lowest_price = ssi_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
-    total_vol = ssi_item.get('stockVol', v_list[-1] if v_list else 0)
-    foreign_net = ssi_item.get('buyForeignQtty', 0) - ssi_item.get(
+    exchange = board_item.get('exchange', 'HOSE').upper()
+    band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
+    ceiling = board_item.get('ceiling') or round(ref_price * (1 + band))
+    floor = board_item.get('floor') or round(ref_price * (1 - band))
+    highest_price = board_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
+    lowest_price = board_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
+    total_vol = board_item.get('stockVol', v_list[-1] if v_list else 0)
+    foreign_net = board_item.get('buyForeignQtty', 0) - board_item.get(
         'sellForeignQtty', 0
     )
-  elif ssi_item and ssi_item.get('refPrice', 0) > 0:
-    ref_price = ssi_item['refPrice']
-    current_price = ssi_item.get('matchedPrice') or ref_price
-    price_change = ssi_item.get('priceChange', current_price - ref_price)
-    pct_change = ssi_item.get('priceChangePercent', 0)
-    company_name = ssi_item.get(
-        'companyNameVi', ssi_item.get('clientName', f'Cổ phiếu {ticker}')
+  elif board_item and board_ref > 0:
+    ref_price = board_ref
+    current_price = board_matched if board_matched > 0 else ref_price
+    price_change = round(current_price - ref_price, 2)
+    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
+    open_price = float(board_item.get('openPrice') or current_price)
+    company_name = board_item.get(
+        'companyNameVi', board_item.get('clientName', f'Cổ phiếu {ticker}')
     )
-    exchange = ssi_item.get('exchange', 'HOSE').upper()
-    ceiling = ssi_item.get('ceiling', round(ref_price * 1.07))
-    floor = ssi_item.get('floor', round(ref_price * 0.93))
-    highest_price = ssi_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
-    lowest_price = ssi_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
-    total_vol = ssi_item.get('stockVol', v_list[-1] if v_list else 0)
-    foreign_net = ssi_item.get('buyForeignQtty', 0) - ssi_item.get(
+    exchange = board_item.get('exchange', 'HOSE').upper()
+    band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
+    ceiling = board_item.get('ceiling') or round(ref_price * (1 + band))
+    floor = board_item.get('floor') or round(ref_price * (1 - band))
+    highest_price = board_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
+    lowest_price = board_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
+    total_vol = board_item.get('stockVol', v_list[-1] if v_list else 0)
+    foreign_net = board_item.get('buyForeignQtty', 0) - board_item.get(
         'sellForeignQtty', 0
     )
   else:
     current_price = latest_c
-    price_change = latest_c - prev_c
-    pct_change = round((price_change / prev_c) * 100, 2) if prev_c else 0
+    price_change = round(latest_c - ref_price, 2)
+    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
+    open_price = current_price
     company_name = f'Cổ phiếu {ticker}'
     exchange = 'HOSE'
-    ref_price = prev_c
-    ceiling = round(ref_price * 1.07)
-    floor = round(ref_price * 0.93)
+    band = 0.07
+    ceiling = round(ref_price * (1 + band))
+    floor = round(ref_price * (1 - band))
     highest_price = (h_list[-1] * scale) if h_list else current_price
     lowest_price = (l_list[-1] * scale) if l_list else current_price
     total_vol = v_list[-1] if v_list else 0
@@ -105,8 +134,8 @@ def handle_stock_detail(ticker, resolution='1D'):
   if resolution == '1D':
     candles_series = format_candles(chart_data, resolution='1D')
   else:
-    alt_data = fetch_chart_data(ticker, resolution=resolution, ssi_item=ssi_item)
-    alt_data = merge_live_candle_to_chart_data(alt_data, ssi_item, resolution=resolution)
+    alt_data = fetch_chart_data(ticker, resolution=resolution, market_item=board_item)
+    alt_data = merge_live_candle_to_chart_data(alt_data, board_item, resolution=resolution)
     candles_series = format_candles(alt_data, resolution=resolution)
 
   # Cơ bản doanh nghiệp
@@ -115,9 +144,9 @@ def handle_stock_detail(ticker, resolution='1D'):
     company_name = fundamental_info['name']
 
   # Phân tích kỹ thuật & Chấm điểm
-  market_regime = evaluate_market_regime(ssi_board)
+  market_regime = evaluate_market_regime(market_board)
   analysis = analyze_technicals_and_scoring(
-      chart_data, ssi_item, current_price, fundamental_info, ticker=ticker, exchange=exchange,
+      chart_data, board_item, current_price, fundamental_info, ticker=ticker, exchange=exchange,
       regime=market_regime,
   )
 
@@ -128,7 +157,7 @@ def handle_stock_detail(ticker, resolution='1D'):
   )
   sector_name = fundamental_info.get('sector', 'Thị trường')
   news_list = fetch_live_multi_sources(
-      ticker, ssi_item, fundamental_info, current_price, pct_change, sector_name
+      ticker, board_item, fundamental_info, current_price, pct_change, sector_name
   )
 
   risk_engine_report = evaluate_securities_risk_engine(
@@ -137,8 +166,8 @@ def handle_stock_detail(ticker, resolution='1D'):
       current_price=current_price,
       fundamental_info=fundamental_info,
       technical_info=analysis,
-      ssi_item=ssi_item,
-      ssi_board=ssi_board,
+      market_item=board_item,
+      market_board=market_board,
       news_list=news_list,
   )
 
@@ -196,6 +225,7 @@ def handle_stock_detail(ticker, resolution='1D'):
       'ceiling': ceiling,
       'floor': floor,
       'refPrice': ref_price,
+      'openPrice': open_price,
       'totalVolume': total_vol,
       'foreignNet': foreign_net,
       'fundamentals': fundamental_info,

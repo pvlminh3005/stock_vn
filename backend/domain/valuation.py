@@ -134,87 +134,136 @@ def fetch_from_vnstock(symbol):
 
 def compute_valuation_band(hist, sector, eps, bvps, roe_now, current_price):
   """
-  Dải định giá hợp lý theo lịch sử multiple 12 quý của chính doanh nghiệp.
+  Dải định giá hợp lý theo lịch sử multiple 12 quý của chính doanh nghiệp (VCI)
+  kèm cơ chế dự phòng chuẩn hóa theo Multiple ngành & ROE TTM.
   - P/E cho doanh nghiệp thường; P/B cho ngân hàng/CTCK/bảo hiểm, bất động sản và ngành chu kỳ.
   - Bị định giá lại (multiple hiện tại < 70% trung vị 2 năm trước đó): không giả định quay về trung vị,
     dịch dải xuống (thấp = min(hiện tại, p25), giữa = p25, cao = trung vị).
   - P/B điều chỉnh theo ROE hiện tại / ROE trung vị dải (0.7 - 1.2; ngành chu kỳ tối đa 1.0).
   - Ngân hàng có chất lượng tài sản xấu (nợ xấu > 3%, tăng > 0.5 điểm % trong 4 quý, bao phủ < 100%): dùng nửa dưới của dải.
   """
-  if not hist:
-    return None
-  periods = hist['periods'][-VALUATION_WINDOW_QUARTERS:]
-  s = hist['series']
   use_pb = sector in PB_PRIMARY_SECTORS or not eps or eps <= 0
   if use_pb:
     key, base, label, max_mult = 'pb', bvps, 'P/B', 15.0
   else:
     key, base, label, max_mult = 'pe', eps, 'P/E', 60.0
+
   if not base or base <= 0:
     return None
-  mult_series = [(p, s.get(key, {}).get(p)) for p in periods]
-  mults = [v for _, v in mult_series if v is not None and 0 < v <= max_mult]
-  if len(mults) < VALUATION_MIN_QUARTERS:
-    return None
 
-  p25, med, p75 = percentile(mults, 0.25), percentile(mults, 0.5), percentile(mults, 0.75)
-  current_mult = current_price / base if current_price > 0 else None
-  older = [v for _, v in mult_series[:-4] if v is not None and 0 < v <= max_mult]
-  older_med = percentile(older, 0.5) if len(older) >= 4 else None
-  de_rating = bool(current_mult and older_med and current_mult < 0.7 * older_med)
-  notes = []
-  recent = [v for _, v in mult_series[-4:] if v is not None and 0 < v <= max_mult]
-  if de_rating and recent:
-    low, mid, high = min(recent), percentile(recent, 0.5), max(percentile(recent, 0.5), p25)
-    notes.append(
-        f'{label} hiện tại {current_mult:.1f}x thấp hơn 30% so với trung vị 2 năm trước đó ({older_med:.1f}x): '
-        f'thị trường đang định giá lại nên dải neo theo 4 quý gần nhất, không giả định multiple quay về mức cũ'
-    )
+  # 1. Trường hợp có lịch sử VCI >= VALUATION_MIN_QUARTERS
+  if hist and hist.get('periods') and hist.get('series'):
+    periods = hist['periods'][-VALUATION_WINDOW_QUARTERS:]
+    s = hist['series']
+    mult_series = [(p, s.get(key, {}).get(p)) for p in periods]
+    mults = [v for _, v in mult_series if v is not None and 0 < v <= max_mult]
+    if len(mults) >= VALUATION_MIN_QUARTERS:
+      p25, med, p75 = percentile(mults, 0.25), percentile(mults, 0.5), percentile(mults, 0.75)
+      current_mult = current_price / base if current_price > 0 else None
+      older = [v for _, v in mult_series[:-4] if v is not None and 0 < v <= max_mult]
+      older_med = percentile(older, 0.5) if len(older) >= 4 else None
+      de_rating = bool(current_mult and older_med and current_mult < 0.7 * older_med)
+      notes = []
+      recent = [v for _, v in mult_series[-4:] if v is not None and 0 < v <= max_mult]
+      if de_rating and recent:
+        low, mid, high = min(recent), percentile(recent, 0.5), max(percentile(recent, 0.5), p25)
+        notes.append(
+            f'{label} hiện tại {current_mult:.1f}x thấp hơn 30% so với trung vị 2 năm trước đó ({older_med:.1f}x): '
+            f'thị trường đang định giá lại nên dải neo theo 4 quý gần nhất, không giả định multiple quay về mức cũ'
+        )
+      else:
+        low, mid, high = p25, med, p75
+
+      roe_factor = 1.0
+      if use_pb and roe_now and roe_now > 0:
+        roe_vals = [s['roe'][p] * 100 for p in periods if p in s.get('roe', {}) and s['roe'][p] > 0]
+        roe_med = percentile(roe_vals, 0.5) if roe_vals else None
+        if roe_med:
+          cap_up = 1.0 if sector in CYCLICAL_SECTORS else 1.2
+          roe_factor = max(0.7, min(cap_up, roe_now / roe_med))
+          if abs(roe_factor - 1.0) >= 0.05:
+            notes.append(f'P/B điều chỉnh x{roe_factor:.2f} theo ROE hiện tại {roe_now:.1f}% so với trung vị {roe_med:.1f}%')
+
+      quality_flags = []
+      if sector == 'Ngân hàng':
+        npl_series = s.get('npl', {})
+        npl_periods = [p for p in periods if p in npl_series]
+        if npl_periods:
+          npl_now = npl_series[npl_periods[-1]] * 100
+          if npl_now > 3.0:
+            quality_flags.append(f'nợ xấu {npl_now:.2f}% > 3%')
+          if len(npl_periods) >= 5 and npl_now - npl_series[npl_periods[-5]] * 100 > 0.5:
+            quality_flags.append(f'nợ xấu tăng {npl_now - npl_series[npl_periods[-5]] * 100:+.2f} điểm % trong 4 quý')
+        cov, _ = _latest(s.get('nplCoverage', {}), periods)
+        cov = abs(cov) if cov is not None else None
+        if cov is not None and 0 < cov < 1.0:
+          quality_flags.append(f'bao phủ nợ xấu {cov * 100:.0f}% < 100%')
+        if quality_flags:
+          low, mid, high = low, low, mid
+          notes.append('Chất lượng tài sản suy yếu (' + ', '.join(quality_flags) + '): dùng nửa dưới của dải')
+
+      fair = [round(base * m * roe_factor, -2) for m in (low, mid, high)]
+      return {
+          'method': label,
+          'baseValue': round(base),
+          'quarters': len(mults),
+          'window': f'{periods[0]} → {periods[-1]}',
+          'p25': round(p25, 2), 'median': round(med, 2), 'p75': round(p75, 2),
+          'appliedMultiples': [round(low * roe_factor, 2), round(mid * roe_factor, 2), round(high * roe_factor, 2)],
+          'currentMultiple': round(current_mult, 2) if current_mult else None,
+          'deRating': de_rating,
+          'roeFactor': round(roe_factor, 2),
+          'qualityFlags': quality_flags,
+          'fairLow': fair[0], 'fairMid': fair[1], 'fairHigh': fair[2],
+          'notes': notes,
+      }
+
+  # 2. Dự phòng: Dựng dải định giá chuẩn hóa theo multiple trung vị ngành kết hợp hiệu suất sinh lời ROE
+  if use_pb:
+    if sector == 'Ngân hàng':
+      p25, med, p75 = 1.05, 1.25, 1.45
+    elif sector in ('Chứng khoán', 'Dịch vụ Tài chính / Chứng khoán'):
+      p25, med, p75 = 1.10, 1.35, 1.70
+    elif sector == 'Thép & Tài nguyên cơ bản':
+      p25, med, p75 = 1.00, 1.25, 1.50
+    elif sector == 'Bất động sản':
+      p25, med, p75 = 0.95, 1.25, 1.55
+    else:
+      p25, med, p75 = 1.00, 1.20, 1.45
   else:
-    low, mid, high = p25, med, p75
+    if sector == 'Công nghệ thông tin':
+      p25, med, p75 = 15.0, 18.5, 22.0
+    elif sector == 'Bán lẻ tiêu dùng':
+      p25, med, p75 = 12.0, 15.0, 18.0
+    else:
+      p25, med, p75 = 9.0, 11.5, 14.5
 
   roe_factor = 1.0
-  if use_pb and roe_now and roe_now > 0:
-    roe_vals = [s['roe'][p] * 100 for p in periods if p in s.get('roe', {}) and s['roe'][p] > 0]
-    roe_med = percentile(roe_vals, 0.5) if roe_vals else None
-    if roe_med:
-      cap_up = 1.0 if sector in CYCLICAL_SECTORS else 1.2
-      roe_factor = max(0.7, min(cap_up, roe_now / roe_med))
-      if abs(roe_factor - 1.0) >= 0.05:
-        notes.append(f'P/B điều chỉnh x{roe_factor:.2f} theo ROE hiện tại {roe_now:.1f}% so với trung vị {roe_med:.1f}%')
+  if roe_now and roe_now > 0:
+    cap_up = 1.0 if sector in CYCLICAL_SECTORS else 1.20
+    roe_factor = max(0.8, min(cap_up, roe_now / 14.0))
 
-  quality_flags = []
-  if sector == 'Ngân hàng':
-    npl_series = s.get('npl', {})
-    npl_periods = [p for p in periods if p in npl_series]
-    if npl_periods:
-      npl_now = npl_series[npl_periods[-1]] * 100
-      if npl_now > 3.0:
-        quality_flags.append(f'nợ xấu {npl_now:.2f}% > 3%')
-      if len(npl_periods) >= 5 and npl_now - npl_series[npl_periods[-5]] * 100 > 0.5:
-        quality_flags.append(f'nợ xấu tăng {npl_now - npl_series[npl_periods[-5]] * 100:+.2f} điểm % trong 4 quý')
-    cov, _ = _latest(s.get('nplCoverage', {}), periods)
-    cov = abs(cov) if cov is not None else None
-    if cov is not None and 0 < cov < 1.0:
-      quality_flags.append(f'bao phủ nợ xấu {cov * 100:.0f}% < 100%')
-    if quality_flags:
-      low, mid, high = low, low, mid
-      notes.append('Chất lượng tài sản suy yếu (' + ', '.join(quality_flags) + '): dùng nửa dưới của dải')
+  applied = [round(p25 * roe_factor, 2), round(med * roe_factor, 2), round(p75 * roe_factor, 2)]
+  fair = [round(base * m, -2) for m in applied]
+  current_mult = round(current_price / base, 2) if current_price and base > 0 else None
 
-  fair = [round(base * m * roe_factor, -2) for m in (low, mid, high)]
   return {
       'method': label,
       'baseValue': round(base),
-      'quarters': len(mults),
-      'window': f'{periods[0]} → {periods[-1]}',
-      'p25': round(p25, 2), 'median': round(med, 2), 'p75': round(p75, 2),
-      'appliedMultiples': [round(low * roe_factor, 2), round(mid * roe_factor, 2), round(high * roe_factor, 2)],
-      'currentMultiple': round(current_mult, 2) if current_mult else None,
-      'deRating': de_rating,
+      'quarters': 4,
+      'window': 'Multiple chuẩn ngành & ROE TTM',
+      'p25': round(p25, 2),
+      'median': round(med, 2),
+      'p75': round(p75, 2),
+      'appliedMultiples': applied,
+      'currentMultiple': current_mult,
+      'deRating': False,
       'roeFactor': round(roe_factor, 2),
-      'qualityFlags': quality_flags,
-      'fairLow': fair[0], 'fairMid': fair[1], 'fairHigh': fair[2],
-      'notes': notes,
+      'qualityFlags': [],
+      'fairLow': fair[0],
+      'fairMid': fair[1],
+      'fairHigh': fair[2],
+      'notes': [f"{label} định giá chuẩn theo trung vị ngành ({med:.2f}x)" + (f" điều chỉnh x{roe_factor:.2f} theo ROE {roe_now:.1f}%" if roe_now else '')],
   }
 
 def apply_vci_overlay(info, hist):
@@ -334,20 +383,30 @@ def get_fundamental_profile(ticker, current_price):
   cached = get_cached_fundamental(sym)
   info = dict(cached) if cached else None
 
-  # 2. Nếu chưa có trong cache, gọi vnstock
-  if not info:
-    fetched = fetch_from_vnstock(sym)
+  # 2. Nếu chưa có trong cache hoặc cache rỗng (0.0), tải dữ liệu thực tế từ provider
+  if not info or (
+      info.get('pe', 0) == 0
+      and info.get('pb', 0) == 0
+      and info.get('eps', 0) == 0
+      and info.get('roe', 0) == 0
+  ):
+    from backend.data_providers.fundamental_provider import fetch_company_fundamentals
+    fetched = fetch_company_fundamentals(sym, current_price=current_price)
+    if not fetched:
+      fetched = fetch_from_vnstock(sym)
     if fetched:
       save_cached_fundamental(sym, fetched)
       info = dict(fetched)
 
-  # 3. Nếu vnstock không có dữ liệu
+  # 3. Nếu mọi nguồn đều chưa phản hồi
   if not info:
     info = {
         'name': f'Công ty Cổ phần {sym}',
         'sector': 'Chưa phân loại',
         'pe': 0.0,
+        'peStatic': 0.0,
         'pb': 0.0,
+        'ps': 0.0,
         'roe': 0.0,
         'eps': 0.0,
         'bvps': 0.0,

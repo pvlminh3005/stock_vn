@@ -20,23 +20,24 @@ from backend.domain.outlook import build_macro_context
 GOVERNANCE_NEWS_MAX_AGE_DAYS = 90
 
 
-def calculate_market_fear_greed_index(ssi_board, ssi_item, technical_info):
+def calculate_market_fear_greed_index(market_board=None, market_item=None, technical_info=None, ssi_board=None, ssi_item=None):
   """Chỉ số Tâm Lý Thị Trường & Cổ Phiếu (Securities Market Fear & Greed Index: 0 - 100).
 
   Kết hợp định lượng 5 trụ cột:
-  1. Độ rộng thị trường toàn sàn (Market Breadth: % mã tăng vs giảm trên SSI board) - 30%
+  1. Độ rộng thị trường toàn sàn (Market Breadth: % mã tăng vs giảm trên bảng giá thị trường) - 30%
   2. Xung lực dòng tiền thị trường (Active Buy / Total Active Vol trên toàn sàn) - 20%
   3. Chỉ số xung lực cổ phiếu (RSI 14 phiên) - 25%
   4. Lực mua chủ động cổ phiếu (Stock Buy Ratio) - 15%
   5. Đột biến thanh khoản cổ phiếu (Vol Ratio vs MA20) - 10%
   """
+  board = market_board or ssi_board
   gainers = 0
   losers = 0
   total_bu = 0
   total_sd = 0
 
-  if ssi_board:
-    for item in ssi_board.values():
+  if board:
+    for item in board.values():
       m_p = item.get('matchedPrice', 0)
       r_p = item.get('refPrice', 0)
       if m_p > 0 and r_p > 0:
@@ -166,17 +167,18 @@ def detect_governance_and_legal_risks(ticker, news_list, fundamental_info):
   return has_legal, has_dilution, legal_findings, dilution_findings, governance_summary
 
 
-def compute_data_confidence(ssi_item, fundamental_info, technical_info, news_list, has_legal_unverified, regime):
+def compute_data_confidence(market_item=None, fundamental_info=None, technical_info=None, news_list=None, has_legal_unverified=False, regime=None, ssi_item=None):
   """Data Confidence (0 - 100) theo spec vsr-engine: bắt đầu 100, trừ điểm cho từng thiếu sót.
 
   DC < 65 -> chỉ WAIT/NO_TRADE; BUY yêu cầu DC >= 80.
   """
+  item = market_item or ssi_item
   dc = 100
   deductions = []
 
   latest_session = (regime or {}).get('asOf', '')
-  session_start = (ssi_item or {}).get('sessionStart')
-  price_date = vn_date(session_start / 1000.0) if session_start and (ssi_item or {}).get('refPrice') else None
+  session_start = (item or {}).get('sessionStart')
+  price_date = vn_date(session_start / 1000.0) if session_start and (item or {}).get('refPrice') else None
   if not price_date:
     dc -= 30
     deductions.append('-30 không lấy được giá từ bảng giá realtime')
@@ -213,7 +215,7 @@ def compute_data_confidence(ssi_item, fundamental_info, technical_info, news_lis
   return max(0, dc), deductions
 
 
-def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_info, technical_info, ssi_item, ssi_board, news_list):
+def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_info, technical_info, market_item=None, market_board=None, news_list=None, ssi_item=None, ssi_board=None):
   """CHUYÊN GIA ĐỊNH LƯỢNG & ĐÁNH GIÁ RỦI RO CHỨNG KHOÁN (SECURITIES RISK ASSESSMENT ENGINE)
 
   Triển khai quy trình phân tích định lượng chuẩn 5 phần và hệ thống Guardrail ngưỡng chặn rủi ro.
@@ -222,14 +224,16 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
   2. Khách quan đa chiều (nhận định tích cực luôn đi kèm yếu tố rủi ro tương ứng).
   3. Phân biệt rõ giữa dữ liệu thực tế lịch sử/hiện tại và kịch bản dự báo xác suất.
   """
+  item = market_item or ssi_item
+  board = market_board or ssi_board
   env_rating, env_color, macro_impact = build_macro_context(news_list)
 
   fear_greed_score, fear_greed_label, fear_greed_color = calculate_market_fear_greed_index(
-      ssi_board, ssi_item, technical_info
+      board, item, technical_info
   )
 
-  buy_f = ssi_item.get('buyForeignQtty', 0) if ssi_item else 0
-  sell_f = ssi_item.get('sellForeignQtty', 0) if ssi_item else 0
+  buy_f = item.get('buyForeignQtty', 0) if item else 0
+  sell_f = item.get('sellForeignQtty', 0) if item else 0
   foreign_net = buy_f - sell_f
   vol_ratio = technical_info.get('volRatio', 1.0)
   buy_ratio = technical_info.get('buyRatio', 50.0)
@@ -342,6 +346,7 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
   downside = technical_info.get('downside', 4.0)
   rr_ratio = technical_info.get('rrRatio', 2.0)
   ma20 = technical_info.get('ma20', current_price)
+  atr14 = technical_info.get('atr14', round(current_price * 0.02, 1))
 
   pos_sizing = technical_info.get('positionSizing', {})
   max_nav = pos_sizing.get('maxNavPct', 25.0)
@@ -454,8 +459,10 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
     if ta_score >= 75 and current_price >= ma20 and buy_ratio >= 55 and rs_score >= 60:
       action_status = 'Mở vị thế thăm dò'
       status_color = 'emerald'
+      buy_zone_low = round(max(support_level, current_price - atr14 * 0.6), -2)
+      buy_zone_high = round(min(current_price * 1.002, buy_zone_low + atr14 * 0.5), -2)
       core_warning = (
-          f'Quản trị vị thế: Giải ngân thăm dò tối đa {pilot_nav}% NAV quanh {current_price*0.985:,.0f} - {current_price*0.995:,.0f} đ '
+          f'Quản trị vị thế: Giải ngân thăm dò tối đa {pilot_nav}% NAV quanh vùng gom {buy_zone_low:,.0f} - {buy_zone_high:,.0f} đ '
           f'(tổng vị thế tối đa {max_nav}% NAV). {mtf_desc} Cắt lỗ tuyệt đối nếu thủng {support_level:,.0f} đ.'
       )
     elif current_price >= ma20 and 46 <= rsi <= 68:
@@ -488,7 +495,8 @@ def evaluate_securities_risk_engine(ticker, sector, current_price, fundamental_i
 
   regime = technical_info.get('regime', {}) or {}
   dc_score, dc_deductions = compute_data_confidence(
-      ssi_item, fundamental_info, technical_info, news_list, has_legal, regime
+      market_item=item, fundamental_info=fundamental_info, technical_info=technical_info,
+      news_list=news_list, has_legal_unverified=has_legal, regime=regime
   )
   dc_rating = 'CAO' if dc_score >= 80 else ('KHÁ' if dc_score >= 65 else 'THẤP')
 

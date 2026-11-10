@@ -1,0 +1,34 @@
+<!-- Overlay Khóa Mã PIN Bảo Vệ Thiết Bị -->
+<div id="authPinOverlay" class="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 hidden">
+  <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 text-center space-y-4 animate-in fade-in zoom-in duration-200">
+    
+    <div class="w-14 h-14 mx-auto rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-2xl shadow-inner">
+      <i class="fa-solid fa-shield-halved"></i>
+    </div>
+
+    <div>
+      <h3 class="text-lg font-bold text-slate-100 tracking-wide">TRUY CẬP BẢO MẬT</h3>
+      <p class="text-xs text-slate-400 mt-1">Hệ thống phân tích cổ phiếu nội bộ.<br/>Vui lòng nhập mã PIN để mở khóa.</p>
+    </div>
+
+    <form id="authPinForm" class="space-y-3" onsubmit="return false;">
+      <input type="password" id="authPinInput" maxlength="12" autofocus
+             placeholder="Nhập mã PIN..."
+             class="w-full text-center tracking-widest font-mono text-2xl py-3 px-4 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-slate-600 placeholder:text-sm placeholder:tracking-normal">
+      
+      <div id="authPinError" class="text-rose-400 text-xs hidden font-medium"></div>
+
+      <button type="submit" id="authPinSubmitBtn"
+              class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm tracking-wide transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
+        <span>XÁC THỰC MỞ KHÓA</span>
+        <i class="fa-solid fa-arrow-right text-xs"></i>
+      </button>
+    </form>
+
+    <p class="text-[11px] text-slate-500 italic">
+      <i class="fa-solid fa-lock text-[10px]"></i> Tự động ghi nhớ thiết bị sau khi mở khóa
+    </p>
+
+  </div>
+</div>
+

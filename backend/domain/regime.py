@@ -14,7 +14,7 @@ from backend.constants.config import (
 )
 from backend.utils.time_utils import vn_date
 from backend.data_providers.entrade_provider import fetch_chart_data
-from backend.data_providers.ssi_provider import get_ssi_board_data
+from backend.data_providers.market_board_provider import get_market_board_data
 from backend.domain.technicals import get_vnindex_series
 
 BREADTH_UNIVERSE_SIZE = 200
@@ -29,11 +29,12 @@ _BREADTH_READY = threading.Event()
 _REGIME_CACHE = {'time': 0, 'data': None}
 
 
-def _load_breadth_universe(ssi_board, today):
+def _load_breadth_universe(market_board, today):
   """Tải nến ngày của các mã ứng viên, chọn Top theo ADTV20 (giá trị giao dịch bình quân 20 phiên đã hoàn thành)."""
+  board = market_board
   try:
     stocks = [
-        v for v in ssi_board.values()
+        v for v in board.values()
         if v.get('stockType') == 's' and len(str(v.get('stockSymbol', ''))) == 3
     ]
     # Lọc ứng viên theo giá trị giao dịch phiên hiện tại; trước giờ mở cửa thì lấy toàn bộ mã HOSE
@@ -81,16 +82,17 @@ def _load_breadth_universe(ssi_board, today):
     _BREADTH_READY.set()
 
 
-def get_breadth_universe(ssi_board):
+def get_breadth_universe(market_board=None, ssi_board=None):
   """Trả về (universe, ngày tạo universe). Universe được tải nền một lần mỗi ngày (không chặn request);
 
   trong lúc tải lại cho ngày mới vẫn dùng tạm universe ngày trước. Chưa có gì thì trả về (None, None).
   """
+  board = market_board or ssi_board
   today = time.strftime('%Y-%m-%d', time.gmtime(time.time() + VN_UTC_OFFSET_SEC))
   with _BREADTH_LOCK:
-    if _BREADTH_UNIVERSE['date'] != today and not _BREADTH_UNIVERSE['loading'] and ssi_board:
+    if _BREADTH_UNIVERSE['date'] != today and not _BREADTH_UNIVERSE['loading'] and board:
       _BREADTH_UNIVERSE['loading'] = True
-      threading.Thread(target=_load_breadth_universe, args=(ssi_board, today), daemon=True).start()
+      threading.Thread(target=_load_breadth_universe, args=(board, today), daemon=True).start()
     first_load = _BREADTH_UNIVERSE['data'] is None and _BREADTH_UNIVERSE['loading']
   if first_load:
     _BREADTH_READY.wait(BREADTH_FIRST_LOAD_WAIT_SEC)
@@ -101,7 +103,8 @@ def get_breadth_universe(ssi_board):
 def warm_up_market_data():
   """Tải trước bảng giá và universe độ rộng khi khởi động server để request đầu tiên có đủ regime."""
   try:
-    get_breadth_universe(get_ssi_board_data())
+    board = get_market_board_data()
+    get_breadth_universe(board)
   except Exception as e:
     print('Lỗi warm-up dữ liệu thị trường:', e)
 
@@ -112,7 +115,7 @@ def _sma_at(values, end, period):
   return sum(window) / len(window) if len(window) == period else None
 
 
-def evaluate_market_regime(ssi_board):
+def evaluate_market_regime(market_board=None, ssi_board=None):
   """Chấm Regime thị trường theo 5 điều kiện (mỗi điều kiện đạt = 1 điểm):
 
     1. VN-Index > MA50 và độ dốc MA20 >= 0
@@ -126,6 +129,10 @@ def evaluate_market_regime(ssi_board):
   now = time.time()
   if _REGIME_CACHE['data'] and now - _REGIME_CACHE['time'] < 120:
     return _REGIME_CACHE['data']
+
+  board = market_board or ssi_board
+  if not board:
+    board = get_market_board_data()
 
   vni = get_vnindex_series()
   today = time.strftime('%Y-%m-%d', time.gmtime(now + VN_UTC_OFFSET_SEC))
@@ -157,14 +164,14 @@ def evaluate_market_regime(ssi_board):
   else:
     _add('VN-Index > MA200', None, f'Chưa đủ 200 phiên VN-Index (có {n} phiên)')
 
-  universe, universe_date = get_breadth_universe(ssi_board)
+  universe, universe_date = get_breadth_universe(board)
   stale_note = f' (universe ngày {universe_date}, đang cập nhật)' if universe and universe_date != today else ''
   if universe:
     above = 0
     counted = 0
     for u in universe:
       ma = _sma_at(u['closes'], len(u['closes']), 20)
-      item = (ssi_board or {}).get(u['sym'], {})
+      item = (board or {}).get(u['sym'], {})
       price = item.get('matchedPrice') or u['closes'][-1]
       if ma:
         counted += 1

@@ -13,6 +13,20 @@ from backend.controllers.screener_controller import (
     handle_search,
     handle_screener,
     handle_top_tplus,
+    start_screener_worker,
+    handle_telegram_test,
+)
+from backend.controllers.portfolio_controller import (
+    handle_portfolio_bundle,
+    handle_portfolio_alternatives,
+    handle_portfolio_sectors,
+)
+from backend.controllers.user_portfolio_controller import (
+    handle_get_portfolio,
+    handle_add_trade,
+    handle_delete_trade,
+    handle_reset_portfolio,
+    handle_save_settings,
 )
 
 __all__ = [
@@ -23,4 +37,14 @@ __all__ = [
     'handle_search',
     'handle_screener',
     'handle_top_tplus',
+    'start_screener_worker',
+    'handle_telegram_test',
+    'handle_portfolio_bundle',
+    'handle_portfolio_alternatives',
+    'handle_portfolio_sectors',
+    'handle_get_portfolio',
+    'handle_add_trade',
+    'handle_delete_trade',
+    'handle_reset_portfolio',
+    'handle_save_settings',
 ]

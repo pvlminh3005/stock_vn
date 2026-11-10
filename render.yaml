@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: stock-rt
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 backend/server.py --port $PORT
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: APP_PUBLIC_URL
+        sync: false
+      - key: APP_ACCESS_PIN
+        sync: false
+

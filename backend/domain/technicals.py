@@ -7,6 +7,8 @@ VSA Volume Signals, Multi-timeframe Confluence (D1 vs W1), và Risk-Budget Posit
 import time
 import pandas as pd
 
+from backend.constants.urls import build_entrade_chart_url
+
 from backend.constants.colors import (
     VOL_COLOR_INFLOW,
     VOL_COLOR_DISTRIBUTION,
@@ -65,7 +67,7 @@ def get_vnindex_series(days=DAILY_HISTORY_DAYS):
   try:
     now_ts = int(now)
     from_ts = now_ts - (days * 86400)
-    url = f'https://services.entrade.com.vn/chart-api/v2/ohlcs/index?from={from_ts}&to={now_ts}&symbol=VNINDEX&resolution=1D'
+    url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
     data = fetch_json(url)
     if data.get('c'):
       series = {
@@ -378,11 +380,11 @@ def calculate_stochastic_rsi(
   is_bearish_cross = (k_prev >= d_prev and k_curr < d_curr and k_curr >= 55.0)
 
   if is_bullish_cross:
-    status = 'CẮT VÀNG %K LÊN %D (BẮT NẢY T+)'
+    status = 'QUÁ BÁN ĐẢO CHIỀU T+ (BẮT NẢY HỒI KỸ THUẬT)'
   elif is_oversold:
     status = 'VÙNG QUÁ BÁN T+ (<20)'
   elif is_bearish_cross:
-    status = 'CẮT XUỐNG %D (CHỐT LỜI T+)'
+    status = 'ĐẢO CHIỀU GIẢM T+ (CẢNH BÁO CHỐT LỜI)'
   elif is_overbought:
     status = 'VÙNG QUÁ MUA T+ (>80)'
   elif k_curr > d_curr:
@@ -1109,13 +1111,13 @@ def classify_volume_signal(vol_ratio, day_change_pct, is_projected):
 
 
 def analyze_technicals_and_scoring(
-    candles_data, ssi_item, current_price, fundamental_info, ticker=None, exchange='HOSE', regime=None
+    candles_data, market_item=None, current_price=0, fundamental_info=None, ticker=None, exchange='HOSE', regime=None, ssi_item=None
 ):
   """Phân tích toàn diện kỹ thuật, xung lực dòng tiền, hỗ trợ/kháng cự động cấu trúc Fractal,
-
   ATR(14) chuẩn Wilder, Trade Plan T+ sau phí thuế và Đầu tư Trung/Dài hạn chuẩn BCTC.
   TUYỆT ĐỐI KHÔNG HARDCODE SỐ LIỆU HAY BỊA +/- %.
   """
+  item = market_item or ssi_item
   c_list = candles_data.get('c', [])
   o_list = candles_data.get('o', [])
   h_list = candles_data.get('h', [])
@@ -1130,9 +1132,9 @@ def analyze_technicals_and_scoring(
   lows = [p * scale for p in l_list]
   volumes = [v for v in v_list]
 
-  # Ghép nến phiên hôm nay từ SSI (không ghi đè nến hôm qua khi Entrade chưa có nến hôm nay)
+  # Ghép nến phiên hôm nay từ bảng giá thị trường realtime
   has_live_bar, is_partial, elapsed_fraction = merge_live_session_bar(
-      t_list, opens, highs, lows, closes, volumes, ssi_item
+      t_list, opens, highs, lows, closes, volumes, market_item=item
   )
   # Chuỗi nến đã hoàn thành: dùng cho mẫu hình nến, ngày phân phối, KL trung bình và RS
   n_done = len(closes) - 1 if is_partial else len(closes)
@@ -1158,13 +1160,13 @@ def analyze_technicals_and_scoring(
   vol_ratio = round(projected_vol / vol_ma20, 2) if vol_ma20 > 0 else 1.0
   vol_signal, vol_color = classify_volume_signal(vol_ratio, day_change_pct, is_partial)
 
-  buy_active = ssi_item.get('stockBUVol', 0) if ssi_item else 0
-  sell_active = ssi_item.get('stockSDVol', 0) if ssi_item else 0
+  buy_active = item.get('stockBUVol', 0) if item else 0
+  sell_active = item.get('stockSDVol', 0) if item else 0
   total_active = buy_active + sell_active
   buy_ratio = round((buy_active / total_active) * 100, 1) if total_active else 50.0
 
-  buy_foreign = ssi_item.get('buyForeignQtty', 0) if ssi_item else 0
-  sell_foreign = ssi_item.get('sellForeignQtty', 0) if ssi_item else 0
+  buy_foreign = item.get('buyForeignQtty', 0) if item else 0
+  sell_foreign = item.get('sellForeignQtty', 0) if item else 0
   foreign_net = buy_foreign - sell_foreign
 
   atr14 = calculate_atr(highs, lows, closes, period=14)

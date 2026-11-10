@@ -8,7 +8,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup
-from vnstock import Company
+from vnstock import Company, status
 
 from backend.constants.colors import (
     BADGE_COLOR_COMPANY,
@@ -19,6 +19,15 @@ from backend.constants.colors import (
     BADGE_COLOR_PRESS,
 )
 from backend.constants.config import BROWSER_HEADERS
+from backend.constants.urls import (
+    ENTRADE_BASE_URL,
+    CAFEF_BASE_URL,
+    VNEXPRESS_BASE_URL,
+    BAOCHINHPHU_BASE_URL,
+    build_cafef_search_url,
+    build_cafef_events_url,
+    build_vietstock_finance_url,
+)
 from backend.utils.network import vnstock_call
 
 _LIVE_NEWS_CACHE = {}
@@ -39,22 +48,23 @@ def news_age_days(date_str):
   except Exception:
     return None
 
-def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, pct_change, sector_name):
+def fetch_live_multi_sources(ticker, market_item=None, fundamental_info=None, current_price=0, pct_change=0.0, sector_name='', ssi_item=None):
   """
   Truy vết Real-time dữ liệu Tin tức, BCTC, Sự kiện & Vĩ mô từ nhiều nguồn độc lập:
-  (Tin doanh nghiệp FiinGroup/VCI, Cổng Sự kiện HoSE/HNX, CafeF, VnExpress Kinh Doanh, SSI iBoard, Cổng TTĐT Chính Phủ).
+  (Tin doanh nghiệp FiinGroup/VCI, Cổng Sự kiện HoSE/HNX, CafeF, VnExpress Kinh Doanh, Bảng Giá Thị Trường Realtime, Cổng TTĐT Chính Phủ).
   """
+  item = market_item or ssi_item
   now = time.time()
   cached = _LIVE_NEWS_CACHE.get(ticker)
   if cached and (now - cached['time'] < _LIVE_NEWS_CACHE_TTL):
     records = [dict(r) for r in cached['data']]
-    # Cập nhật số liệu SSI realtime mới nhất nếu có
+    # Cập nhật số liệu bảng giá realtime mới nhất nếu có
     for r in records:
-      if r.get('source') == 'SSI iBoard Pro':
-        vol = ssi_item.get('stockVol', 0) if ssi_item else 0
-        buy_vol = ssi_item.get('stockBUVol', 0) if ssi_item else 0
-        sell_vol = ssi_item.get('stockSDVol', 0) if ssi_item else 0
-        f_net = (ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)) if ssi_item else 0
+      if r.get('source') == 'Bảng Giá Thị Trường Realtime':
+        vol = item.get('stockVol', 0) if item else 0
+        buy_vol = item.get('stockBUVol', 0) if item else 0
+        sell_vol = item.get('stockSDVol', 0) if item else 0
+        f_net = (item.get('buyForeignQtty', 0) - item.get('sellForeignQtty', 0)) if item else 0
         r['title'] = (
             f"Khớp lệnh {current_price:,.0f} ({pct_change:+.2f}%) | KL: {vol:,.0f} cp | "
             f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | NN ròng: {f_net:,.0f} cp"
@@ -64,36 +74,11 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
 
   news_records = []
 
-  # 1. Tin doanh nghiệp gắn mã (FiinGroup/VCI) kèm ngày đăng thực tế
-  def trace_company_news():
+  # 1. CafeF Doanh nghiệp: thu thập các tin tức báo chí mới nhất có nhắc đúng mã cổ phiếu
+  def trace_cafef():
     items = []
     try:
-      news_df = vnstock_call(lambda: Company(symbol=ticker, source='VCI').news())
-      if news_df is not None and not news_df.empty:
-        if 'public_date' in news_df.columns:
-          news_df = news_df.sort_values('public_date', ascending=False)
-        for _, n in news_df.head(3).iterrows():
-          title = str(n.get('news_title') or '').strip()
-          if not title:
-            continue
-          link = n.get('news_source_link')
-          items.append({
-              'source': 'Tin Doanh Nghiệp (FiinGroup/VCI)',
-              'badge': 'TIN DOANH NGHIỆP',
-              'badgeColor': BADGE_COLOR_COMPANY,
-              'title': title,
-              'date': str(n.get('public_date') or '')[:10],
-              'url': link if isinstance(link, str) and link.startswith('http') else f'https://s.cafef.vn/hose/{ticker}-cong-ty.chn',
-              'tickerSpecific': True,
-          })
-    except Exception:
-      pass
-    return items
-
-  # 2. CafeF: chỉ nhận kết quả tìm kiếm có nhắc đúng mã
-  def trace_cafef():
-    try:
-      url = f'https://cafef.vn/tim-kiem.chn?keywords={ticker}'
+      url = build_cafef_search_url(ticker)
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
       with urllib.request.urlopen(req, timeout=3.5) as res:
         soup = BeautifulSoup(res.read(), 'html.parser')
@@ -105,8 +90,8 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
             continue
           link = a.get('href', '')
           if not link.startswith('http'):
-            link = 'https://cafef.vn' + link
-          return {
+            link = CAFEF_BASE_URL + link
+          items.append({
               'source': 'CafeF Doanh Nghiệp',
               'badge': 'TIN TỨC BÁO CHÍ',
               'badgeColor': BADGE_COLOR_COMPANY,
@@ -114,14 +99,20 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
               'date': '',
               'url': link,
               'tickerSpecific': True,
-          }
+          })
+          if len(items) >= 3:
+            break
     except Exception:
       pass
-    return None
+    return items
 
-  # 3. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX qua VCI): sự kiện mới nhất theo ngày công bố
+  # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX): sự kiện mới nhất theo ngày công bố
   def trace_events():
     try:
+      # vnstock 5.x yêu cầu tài khoản bản quyền/Pro cho Company.events()
+      s = status()
+      if not s.get('authenticated', False) and s.get('tier') == 'guest':
+        return None
       events = vnstock_call(lambda: Company(symbol=ticker, source='VCI').events())
       if events is not None and not events.empty:
         if 'public_date' in events.columns:
@@ -139,7 +130,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
             'badgeColor': BADGE_COLOR_EVENT,
             'title': title,
             'date': str(pub_date)[:10] if isinstance(pub_date, str) else '',
-            'url': f'https://s.cafef.vn/tin-doanh-nghiep/{ticker}/event.chn',
+            'url': build_cafef_events_url(ticker),
             'tickerSpecific': True,
         }
     except Exception:
@@ -149,7 +140,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   # 4. VnExpress Kinh Doanh RSS
   def trace_vne():
     try:
-      url = 'https://vnexpress.net/rss/kinh-doanh.rss'
+      url = f'{VNEXPRESS_BASE_URL}/rss/kinh-doanh.rss'
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
       with urllib.request.urlopen(req, timeout=3.5) as res:
         root = ET.fromstring(res.read())
@@ -178,7 +169,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   # 5. Vĩ mô Cổng Thông Tin Điện Tử Chính Phủ
   def trace_gov():
     try:
-      url = 'https://baochinhphu.vn/kinh-te.rss'
+      url = f'{BAOCHINHPHU_BASE_URL}/kinh-te.rss'
       req = urllib.request.Request(url, headers=BROWSER_HEADERS)
       with urllib.request.urlopen(req, timeout=3.5) as res:
         root = ET.fromstring(res.read())
@@ -198,24 +189,21 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
       pass
     return None
 
-  # Thực thi crawl song song 5 luồng
-  with ThreadPoolExecutor(max_workers=5) as ex:
-    f_company = ex.submit(trace_company_news)
+  # Thực thi crawl song song 4 luồng
+  with ThreadPoolExecutor(max_workers=4) as ex:
     f_cafef = ex.submit(trace_cafef)
     f_events = ex.submit(trace_events)
     f_vne = ex.submit(trace_vne)
     f_gov = ex.submit(trace_gov)
 
-    company_items = f_company.result()
-    cafef_item = f_cafef.result()
+    cafef_items = f_cafef.result()
     events_item = f_events.result()
     vne_item = f_vne.result()
     gov_item = f_gov.result()
 
-  # 1. Tin doanh nghiệp gắn mã
-  news_records.extend(company_items)
-  if cafef_item and all(cafef_item['title'] != r['title'] for r in news_records):
-    news_records.append(cafef_item)
+  # 1. Tin doanh nghiệp gắn mã từ CafeF
+  if cafef_items:
+    news_records.extend(cafef_items)
 
   # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX)
   if events_item:
@@ -258,7 +246,7 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
       'badgeColor': BADGE_COLOR_FINANCE,
       'title': fin_title,
       'date': report_period,
-      'url': f'https://finance.vietstock.vn/{ticker}/tai-chinh.htm',
+      'url': build_vietstock_finance_url(ticker),
       'tickerSpecific': False,
   })
 
@@ -266,22 +254,22 @@ def fetch_live_multi_sources(ticker, ssi_item, fundamental_info, current_price, 
   if vne_item:
     news_records.append(vne_item)
 
-  # 5. SSI iBoard Pro Realtime
-  vol = ssi_item.get('stockVol', 0) if ssi_item else 0
-  buy_vol = ssi_item.get('stockBUVol', 0) if ssi_item else 0
-  sell_vol = ssi_item.get('stockSDVol', 0) if ssi_item else 0
-  f_net = (ssi_item.get('buyForeignQtty', 0) - ssi_item.get('sellForeignQtty', 0)) if ssi_item else 0
-  ssi_title = (
+  # 5. Bảng Giá Thị Trường Realtime
+  vol = item.get('stockVol', 0) if item else 0
+  buy_vol = item.get('stockBUVol', 0) if item else 0
+  sell_vol = item.get('stockSDVol', 0) if item else 0
+  f_net = (item.get('buyForeignQtty', 0) - item.get('sellForeignQtty', 0)) if item else 0
+  flow_title = (
       f"Khớp lệnh {current_price:,.0f} ({pct_change:+.2f}%) | KL: {vol:,.0f} cp | "
       f"Mua CĐ: {buy_vol:,.0f} vs Bán CĐ: {sell_vol:,.0f} | Khối ngoại ròng: {f_net:,.0f} cp"
   )
   news_records.append({
-      'source': 'SSI iBoard Pro',
+      'source': 'Bảng Giá Thị Trường Realtime',
       'badge': 'DÒNG TIỀN REALTIME',
       'badgeColor': BADGE_COLOR_MARKET,
-      'title': ssi_title,
+      'title': flow_title,
       'date': time.strftime('%d/%m/%Y %H:%M'),
-      'url': 'https://iboard.ssi.com.vn/',
+      'url': f'{ENTRADE_BASE_URL}/',
       'tickerSpecific': False,
   })
 

@@ -1,0 +1,607 @@
+"""
+Stock RT - Portfolio Bundling & Capital Allocation Engine
+Tạo các gói đầu tư tối ưu theo quy mô vốn (15tr, 20tr, 25tr, 50tr...):
+- Tuân thủ nghiêm ngặt Lô chẵn 100 cổ phiếu (HOSE/HNX)
+- Phân bổ 2 mã thuộc 2 nhóm ngành độc lập (triệt tiêu rủi ro ngành)
+- Điều tiết tỷ lệ tiền mặt dự phòng theo Market Regime (VN-Index)
+- Cung cấp danh sách cổ phiếu tương đương để đổi mã linh hoạt
+"""
+
+from typing import Optional, Dict, Any, List
+import time
+from backend.data_providers.market_board_provider import get_market_board_data
+from backend.data_providers.entrade_provider import fetch_chart_data
+from backend.domain.regime import evaluate_market_regime
+from backend.domain.technicals import analyze_technicals_and_scoring
+from backend.constants.sectors import (
+    KNOWN_STOCK_SECTORS,
+    CORE_SECTORS,
+    MOMENTUM_SECTORS,
+    MAJOR_SECTOR_GROUPS,
+)
+
+
+def match_sector_group(stock_sector, target_group):
+  """Kiểm tra một ngành cổ phiếu có khớp với nhóm ngành được chọn hay không."""
+  if not target_group or target_group == 'Tất cả':
+    return True
+  s = (stock_sector or '').lower()
+  tg = target_group.lower()
+
+  if tg == 'ngân hàng':
+    return 'ngân hàng' in s
+  if tg == 'chứng khoán':
+    return 'chứng khoán' in s or 'tài chính' in s
+  if 'thép' in tg or 'vlxd' in tg:
+    return 'thép' in s or 'kim khí' in s or 'vật liệu' in s
+  if tg == 'bđs khu công nghiệp' or 'khu công nghiệp' in tg:
+    return 'khu công nghiệp' in s or 'kcn' in s
+  if tg == 'bất động sản':
+    return ('bất động sản' in s or 'địa ốc' in s or 'nhà ở' in s) and 'khu công nghiệp' not in s
+  if 'bán lẻ' in tg or 'tiêu dùng' in tg:
+    return any(k in s for k in ['bán lẻ', 'tiêu dùng', 'phân phối ict', 'thực phẩm', 'đồ uống', 'sữa', 'trang sức', 'dược'])
+  if 'công nghệ' in tg:
+    return 'công nghệ' in s or 'tin học' in s or 'viễn thông' in s
+  if 'dầu khí' in tg or 'năng lượng' in tg:
+    return any(k in s for k in ['dầu khí', 'xăng dầu', 'năng lượng', 'điện', 'lọc hóa dầu', 'thiết bị điện'])
+  if 'hóa chất' in tg or 'phân bón' in tg:
+    return 'hóa chất' in s or 'phân bón' in s
+  if 'cảng' in tg or 'logistics' in tg or 'vận tải' in tg:
+    return 'cảng' in s or 'logistics' in s or 'vận tải' in s or 'container' in s
+  if 'xây dựng' in tg or 'hạ tầng' in tg:
+    return 'xây dựng' in s or 'hạ tầng' in s or 'cầu đường' in s or 'công trình' in s
+  if 'thủy sản' in tg or 'nông nghiệp' in tg:
+    return 'thủy sản' in s or 'nông nghiệp' in s or 'chăn nuôi' in s or 'trái cây' in s
+
+  return tg in s
+
+
+def get_stock_sector(symbol, company_name=''):
+  """Xác định nhóm ngành của cổ phiếu từ từ điển seed hoặc danh bạ động Simplize."""
+  sym = symbol.strip().upper()
+  if sym in KNOWN_STOCK_SECTORS:
+    return KNOWN_STOCK_SECTORS[sym]
+
+  try:
+    from backend.data_providers.company_directory_provider import get_dynamic_sector, _DIRECTORY_CACHE
+    cached_comp = _DIRECTORY_CACHE.get('by_ticker', {}).get(sym)
+    if cached_comp:
+      return get_dynamic_sector(sym, cached_comp.get('nameVi', company_name), cached_comp.get('bcEconomicSectorId'))
+  except Exception:
+    pass
+
+  name = (company_name or '').lower()
+  if 'ngân hàng' in name:
+    return 'Ngân hàng'
+  if 'chứng khoán' in name:
+    return 'Chứng khoán'
+  if 'thép' in name or 'kim khí' in name:
+    return 'Thép & VLXD'
+  if 'bất động sản' in name or 'địa ốc' in name or 'nhà ở' in name:
+    return 'Bất động sản'
+  if 'dầu khí' in name or 'xăng dầu' in name:
+    return 'Dầu khí'
+  if 'hóa chất' in name or 'phân bón' in name:
+    return 'Phân bón & Hóa chất'
+  if 'xây dựng' in name or 'xây lắp' in name:
+    return 'Xây dựng & Hạ tầng'
+  if 'cảng' in name or 'vận tải' in name or 'logistics' in name:
+    return 'Cảng biển & Logistics'
+  if 'thực phẩm' in name or 'sữa' in name or 'đồ uống' in name:
+    return 'Thực phẩm & Đồ uống'
+  if 'công nghệ' in name or 'tin học' in name:
+    return 'Công nghệ thông tin'
+  return 'Thị trường chung'
+
+
+def _build_stock_summary(item):
+  """Rút trích các trường cần thiết từ SSI item và tính điểm nhanh."""
+  sym = item.get('stockSymbol', '').upper()
+  name = item.get('companyNameVi', item.get('clientName', f'Cổ phiếu {sym}'))
+  price = item.get('matchedPrice') or item.get('refPrice', 0)
+  ref_price = item.get('refPrice', price)
+  change = item.get('priceChange', price - ref_price)
+  pct_change = item.get('priceChangePercent', round((change / ref_price * 100), 2) if ref_price else 0)
+  traded_val = item.get('nmTotalTradedValue', 0)
+  traded_vol = item.get('stockVol', 0)
+  foreign_net = item.get('buyForeignQtty', 0) - item.get('sellForeignQtty', 0)
+  exchange = item.get('exchange', 'HOSE').upper()
+  sector = get_stock_sector(sym, name)
+
+  # Chấm điểm xung lực nhanh (Fast Score: 0 - 100)
+  score = 50
+  if pct_change > 2.0:
+    score += 18
+  elif pct_change > 0.5:
+    score += 10
+  elif pct_change < -2.0:
+    score -= 15
+
+  if foreign_net > 50000:
+    score += 10
+  elif foreign_net < -200000:
+    score -= 8
+
+  if traded_val > 100_000_000_000:  # > 100 tỷ
+    score += 15
+  elif traded_val > 30_000_000_000:  # > 30 tỷ
+    score += 8
+
+  score = max(20, min(95, score))
+
+  return {
+      'symbol': sym,
+      'name': name,
+      'price': price,
+      'refPrice': ref_price,
+      'change': change,
+      'percentChange': pct_change,
+      'tradedValue': traded_val,
+      'tradedVolume': traded_vol,
+      'foreignNet': foreign_net,
+      'exchange': exchange,
+      'sector': sector,
+      'fastScore': score,
+  }
+
+
+def _enrich_stock_technicals(stock_summary, market_board, regime):
+  """Làm giàu thông tin kỹ thuật chuyên sâu (S1, R1, R2, ATR, khoảng cách nền) cho cổ phiếu được chọn."""
+  sym = stock_summary['symbol']
+  item = (market_board or {}).get(sym, {})
+  p = stock_summary['price']
+  exchange = stock_summary.get('exchange', 'HOSE')
+  try:
+    chart = fetch_chart_data(sym, days=120, resolution='1D', market_item=item)
+    tech = analyze_technicals_and_scoring(chart, market_item=item, current_price=p, fundamental_info={}, ticker=sym, exchange=exchange, regime=regime)
+    atr = tech.get('atr14', round(p * 0.02, 1))
+    s1 = tech.get('support', round(p - 1.5 * atr, -2))
+    r1 = tech.get('resistance', round(p + 2.0 * atr, -2))
+    r2 = tech.get('resistance2', round(p + 3.5 * atr, -2))
+    st = tech.get('supertrend', {})
+    is_bullish = st.get('isBullish', False)
+    is_bearish = st.get('isBearish', False)
+    trend = tech.get('trend', 'SIDEWAY')
+    ma20 = tech.get('ma20', p)
+
+    dist_s1 = round(((p - s1) / s1) * 100.0, 1) if s1 > 0 else 0.0
+    is_extended = dist_s1 > 4.0
+
+    stop_loss = round(s1 - 0.5 * atr, -2)
+    if stop_loss >= p:
+      stop_loss = round(p - 1.0 * atr, -2)
+
+    target1 = r1
+    target2 = r2
+    # Nếu cản R1 quá gần giá hiện tại (<2.5%), mục tiêu sóng T+ tính theo R2
+    primary_target = target2 if (((target1 - p) / p) < 0.025 and target2 > p) else target1
+    downside = max(1.0, p - stop_loss)
+    upside = max(0.1, primary_target - p)
+    rr_ratio = round(upside / downside, 1)
+
+    is_buy_eligible = True
+    if is_bearish or (trend == 'DOWNTREND' and p < ma20):
+      is_buy_eligible = False
+      action = 'QUAN SÁT (ĐANG VÙNG HỒNG)'
+      action_color = 'amber'
+      advice = f'Cổ phiếu đang trong Vùng Hồng (Downtrend dưới MA20 {ma20:,.0f} đ). Đứng ngoài chờ bẻ trend.'
+      buy_zone = f'{s1:,.0f} - {r1:,.0f} đ (Vùng cản)'
+    elif rr_ratio < 1.2:
+      is_buy_eligible = False
+      action = f'QUAN SÁT (R:R BẤT LỢI 1:{rr_ratio:.1f})'
+      action_color = 'amber'
+      advice = f'Biên lợi nhuận mỏng so với rủi ro cắt lỗ (Net R:R 1:{rr_ratio:.1f} < 1.2). Chờ tích lũy nền giá an toàn hơn.'
+      buy_zone = f'{s1:,.0f} - {p:,.0f} đ'
+    elif is_extended:
+      is_buy_eligible = False
+      pb_min = round(max(s1, p - 0.5 * (p - s1)), -2)
+      pb_max = round(max(s1, p - 0.25 * (p - s1)), -2)
+      buy_zone = f'{pb_min:,.0f} - {pb_max:,.0f} đ (Vùng Pullback)'
+      action = '⏳ CHỜ RETEST / KHÔNG MUA ĐUỔI'
+      action_color = 'amber'
+      advice = f'Giá đã tăng cách nền {dist_s1}%, không mua đuổi đỉnh ngắn hạn. Đặt lệnh chờ tại vùng Pullback.'
+    else:
+      entry_max = round(min(s1 + 0.4 * atr, p * 1.005), -2)
+      buy_zone = f'{s1:,.0f} - {entry_max:,.0f} đ'
+      action = 'VÙNG GOM AN TOÀN'
+      action_color = 'emerald'
+      advice = f'Giá đang nằm trong vùng nền tích lũy an toàn (cách nền {dist_s1}%).'
+
+    return {
+        **stock_summary,
+        'support': s1,
+        'resistance': r1,
+        'resistance2': r2,
+        'atr': atr,
+        'distToS1': dist_s1,
+        'isExtended': is_extended,
+        'isBullish': is_bullish,
+        'isBearish': is_bearish,
+        'trendLabel': 'VÙNG XANH (UPTREND)' if is_bullish else ('VÙNG HỒNG (DOWNTREND)' if is_bearish else 'SIDEWAY'),
+        'isBuyEligible': is_buy_eligible,
+        'buyZone': buy_zone,
+        'action': action,
+        'actionColor': action_color,
+        'advice': advice,
+        'stopLoss': stop_loss,
+        'stopLossPct': round(((stop_loss - p) / p) * 100.0, 1),
+        'target1': target1,
+        'target1Pct': round(((target1 - p) / p) * 100.0, 1),
+        'target2': target2,
+        'target2Pct': round(((target2 - p) / p) * 100.0, 1),
+        'riskReward': rr_ratio,
+    }
+  except Exception as e:
+    max_band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
+    stop_loss = round(p * (1 - max_band * 0.65), -2)
+    target1 = round(p * (1 + max_band * 0.95), -2)
+    target2 = round(p * (1 + max_band * 1.8), -2)
+    sl_pct = round(((stop_loss - p) / p) * 100.0, 1)
+    t1_pct = round(((target1 - p) / p) * 100.0, 1)
+    t2_pct = round(((target2 - p) / p) * 100.0, 1)
+    rr = round(abs(target1 - p) / max(1.0, abs(p - stop_loss)), 1)
+    bz_min = round(p * (1 - max_band * 0.2), -2)
+    bz_max = round(p * (1 + max_band * 0.1), -2)
+    return {
+        **stock_summary,
+        'distToS1': 0.0,
+        'isExtended': False,
+        'buyZone': f'{bz_min:,.0f} - {bz_max:,.0f} đ',
+        'action': 'VÙNG GOM AN TOÀN' if stock_summary.get('percentChange', 0) <= 1.5 else 'CANH RUNG LẮC MUA',
+        'actionColor': 'emerald' if stock_summary.get('percentChange', 0) <= 1.5 else 'blue',
+        'advice': 'Giải ngân theo vùng gom khuyến nghị.',
+        'stopLoss': stop_loss,
+        'stopLossPct': sl_pct,
+        'target1': target1,
+        'target1Pct': t1_pct,
+        'target2': target2,
+        'target2Pct': t2_pct,
+        'riskReward': rr,
+    }
+
+
+def generate_portfolio_bundle(capital: float = 20_000_000, style: str = 'balanced'):
+  """
+  Động cơ sinh Gói danh mục tối ưu theo số vốn:
+  - capital: Số vốn đầu tư (VND), mặc định 20.000.000 đ
+  - style: 'balanced' (Cân bằng), 'momentum' (Đột phá T+), 'defensive' (An toàn/Tích sản)
+  """
+  try:
+    capital = float(capital)
+    if capital < 5_000_000:
+      capital = 5_000_000
+    elif capital > 500_000_000:
+      capital = 500_000_000
+  except (ValueError, TypeError):
+    capital = 20_000_000
+
+  market_board = get_market_board_data()
+  regime = evaluate_market_regime(market_board)
+  regime_label = regime.get('regime', 'Neutral')
+  regime_score = regime.get('score', 3)
+  regime_advice = regime.get('recommendation', 'Thị trường thận trọng')
+
+  # 1. Tỷ lệ giải ngân theo Market Regime
+  if 'Risk-on' in regime_label:
+    alloc_rate = 0.88  # Giải ngân 88%, dự phòng 12%
+  elif 'Defensive' in regime_label or 'No-new' in regime_label:
+    alloc_rate = 0.55  # Giải ngân 55%, giữ 45% tiền mặt phòng thủ
+  else:
+    alloc_rate = 0.75  # Trung tính: Giải ngân 75%, giữ 25% tiền mặt
+
+  total_budget = capital * alloc_rate
+  slot_budget = total_budget / 2.0
+
+  # 2. Lọc danh sách ứng viên từ market board (Thanh khoản > 15 tỷ, thị giá >= 10k)
+  valid_stocks = []
+  for sym, item in market_board.items():
+    if item.get('stockType') != 's' or len(sym) != 3:
+      continue
+    price = item.get('matchedPrice') or item.get('refPrice', 0)
+    traded_val = item.get('nmTotalTradedValue', 0)
+    # Lọc cổ phiếu có thanh khoản thực tế và giá hợp lệ
+    if price >= 10_000 and traded_val >= 15_000_000_000:
+      summary = _build_stock_summary(item)
+      valid_stocks.append(summary)
+
+  # Sắp xếp theo giá trị giao dịch và xung lực
+  valid_stocks.sort(key=lambda s: -(s['tradedValue'] * 0.6 + s['fastScore'] * 1e9 * 0.4))
+
+  # 3. Phân tách ứng viên theo vai trò & Khả năng mua tối thiểu 1 lô 100
+  # Điều kiện mua được ít nhất 100 CP: price * 100 <= slot_budget
+  eligible_stocks = [s for s in valid_stocks if (s['price'] * 100) <= slot_budget]
+
+  if not eligible_stocks:
+    # Nếu vốn quá nhỏ không đủ mua 2 mã, lấy các mã giá thấp nhất trong top thanh khoản
+    eligible_stocks = sorted(valid_stocks, key=lambda s: s['price'])[:10]
+
+  core_candidates = [
+      s for s in eligible_stocks
+      if s['sector'] in CORE_SECTORS or any(k in s['name'].lower() for k in ['ngân hàng', 'hòa phát', 'fpt', 'vinamilk'])
+  ]
+  momentum_candidates = [
+      s for s in eligible_stocks
+      if s['sector'] in MOMENTUM_SECTORS or s['percentChange'] > 0
+  ]
+
+  if not core_candidates:
+    core_candidates = eligible_stocks[:5]
+  if not momentum_candidates:
+    momentum_candidates = eligible_stocks[5:10] if len(eligible_stocks) > 5 else eligible_stocks
+
+  # 4. Chọn cặp đôi tối ưu theo Style & Quy tắc Khác Ngành (Sector Diversification)
+  # Hàm sàng lọc chuyên sâu: Ưu tiên mã thỏa mãn VÙNG XANH (Uptrend) và R:R >= 1.2
+  def _pick_candidate(candidates, exclude_sym=None, exclude_sec=None):
+    tested = []
+    for s in candidates:
+      if exclude_sym and s['symbol'] == exclude_sym:
+        continue
+      if exclude_sec and s.get('sector') == exclude_sec:
+        continue
+      en = _enrich_stock_technicals(s, market_board, regime)
+      tested.append(en)
+      if en.get('isBuyEligible', False):
+        return en
+    # Nếu không có mã nào đạt tuyệt đối isBuyEligible, chọn mã có R:R tốt nhất
+    if tested:
+      tested.sort(key=lambda x: -x.get('riskReward', 0))
+      return tested[0]
+    return None
+
+  stock1_ready = None
+  stock2_ready = None
+
+  if style == 'defensive':
+    core_candidates.sort(key=lambda s: -s['tradedValue'])
+    stock1_ready = _pick_candidate(core_candidates) or _pick_candidate(eligible_stocks)
+    stock2_ready = _pick_candidate(core_candidates, exclude_sym=stock1_ready['symbol'], exclude_sec=stock1_ready['sector'])
+  elif style == 'momentum':
+    momentum_candidates.sort(key=lambda s: -s['percentChange'])
+    stock1_ready = _pick_candidate(momentum_candidates) or _pick_candidate(eligible_stocks)
+    stock2_ready = _pick_candidate(momentum_candidates, exclude_sym=stock1_ready['symbol'], exclude_sec=stock1_ready['sector'])
+  else:  # 'balanced' (Khuyên dùng: 1 Core + 1 Momentum)
+    safe_core = [s for s in core_candidates if s.get('percentChange', 0) <= 2.5]
+    stock1_ready = _pick_candidate(safe_core or core_candidates) or _pick_candidate(eligible_stocks)
+    stock2_ready = _pick_candidate(momentum_candidates, exclude_sym=stock1_ready['symbol'], exclude_sec=stock1_ready['sector'])
+
+  # Dự phòng nếu chưa tìm được mã thứ 2
+  if not stock2_ready:
+    stock2_ready = _pick_candidate(eligible_stocks, exclude_sym=stock1_ready['symbol'])
+
+  # Dự phòng cuối cùng nếu chỉ có 1 mã hợp lệ
+  if not stock2_ready:
+    stock2_ready = stock1_ready
+
+  # 6. Tính toán Sizing & Làm tròn Lô chẵn 100
+  def _calculate_slot_position(stock_info, budget, role_title):
+    p = stock_info['price']
+    lot_100_cost = p * 100
+    if lot_100_cost > 0:
+      raw_lots = int(budget // lot_100_cost)
+      qty = max(100, raw_lots * 100)
+    else:
+      qty = 100
+    
+    total_cost = qty * p
+
+    exch = stock_info.get('exchange', 'HOSE')
+    band = 0.07 if exch == 'HOSE' else (0.10 if exch == 'HNX' else 0.15)
+    default_sl = round(p * (1 - band * 0.65), -2)
+    default_tg1 = round(p * (1 + band * 0.95), -2)
+    default_tg2 = round(p * (1 + band * 1.8), -2)
+    sl = stock_info.get('stopLoss', default_sl)
+    tg1 = stock_info.get('target1', default_tg1)
+    tg2 = stock_info.get('target2', default_tg2)
+    sl_pct = stock_info.get('stopLossPct', round(((sl - p) / p) * 100.0, 1))
+    tg1_pct = stock_info.get('target1Pct', round(((tg1 - p) / p) * 100.0, 1))
+    tg2_pct = stock_info.get('target2Pct', round(((tg2 - p) / p) * 100.0, 1))
+    rr = stock_info.get('riskReward', round(abs(tg1 - p) / max(1.0, abs(p - sl)), 1))
+
+    bz_min = round(p * (1 - band * 0.2), -2)
+    bz_max = round(p * (1 + band * 0.1), -2)
+
+    return {
+        'symbol': stock_info['symbol'],
+        'name': stock_info['name'],
+        'exchange': stock_info['exchange'],
+        'sector': stock_info['sector'],
+        'price': p,
+        'change': stock_info['change'],
+        'percentChange': stock_info['percentChange'],
+        'fastScore': stock_info['fastScore'],
+        'role': role_title,
+        'quantity': qty,
+        'totalCost': total_cost,
+        'costPercent': round((total_cost / capital) * 100, 1),
+        'buyZone': stock_info.get('buyZone', f'{bz_min:,.0f} - {bz_max:,.0f} đ'),
+        'stopLoss': sl,
+        'stopLossPct': sl_pct,
+        'target1': tg1,
+        'target1Pct': tg1_pct,
+        'target2': tg2,
+        'target2Pct': tg2_pct,
+        'riskReward': rr,
+        'action': stock_info.get('action', 'VÙNG GOM AN TOÀN'),
+        'actionColor': stock_info.get('actionColor', 'emerald'),
+        'advice': stock_info.get('advice', ''),
+        'distToS1': stock_info.get('distToS1', 0.0),
+        'isExtended': stock_info.get('isExtended', False),
+        'isBullish': stock_info.get('isBullish', True),
+        'isBearish': stock_info.get('isBearish', False),
+        'trendLabel': stock_info.get('trendLabel', 'VÙNG XANH (UPTREND)'),
+        'isBuyEligible': stock_info.get('isBuyEligible', True),
+    }
+
+  role1 = 'Đột Phá T+ (Dòng Tiền)' if style == 'momentum' else ('Phòng Thủ Cốt Lõi' if style == 'defensive' else 'Trụ Cân Bằng / Nền Tảng')
+  role2 = 'Động Lực Sóng Ngành T+' if style == 'momentum' else ('Tích Sản Bền Vững' if style == 'defensive' else 'Động Lực Tăng Trưởng / T+')
+
+  slot1 = _calculate_slot_position(stock1_ready, slot_budget, role1)
+  slot2 = _calculate_slot_position(stock2_ready, slot_budget, role2)
+
+  total_invested = slot1['totalCost'] + slot2['totalCost']
+  # Nếu tổng vượt quá vốn người dùng, tự động giảm bớt 100 CP ở mã có tỷ trọng cao hơn
+  while total_invested > capital and (slot1['quantity'] > 100 or slot2['quantity'] > 100):
+    if slot1['totalCost'] >= slot2['totalCost'] and slot1['quantity'] > 100:
+      slot1['quantity'] -= 100
+      slot1['totalCost'] = slot1['quantity'] * slot1['price']
+      slot1['costPercent'] = round((slot1['totalCost'] / capital) * 100, 1)
+    elif slot2['quantity'] > 100:
+      slot2['quantity'] -= 100
+      slot2['totalCost'] = slot2['quantity'] * slot2['price']
+      slot2['costPercent'] = round((slot2['totalCost'] / capital) * 100, 1)
+    total_invested = slot1['totalCost'] + slot2['totalCost']
+
+  cash_reserve = max(0, capital - total_invested)
+  cash_reserve_pct = round((cash_reserve / capital) * 100, 1)
+
+  return {
+      'capital': capital,
+      'style': style,
+      'regime': {
+          'label': regime_label,
+          'score': regime_score,
+          'allocationRate': int(alloc_rate * 100),
+          'advice': regime_advice,
+      },
+      'allocation': {
+          'totalInvested': total_invested,
+          'totalInvestedPct': round((total_invested / capital) * 100, 1),
+          'cashReserve': cash_reserve,
+          'cashReservePct': cash_reserve_pct,
+      },
+      'slots': [slot1, slot2],
+      'generatedAt': time.strftime('%H:%M:%S %d/%m/%Y'),
+  }
+
+
+def get_alternative_candidates(
+    current_symbol: str,
+    sector: str,
+    max_budget: float = 10_000_000,
+    exclude_sector: Optional[str] = None,
+    target_sector: Optional[str] = None,
+):
+  """
+  Lấy danh sách cổ phiếu tương đương theo ngành hoặc toàn sàn:
+  - target_sector: Nhóm ngành người dùng muốn lọc (None hoặc 'Tất cả' để lấy tự do)
+  - max_budget: Ngân sách tối đa của slot
+  - exclude_sector: Ngành của slot còn lại (để cảnh báo/lọc chống trùng ngành)
+  """
+  current_sym = (current_symbol or '').strip().upper()
+  market_board = get_market_board_data()
+  alternatives = []
+
+  is_filtered_by_target = bool(target_sector and target_sector != 'Tất cả')
+
+  for sym, item in market_board.items():
+    if sym == current_sym or item.get('stockType') != 's' or len(sym) != 3:
+      continue
+    price = item.get('matchedPrice') or item.get('refPrice', 0)
+    traded_val = item.get('nmTotalTradedValue', 0)
+    
+    # Điều kiện: Thanh khoản > 3 tỷ và mua được tối thiểu 1 lô 100
+    if price < 10_000 or (price * 100) > max_budget or traded_val < 3_000_000_000:
+      continue
+
+    sym_sector = get_stock_sector(sym, item.get('companyNameVi', ''))
+
+    # Nếu người dùng chọn lọc theo ngành cụ thể:
+    if is_filtered_by_target:
+      if not match_sector_group(sym_sector, target_sector):
+        continue
+    else:
+      # Không chọn ngành cụ thể: loại trừ ngành của slot còn lại nếu có
+      if exclude_sector and match_sector_group(sym_sector, exclude_sector):
+        continue
+
+    is_same_sector = match_sector_group(sym_sector, sector)
+    summary = _build_stock_summary(item)
+    summary['isSameSector'] = is_same_sector
+    summary['isConflictWithOtherSlot'] = bool(exclude_sector and match_sector_group(sym_sector, exclude_sector))
+
+    # Tính thử số lượng cổ phiếu tròn lô 100
+    lots = int(max_budget // (price * 100))
+    qty = max(100, lots * 100)
+    summary['suggestedQty'] = qty
+    summary['totalCost'] = qty * price
+    # Ước tính mức cắt lỗ / chốt lời dựa theo biên độ sàn và giá thực tế
+    exch = summary.get('exchange', 'HOSE')
+    band = 0.07 if exch == 'HOSE' else (0.10 if exch == 'HNX' else 0.15)
+    sl = round(price * (1 - band * 0.65), -2)
+    tg1 = round(price * (1 + band * 0.95), -2)
+    summary['stopLoss'] = sl
+    summary['target1'] = tg1
+    summary['stopLossPct'] = round(((sl - price) / price) * 100.0, 1)
+    summary['target1Pct'] = round(((tg1 - price) / price) * 100.0, 1)
+
+    alternatives.append(summary)
+
+  # Sắp xếp
+  if is_filtered_by_target:
+    # Sắp xếp theo thanh khoản & điểm xung lực trong ngành được chọn
+    alternatives.sort(key=lambda s: -(s['tradedValue'] * 0.6 + s['fastScore'] * 1e9 * 0.4))
+  else:
+    # Ưu tiên mã cùng ngành trước, sau đó sắp xếp theo giá trị giao dịch & điểm số
+    alternatives.sort(key=lambda s: (not s['isSameSector'], -(s['tradedValue'] * 0.6 + s['fastScore'] * 1e9 * 0.4)))
+
+  return {'alternatives': alternatives[:12], 'targetSector': target_sector or 'Tất cả'}
+
+
+def get_available_sectors_for_budget(slot_budget: float = 10_000_000, exclude_sector: Optional[str] = None):
+  """
+  Thống kê tất cả các nhóm ngành trên sàn và khả năng mua lô 100 theo ngân sách:
+  - Trả về danh sách nhóm ngành kèm số lượng mã hợp lệ, giá tối thiểu để mua 1 lô 100
+  """
+  market_board = get_market_board_data()
+  results = []
+  total_all_eligible = 0
+
+  for sec_name in MAJOR_SECTOR_GROUPS:
+    candidates = []
+    min_price = float('inf')
+
+    for sym, item in market_board.items():
+      if item.get('stockType') != 's' or len(sym) != 3:
+        continue
+      price = item.get('matchedPrice') or item.get('refPrice', 0)
+      traded_val = item.get('nmTotalTradedValue', 0)
+      if price < 10_000 or traded_val < 3_000_000_000:
+        continue
+
+      sym_sector = get_stock_sector(sym, item.get('companyNameVi', ''))
+      if match_sector_group(sym_sector, sec_name):
+        min_price = min(min_price, price)
+        if (price * 100) <= slot_budget:
+          candidates.append((sym, price, traded_val))
+
+    candidates.sort(key=lambda x: -x[2])
+    eligible_count = len(candidates)
+    total_all_eligible += eligible_count
+
+    is_excluded = bool(exclude_sector and match_sector_group(exclude_sector, sec_name))
+    min_lot_cost = (min_price * 100) if min_price != float('inf') else 0
+
+    results.append({
+        'name': sec_name,
+        'eligibleCount': eligible_count,
+        'minLotCost': min_lot_cost,
+        'isAvailable': eligible_count > 0,
+        'isExcluded': is_excluded,
+        'sampleSymbols': [c[0] for c in candidates[:3]],
+    })
+
+  # Thêm tab 'Tất cả' ở đầu
+  all_item = {
+      'name': 'Tất cả',
+      'eligibleCount': total_all_eligible,
+      'minLotCost': 1_000_000,
+      'isAvailable': True,
+      'isExcluded': False,
+      'sampleSymbols': [],
+  }
+
+  return {
+      'sectors': [all_item] + results,
+      'budget': slot_budget,
+      'excludeSector': exclude_sector or '',
+  }

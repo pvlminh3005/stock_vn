@@ -1,0 +1,23 @@
+name: Wake up Render App
+
+on:
+  schedule:
+    # 8h50 sáng giờ VN (UTC+7) = 1h50 UTC (Thứ 2 đến Thứ 6)
+    - cron: '50 1 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ping Render Service with Retry
+        run: |
+          curl -I \
+            --fail \
+            --max-time 180 \
+            --retry 5 \
+            --retry-delay 15 \
+            --retry-all-errors \
+            -s -o /dev/null -w "HTTP Status: %{http_code} | Total Time: %{time_total}s\n" \
+            "https://minhpvl-stock-vn.onrender.com/ping"

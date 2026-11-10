@@ -9,7 +9,7 @@ BADGE_COLOR_COMPANY = 'amber'      # Tin tức doanh nghiệp
 BADGE_COLOR_EVENT = 'cyan'         # Sự kiện HoSE/HNX & Cổ tức
 BADGE_COLOR_MACRO = 'rose'         # Vĩ mô nhà nước (Cổng TTĐT Chính Phủ)
 BADGE_COLOR_PRESS = 'purple'       # Báo chí thời sự (VnExpress)
-BADGE_COLOR_MARKET = 'emerald'     # Bảng giá thị trường (SSI iBoard)
+BADGE_COLOR_MARKET = 'emerald'     # Bảng giá thị trường Realtime (Entrade Engine)
 
 # Volume & Liquidity Signal Colors
 VOL_COLOR_INFLOW = 'emerald'       # Dòng tiền vào mạnh (giá tăng + KL lớn)
