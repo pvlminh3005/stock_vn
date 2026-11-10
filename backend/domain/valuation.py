@@ -5,7 +5,13 @@ Stock RT - Valuation & Fundamental Analysis Domain Engine
 import io
 import sys
 import pandas as pd
-from vnstock import Company, Finance
+try:
+  from vnstock import Company, Finance
+except ImportError:
+  try:
+    from vnstock.compat import Company, Finance
+  except ImportError:
+    Company, Finance = None, None
 
 from backend.constants.colors import (
     DECISION_TYPE_DANGER,
@@ -54,7 +60,9 @@ def fetch_from_vnstock(symbol):
   sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
   try:
     # 1. Thông tin doanh nghiệp từ VCI
-    ov = vnstock_call(lambda: Company(symbol=symbol, source='VCI').overview())
+    ov = None
+    if Company is not None:
+      ov = vnstock_call(lambda: Company(symbol=symbol, source='VCI').overview())
     if ov is None:
       ov = pd.DataFrame()
     name = (
@@ -75,7 +83,9 @@ def fetch_from_vnstock(symbol):
     )
 
     # 2. Chỉ số tài chính BCTC từ KBS (tham khảo & dự phòng)
-    r = vnstock_call(lambda: Finance(source='KBS', symbol=symbol).ratio())
+    r = None
+    if Finance is not None:
+      r = vnstock_call(lambda: Finance(source='KBS', symbol=symbol).ratio())
     item_map = {}
     latest_col = ''
     if r is not None and not r.empty:

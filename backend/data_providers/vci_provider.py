@@ -41,8 +41,8 @@ def _vci_quarterly_report(symbol, report_type, fields):
   Đọc báo cáo theo quý từ VCI (vnstock), trả về {tên_trường: {kỳ 'YYYY-Qn': giá trị}}.
   Dùng API nội bộ _get_report(limit=200) vì Finance.ratio() công khai chỉ trả 4 kỳ đầu tiên.
   """
-  from vnstock.explorer.vci.financial import Finance as VCIFinance
   try:
+    from vnstock.explorer.vci.financial import Finance as VCIFinance
     f_obj = VCIFinance(symbol=symbol, period='quarter')
     if not hasattr(f_obj, '_get_report'):
       return {}

@@ -251,12 +251,22 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
     is_in_trading_hours = is_market_hours(now)
     is_pre_1345 = is_weekday and is_in_trading_hours and (cur_mins < 13 * 60 + 45)
 
-    # Khóa 2: Biên độ - Chống đu đỉnh (Giá chạy quá xa nền)
-    # Tinh chỉnh linh hoạt theo ATR và biên độ: chỉ coi là quá xa khi dist_s1 > 4.5% hoặc tăng > 5.5%
+    # Khóa 2: Biên độ - Chống đu đỉnh (Tính toán ĐỘNG theo ATR14 & Biên độ sàn HOSE/HNX/UPCoM)
+    limit_pct = 10.0 if 'HNX' in str(exchange).upper() else (15.0 if 'UPC' in str(exchange).upper() else 7.0)
+    atr_pct = round((atr / p * 100.0), 2) if p > 0 else 2.5
+    atr_pct = max(1.2, min(atr_pct, 6.0))
+
+    sl_pct = round(((stop_loss - p) / p) * 100, 1)
+    tp1_pct = round(((target1 - p) / p) * 100, 1)
+
+    max_breakout_dist_s1 = round(min(0.65 * atr_pct, 0.35 * limit_pct), 2)
+    max_breakout_pct_change = round(min(0.85 * atr_pct, 0.45 * limit_pct), 2)
+    min_tp1_pct = round(max(4.0, 1.1 * atr_pct), 2)
+
     is_overextended = False
-    if is_breakout and (dist_s1 > 4.5 or pct_change > 5.5):
+    if is_breakout and (dist_s1 > max_breakout_dist_s1 or pct_change > max_breakout_pct_change or tp1_pct < min_tp1_pct):
       is_overextended = True
-    elif is_pullback and (dist_s1 > 3.0 or pct_change > 2.5):
+    elif is_pullback and (dist_s1 > round(0.5 * atr_pct, 2) or pct_change > round(0.4 * atr_pct, 2)):
       is_overextended = True
 
     # Khóa 3: Thị trường chung (VN-Index Kill-Switch)
@@ -264,56 +274,63 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
 
     # Nhận diện sóng sớm sau ATO (9:25 - 9:45)
     open_p = item.get('openPrice') or ref
+    early_max_pct = round(min(0.60 * atr_pct, 0.30 * limit_pct), 2)
     is_early_bird = (
         is_breakout and
+        not is_overextended and
         (9 * 60 + 25 <= cur_mins <= 9 * 60 + 45) and
         p >= open_p and
-        pct_change >= 1.0 and
+        round(max(0.4, 0.15 * atr_pct), 2) <= pct_change <= early_max_pct and
+        dist_s1 <= round(min(0.45 * atr_pct, 0.30 * limit_pct), 2) and
+        tp1_pct >= min_tp1_pct and
         buy_ratio >= 60.0
     )
-
-    sl_pct = round(((stop_loss - p) / p) * 100, 1)
-    tp1_pct = round(((target1 - p) / p) * 100, 1)
 
     # ==================== MÔ HÌNH HAI TẦNG SÓNG (DUAL-ENGINE SECTOR MODEL) ====================
     rs_score = tech.get('relativeStrength', {}).get('rsScore', 50)
 
     # TẦNG 1: ĐÈN XANH TỨ TRỤ (Bank, Chứng, Thép, BĐS) - An toàn thanh khoản cao
+    max_pillar_change = round(min(0.75 * atr_pct, 0.40 * limit_pct), 2)
     is_pillar_green_buy = (
         is_core_sector and
-        1.0 <= pct_change <= 3.2 and
-        dist_s1 <= 2.5 and
+        not is_overextended and
+        round(max(0.4, 0.15 * atr_pct), 2) <= pct_change <= max_pillar_change and
+        dist_s1 <= max_breakout_dist_s1 and
         vol_run_rate >= 1.0 and
         buy_ratio >= 55.0 and
         upper_wick <= 0.35 and
-        tp1_pct >= 3.0 and
+        tp1_pct >= min_tp1_pct and
         net_rr >= 1.4 and
         not is_market_adverse
     )
 
     # TẦNG 2: SIÊU CỔ PHIẾU DẪN DẮT TOÀN THỊ TRƯỜNG (Market Leader / Bất kể ngành nào)
     # Bắt trọn các sóng tăng bứt phá của FPT, FRT, DGC, PVD, HAH, CTR... qua từng quý
+    max_leader_change = round(min(0.90 * atr_pct, 0.45 * limit_pct), 2)
     is_market_leader = (
         not is_market_adverse and
+        not is_overextended and
         rs_score >= 78 and
-        1.5 <= pct_change <= 4.5 and
+        round(max(0.5, 0.20 * atr_pct), 2) <= pct_change <= max_leader_change and
         p >= ema9 and
-        dist_s1 <= 3.8 and
+        dist_s1 <= round(min(0.70 * atr_pct, 0.35 * limit_pct), 2) and
         vol_run_rate >= 1.35 and
         buy_ratio >= 58.0 and
         upper_wick <= 0.35 and
-        tp1_pct >= 3.5 and
+        tp1_pct >= min_tp1_pct and
         net_rr >= 1.4
     )
 
-    is_actionable_green_buy = is_pillar_green_buy or is_market_leader
+    is_actionable_green_buy = (is_pillar_green_buy or is_market_leader) and not is_overextended
 
-    if is_market_leader:
-      score += 45.0  # Thưởng điểm tối đa cho Siêu cổ phiếu dẫn dắt
-    elif is_pillar_green_buy:
-      score += 35.0  # Thưởng điểm cho Đèn Xanh Tứ Trụ
-
-    if is_market_adverse:
+    if is_overextended:
+      action_status = 'OVER_EXTENDED'
+      action_label = '⛔ ĐÃ QUA ĐIỂM MUA'
+      action_badge_color = 'rose'
+      action_guide = f'Giá đã tăng +{pct_change:.1f}% (cách nền +{dist_s1:.1f}%, sát TP1 {target1:,.0f} đ). Đã qua điểm mua an toàn, tuyệt đối không FOMO mua đuổi.'
+      alloc_advice = 'Không giải ngân - Đã qua điểm mua'
+      alloc_pct = 0
+    elif is_market_adverse:
       action_status = 'MARKET_RISK'
       action_label = '⚠️ THỊ TRƯỜNG RỦI RO'
       action_badge_color = 'rose'
@@ -340,11 +357,6 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
       alloc_advice = 'Giải ngân Mua mới 30-40% vị thế T0 ngay tại thị giá'
       alloc_pct = 35
       timing_note = f'Điểm mua Đèn Xanh chuẩn T+ (Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.1f}%). Vào lệnh trực tiếp.'
-    elif is_overextended:
-      action_status = 'OVER_EXTENDED'
-      action_label = '⛔ ĐÃ CHẠY XA'
-      action_badge_color = 'rose'
-      action_guide = f'Giá đã tăng +{pct_change:.1f}% (cách nền +{dist_s1:.1f}%). Tuyệt đối không FOMO đu đỉnh, kiên nhẫn chờ retest.'
     elif is_pre_1345:
       # PHIÊN SÁNG / CHỚM BÙNG NỔ: Cho phép mở vị thế MUA THĂM DÒ (30% size) thay vì chặn cứng
       if is_breakout and 0.8 <= pct_change <= 4.2 and vol_run_rate >= 0.85:
@@ -446,6 +458,8 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         'isActionableGreenBuy': is_actionable_green_buy,
         'isMarketLeader': is_market_leader,
         'rsScore': rs_score,
+        'atr14': atr,
+        'atrPct': atr_pct,
         'isSectorWave': False,
         'sectorLeader': None,
     }
@@ -460,7 +474,8 @@ def _build_synthetic_board_from_entrade(symbols=None):
   vol (v[-1]), high, low và % thay đổi.
   """
   if not symbols:
-    symbols = list(KNOWN_STOCK_SECTORS.keys())[:45]
+    from backend.data_providers.market_board_provider import get_dynamic_liquid_universe
+    symbols = get_dynamic_liquid_universe(limit=45)
 
   board = {}
 
@@ -539,8 +554,9 @@ def build_top_tplus_opportunities(max_total=8):
 
   regime = evaluate_market_regime(market_board)
 
-  # Chọn lọc Universe Top 45 mã chất lượng từ danh mục đầu ngành có thanh khoản
-  universe_symbols = list(KNOWN_STOCK_SECTORS.keys())
+  # Chọn lọc Universe Top mã chất lượng từ danh mục đầu ngành có thanh khoản cao động
+  from backend.data_providers.market_board_provider import get_dynamic_liquid_universe
+  universe_symbols = list(dict.fromkeys(get_dynamic_liquid_universe(limit=80) + list(market_board.keys())))
   in_trading = is_market_hours()
   if in_trading:
     board_symbols = [
@@ -554,7 +570,7 @@ def build_top_tplus_opportunities(max_total=8):
   if not board_symbols:
     board_symbols = [sym for sym in universe_symbols if sym in market_board]
 
-  scan_list = board_symbols[:45]
+  scan_list = board_symbols[:50]
 
   results = []
   with ThreadPoolExecutor(max_workers=10) as executor:
@@ -622,4 +638,5 @@ def build_top_tplus_opportunities(max_total=8):
       'countBreakout': len([x for x in final_list if x['tagType'] == 'BREAKOUT_T0']),
       'countPullback': len([x for x in final_list if x['tagType'] == 'PULLBACK_T1_T2']),
       'topOpportunities': final_list,
+      'allOpportunities': results,
   }

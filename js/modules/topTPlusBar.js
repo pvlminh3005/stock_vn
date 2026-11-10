@@ -254,12 +254,53 @@ function renderSkeleton() {
   `).join('');
 }
 
+let refreshCooldownSeconds = 0;
+let refreshCooldownInterval = null;
+
+function startRefreshCooldown(seconds = 15) {
+  const btn = document.getElementById('btnRefreshTopTPlus');
+  const btnText = document.getElementById('btnRefreshTopTPlusText');
+  if (!btn) return;
+
+  if (refreshCooldownInterval) {
+    clearInterval(refreshCooldownInterval);
+    refreshCooldownInterval = null;
+  }
+
+  refreshCooldownSeconds = Math.max(1, seconds);
+  btn.classList.add('opacity-60', 'cursor-not-allowed', 'pointer-events-none');
+
+  const updateBtnDisplay = () => {
+    if (btnText) btnText.innerText = `Làm mới (${refreshCooldownSeconds}s)`;
+  };
+  updateBtnDisplay();
+
+  refreshCooldownInterval = setInterval(() => {
+    refreshCooldownSeconds -= 1;
+    if (refreshCooldownSeconds <= 0) {
+      clearInterval(refreshCooldownInterval);
+      refreshCooldownInterval = null;
+      refreshCooldownSeconds = 0;
+      btn.classList.remove('opacity-60', 'cursor-not-allowed', 'pointer-events-none');
+      if (btnText) btnText.innerText = 'Làm mới';
+    } else {
+      updateBtnDisplay();
+    }
+  }, 1000);
+}
+
 /**
  * Tải danh sách Top 8 cơ hội T+ từ API
  */
-export async function loadTopTPlusOpportunities(isSilent = false) {
+export async function loadTopTPlusOpportunities(isSilent = false, forceRefresh = false) {
   if (isFetching) return;
+  // Chống spam: Nếu đang trong thời gian cooldown mà bị trigger forceRefresh thì bỏ qua
+  if (forceRefresh && refreshCooldownSeconds > 0) return;
+
   isFetching = true;
+  if (forceRefresh) {
+    startRefreshCooldown(15);
+  }
 
   const refreshIcon = document.getElementById('refreshTopTPlusIcon');
   if (refreshIcon) refreshIcon.classList.add('animate-spin');
@@ -269,7 +310,10 @@ export async function loadTopTPlusOpportunities(isSilent = false) {
   }
 
   try {
-    const res = await getTop10Stocks();
+    const res = await getTop10Stocks(forceRefresh);
+    if (res && res.rateLimited && res.cooldownRemaining) {
+      startRefreshCooldown(res.cooldownRemaining);
+    }
     const rawList = res ? (res.topOpportunities || res.data || res.stocks || res.top) : null;
     if (Array.isArray(rawList)) {
       cachedOpportunities = rawList;
@@ -334,12 +378,13 @@ export function setActiveTopTPlusTicker(symbol) {
 export function initTopTPlusBar(selectStockCb) {
   onSelectStockCallback = selectStockCb;
 
-  // Gắn sự kiện nút làm mới thủ công
+  // Gắn sự kiện nút làm mới thủ công (Ép quét mới Realtime kèm chống spam)
   const btnRefresh = document.getElementById('btnRefreshTopTPlus');
   if (btnRefresh) {
     btnRefresh.addEventListener('click', (e) => {
       e.preventDefault();
-      loadTopTPlusOpportunities(false);
+      if (refreshCooldownSeconds > 0 || isFetching) return;
+      loadTopTPlusOpportunities(false, true);
     });
   }
 

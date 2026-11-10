@@ -40,8 +40,9 @@ export async function safeFetch(subUrl, options = {}) {
 // ==================== MARKET & SCREENER APIS ====================
 
 // API lấy danh sách Top 10 lướt sóng T+ theo ngày
-export async function getTop10Stocks() {
-  const res = await safeFetch(API_ENDPOINTS.TOP_TPLUS);
+export async function getTop10Stocks(forceRefresh = false) {
+  const url = forceRefresh ? `${API_ENDPOINTS.TOP_TPLUS}?refresh=1` : API_ENDPOINTS.TOP_TPLUS;
+  const res = await safeFetch(url);
   if (!res.ok) throw new Error(`Lỗi tải Top 10: ${res.status}`);
   return await res.json();
 }

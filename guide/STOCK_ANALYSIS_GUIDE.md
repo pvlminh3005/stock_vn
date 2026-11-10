@@ -205,51 +205,63 @@ So sánh tương quan hiệu suất sức mạnh giá giữa cổ phiếu và VN
 
 ---
 
-## 8. Hệ Thống Cảnh Báo Telegram "Đèn Xanh Hành Động Ngay" (Dual-Engine Actionable Alerts)
+## 8. Hệ Thống Cảnh Báo Telegram Đa Tầng (Telegram Alerts Ecosystem)
 
-Vận hành tại [backend/controllers/screener_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/screener_controller.py) và [backend/utils/telegram_bot.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/utils/telegram_bot.py):
+Hệ thống cảnh báo Telegram phân định rạch ròi thành **2 luồng hoạt động độc lập** để triệt tiêu mọi sự nhầm lẫn cho nhà đầu tư:
+1. **Luồng VỊ THẾ MUA MỚI (New Entry Screener)**: Quét liên tục từ bảng giá realtime để bắt các cơ hội chân sóng, bứt phá bùng nổ T0.
+2. **Luồng VỊ THẾ NẮM GIỮ (Portfolio Risk Management)**: Quét 15 phút/lần các mã trong sổ lệnh để cảnh báo khẩn vi phạm Cắt Lỗ S1, đạt Mục Tiêu Chốt Lời TP1, và bản tin xác nhận nến SuperTrend EOD lúc 15:02.
 
-### 8.1. Mô Hình Hai Tầng Sóng (Dual-Engine Sector Model)
-Để vừa đảm bảo **an toàn thanh khoản cao (không sợ trượt giá)** vừa **không bao giờ bỏ sót Siêu cổ phiếu dẫn dắt của các ngành khác qua từng quý** (như FPT, FRT, DGC, PVD, HAH, CTR...), hệ thống vận hành mô hình 2 tầng định lượng:
+Vận hành tại [backend/controllers/screener_controller.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/controllers/screener_controller.py), [backend/utils/portfolio_scheduler.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/utils/portfolio_scheduler.py) và [backend/utils/telegram_bot.py](file:///Users/minhpvl/Desktop/VSCode/stock_rt/backend/utils/telegram_bot.py).
+
+### 8.1. Cơ Chế Định Lượng Động Sweet-Spot & Chống Mua Đuổi (Dynamic Sweet-Spot Engine)
+
+Hệ thống **tuyệt đối không sử dụng ngưỡng tỷ lệ cố định (hardcoded numbers)** hay cào bằng giữa các sàn. Thay vào đó, mọi ngưỡng cảnh báo được tính toán hoàn toàn động dựa trên **độ co giãn tự nhiên ATR14** của chính cổ phiếu đó kết hợp **biên độ dao động của sàn niêm yết**:
+- **Sàn HOSE (biên độ $\pm 7\%$)**
+- **Sàn HNX (biên độ $\pm 10\%$)**
+- **Sàn UPCoM (biên độ $\pm 15\%$)**
 
 ```mermaid
 flowchart TD
-    A["Bảng giá Realtime Toàn Thị Trường (1,626 mã)"] --> B{"TẦNG 1: TỨ TRỤ THANH KHOẢN?<br>(Bank, Chứng, Thép, BĐS)"}
+    A["Cổ phiếu nổ Vol từ Bảng giá Realtime"] --> B{"3 KHÓA AN TOÀN VỊ THẾ MUA MỚI"}
     
-    B -- Thuộc Tứ Trụ --> C{"Đạt chuẩn Đèn Xanh Tứ Trụ?<br>(+1.0% <= Change <= +3.2%<br>& dist_S1 <= 2.5% & Vol >= 1.0x)"}
-    C -- Đạt --> E["🟢 ĐÈN XANH: MUA NGAY T0"]
-    C -- Chưa đạt --> X1["Bỏ qua"]
+    B --> K1["Khóa 1: Tiền Thật Vào Cuộc<br>Vol Run Rate >= 0.85-1.0x & Mua CĐ >= 55%"]
+    B --> K2["Khóa 2: Sweet-Spot ATR & Sàn<br>Change <= min(0.75*ATR%, 0.40*Limit_Sàn)<br>& dist_S1 <= min(0.65*ATR%, 0.35*Limit_Sàn)"]
+    B --> K3["Khóa 3: Biên Lãi Vượt Rủi Ro<br>Dư địa TP1 >= max(4.0%, 1.1*ATR%) & Net R:R >= 1.4"]
     
-    B -- Ngành Khác (Ngoài Tứ Trụ) --> D{"TẦNG 2: SIÊU CỔ PHIẾU DẪN DẮT?<br>(Market Leader CANSLIM)"}
-    D -- Đạt RS >= 78 & Vol >= 1.35x & Mua CĐ >= 58% --> F["⭐ ĐÈN XANH: SIÊU CỔ PHIẾU DẪN DẮT<br>(FPT, FRT, DGC, HAH, PVD, CTR...)"]
-    D -- Không đạt --> X2["Bỏ qua"]
+    K1 & K2 & K3 --> PASS{"Thỏa mãn đủ 3 Khóa?"}
+    PASS -- Đạt --> ALERT["🚀 RUNG CHUÔNG MUA MỚI TELEGRAM<br>(Kèm Vùng gom an toàn Sát Nền S1)"]
+    PASS -- Vi phạm (Ví dụ +4.6%, cách nền xa) --> REJECT["⛔ KHÓA CỨNG: BỎ QUA<br>(Gán nhãn ĐÃ QUA ĐIỂM MUA, chống đu đỉnh)"]
 ```
 
-### 8.2. Tiêu Chuẩn 2 Tầng Lọc Định Lượng
+### 8.2. Tiêu Chuẩn 2 Tầng Lọc Cổ Phiếu Bứt Phá
 
 #### Tầng 1: Đèn Xanh Tứ Trụ (Bank, Chứng, Thép, BĐS) - An toàn thanh khoản:
 1. **Nhóm ngành:** Thuộc `CORE_PILLAR_SECTORS` (`Ngân hàng`, `Chứng khoán`, `Thép & VLXD`, `Bất động sản`) chiếm >70% thanh khoản thị trường.
-2. **Sắc xanh chân sóng:** $+1.0\% \le \text{changePct} \le +3.2\%$ và $\text{dist\_s1} \le 2.5\%$ (không rủi ro đu đỉnh).
-3. **Dòng tiền xác nhận:** $Vol\_RunRate \ge 1.0\times$ TB20, $Buy\_Ratio \ge 55.0\%$, nến không bị rút râu trên ($Upper\_Wick \le 0.35$).
-4. **Dư địa sóng & Net R:R:** $\text{Upside to } R1 \ge 3.0\%$, $\text{Net R:R} \ge 1.4$ tính tại thị giá hiện tại.
+2. **Sắc xanh chân sóng:** $\max(0.4\%, 0.15 \times \text{ATR14}\%) \le \text{changePct} \le \min(0.75 \times \text{ATR14}\%, 0.40 \times \text{Limit\_Sàn})$.
+3. **Sát nền hỗ trợ S1:** $\text{dist\_s1} \le \min(0.65 \times \text{ATR14}\%, 0.35 \times \text{Limit\_Sàn})$ (không rủi ro đu đỉnh).
+4. **Dòng tiền xác nhận:** $Vol\_RunRate \ge 1.0\times$ TB20, $Buy\_Ratio \ge 55.0\%$, nến không bị rút râu trên ($Upper\_Wick \le 0.35$).
+5. **Dư địa sóng & Net R:R:** $\text{Upside to } R1 \ge \max(4.0\%, 1.1 \times \text{ATR14}\%)$, $\text{Net R:R} \ge 1.4$.
 
 #### Tầng 2: Siêu Cổ Phiếu Dẫn Dắt Toàn Thị Trường (Market Leader) - Bắt trọn sóng chu kỳ:
 1. **Áp dụng toàn thị trường:** Bất kể ngành nào (Bán lẻ, Công nghệ, Dầu khí, Hóa chất, Cảng biển, Điện, Thủy sản...).
 2. **Sức mạnh giá siêu việt:** $\text{RS Rating} \ge 78/99$ (thuộc Top 22% cổ phiếu khỏe nhất toàn sàn chứng khoán, Alpha vượt trội VN-Index).
-3. **Bứt phá mạnh mẽ:** $+1.5\% \le \text{changePct} \le +4.5\%$, nến giữ vững trên EMA9 và $\text{dist\_s1} \le 3.8\%$.
+3. **Bứt phá mạnh mẽ:** $\max(0.5\%, 0.20 \times \text{ATR14}\%) \le \text{changePct} \le \min(0.90 \times \text{ATR14}\%, 0.45 \times \text{Limit\_Sàn})$, nến giữ vững trên EMA9 và $\text{dist\_s1} \le \min(0.70 \times \text{ATR14}\%, 0.35 \times \text{Limit\_Sàn})$.
 4. **Dòng tiền tổ chức/Cá mập bùng nổ:** $Vol\_RunRate \ge 1.35\times$ TB20, $Buy\_Ratio \ge 58.0\%$, $Upper\_Wick \le 0.35$.
-5. **Dư địa sóng & Net R:R:** $\text{Upside to } R1 \ge 3.5\%$, $\text{Net R:R} \ge 1.4$.
+5. **Dư địa sóng & Net R:R:** $\text{Upside to } R1 \ge \max(4.0\%, 1.1 \times \text{ATR14}\%)$, $\text{Net R:R} \ge 1.4$.
 
-### 8.3. Chốt Chặn Chống Whipsaw (Khóa 1 Lần / Ngày)
-- Khóa định danh: `ACTIONABLE_GREEN_{today}_{symbol}` với thời gian cooldown 24h (`86,400s`).
+### 8.3. Chốt Chặn Chống Whipsaw (Anti-Spam & Khóa 1 Lần / Ngày)
+- Khóa định danh: `ACTIONABLE_GREEN_{today}_{symbol}` và `EVENT_BREAKOUT_{today}_{symbol}` với thời gian cooldown 24h (`86,400s`).
 - Mỗi mã chỉ rung chuông đúng **1 lần duy nhất trong ngày**. Dù sau đó thị giá có giằng co lên xuống quanh tham chiếu, hệ thống tuyệt đối không spam lặp lại.
+- Mỗi nhịp quét khống chế tối đa **1–2 mã đạt điểm số dòng tiền cao nhất**.
 
-### 8.4. 5 Mốc Giờ Vàng Cảnh Báo Cố Định
-- **Mốc 0 (09:25 - 09:40):** Radar sóng sớm sau ATO (1-2 mã chớm bùng nổ chân sóng).
+### 8.4. Lịch Trình Phát Cảnh Báo Chuẩn Trong Ngày
+- **Mốc 0 (09:20 - 10:30):** Radar sóng sớm chân nền (bắt ngay các mã mới nhú từ nền hỗ trợ S1 khi dòng tiền nhập cuộc sớm).
+- **Trong phiên (09:05 - 11:30 & 13:00 - 14:35):** Đèn Xanh Tứ Trụ & Siêu Cổ Phiếu Dẫn Dắt Bứt Phá T0.
 - **Mốc 1 (10:15 - 10:45):** Sóng sớm bùng nổ T0.
-- **Mốc 2 (11:35 - 12:00):** Bản tin trưa tổng kết phiên sáng (Điểm số VN-Index, % chính xác và Top 4 cơ hội).
+- **Mốc 2 (11:35 - 12:00):** Bản tin trưa tổng kết kết phiên sáng (Điểm số VN-Index, % chính xác và Top cơ hội nổi bật).
 - **Mốc 3 (14:05 - 14:25):** Điểm mua chuẩn Giờ Vàng sau khi thị trường hấp thụ lượng hàng T+2.5.
-- **Mốc 4 (14:50 - 15:15):** Tổng kết đóng cửa ATC & Xác nhận tín hiệu nến Daily cho ngày mai.
+- **Mốc 4 (14:50 - 15:15):** Tổng kết đóng cửa ATC & Xu hướng thị trường.
+- **Mốc 5 (15:02):** Xác nhận tín hiệu nến SuperTrend Daily chốt phiên EOD cho toàn bộ danh mục đang nắm giữ (quản lý bởi Portfolio Scheduler).
 
 ---
 

@@ -264,8 +264,10 @@ def send_daily_ribbon_digest():
 
     base_url = get_public_url()
     access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
-    auth_param = f"?auth={access_pin}" if access_pin else ""
-    home_link = f"{base_url}/{auth_param}".rstrip('/')
+    auth_query = f"?auth={access_pin}" if access_pin else ""
+    auth_suffix = f"&auth={access_pin}" if access_pin else ""
+    home_link = f"{base_url}/{auth_query}".rstrip('/')
+    portfolio_link = f"{base_url}/?mode=portfolio{auth_suffix}"
 
     today_str = get_vn_now().strftime('%d/%m/%Y')
     msg = (
@@ -278,7 +280,7 @@ def send_daily_ribbon_digest():
     )
 
     buttons = [
-        {'text': '💼 Mở Sổ Lệnh Danh Mục', 'url': f"{home_link}?mode=portfolio"},
+        {'text': '💼 Mở Sổ Lệnh Danh Mục', 'url': portfolio_link},
         {'text': '🌐 Mở Stock RT Live Web', 'url': home_link}
     ]
 

@@ -8,7 +8,15 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup
-from vnstock import Company, status
+try:
+  from vnstock import Company, status
+except ImportError:
+  try:
+    from vnstock.account import status
+    from vnstock.compat import Company
+  except ImportError:
+    Company = None
+    def status(): return {}
 
 from backend.constants.colors import (
     BADGE_COLOR_COMPANY,
@@ -112,6 +120,8 @@ def fetch_live_multi_sources(ticker, market_item=None, fundamental_info=None, cu
       # vnstock 5.x yêu cầu tài khoản bản quyền/Pro cho Company.events()
       s = status()
       if not s.get('authenticated', False) and s.get('tier') == 'guest':
+        return None
+      if Company is None:
         return None
       events = vnstock_call(lambda: Company(symbol=ticker, source='VCI').events())
       if events is not None and not events.empty:

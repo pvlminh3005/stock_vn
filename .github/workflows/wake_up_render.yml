@@ -2,8 +2,8 @@ name: Wake up Render App
 
 on:
   schedule:
-    # 8h50 sáng giờ VN (UTC+7) = 1h50 UTC (Thứ 2 đến Thứ 6)
-    - cron: '50 1 * * 1-5'
+    # 8h50 & 12h50 VN (UTC+7) = 1h50 & 5h50 UTC (Thứ 2 đến Thứ 6)
+    - cron: '50 1,5 * * 1-5'
   workflow_dispatch:
 
 jobs:

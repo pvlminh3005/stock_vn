@@ -294,15 +294,28 @@ def format_breakout_alert(
     else:
       header_title = f"🟢 <b>CẢNH BÁO SÓNG SỚM CHÂN NỀN: {symbol}</b>{sector_tag}"
 
+  entry_zone = stock.get('entryZone') or stock.get('entry_zone')
+  if not entry_zone:
+    atr_val = float(stock.get('atr14') or stock.get('atr') or (price * 0.02))
+    safe_min = s1 if s1 > 0 else round(price * 0.985, -2)
+    safe_max = round(min(price * 1.005, s1 + 0.35 * atr_val if s1 > 0 else price), -2)
+    if safe_min > safe_max:
+      safe_min = round(safe_max * 0.985, -2)
+    entry_range = f"{safe_min:,.0f} - {safe_max:,.0f} đ"
+  else:
+    entry_range = entry_zone
+
   msg = (
       f"{header_title}\n"
       f"🏢 {name}\n\n"
       f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
+      f"🎯 <b>Vùng gom an toàn:</b> <b>{entry_range}</b> (Sát nền S1)\n"
       f"📊 <b>Khối lượng:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
       f"{target_block} | 🛡️ <b>Cắt lỗ SL:</b> {sl_display}\n"
       f"⚖️ <b>Net R:R:</b> {vsr_status}\n\n"
       f"💡 <b>Khuyến nghị:</b> <b>{action_badge}</b> <i>(Tỷ trọng: {alloc_display})</i>\n"
       f"📝 <b>Lý do:</b> {action_reason}\n"
+      f"⚠️ <b>Lưu ý vị thế:</b> <b>VỊ THẾ MUA MỚI</b> - Tuyệt đối không mua đuổi khi giá vượt quá vùng gom.\n"
   )
 
   buttons = [
@@ -369,8 +382,16 @@ def format_actionable_buy_alert(
     upside_pct = round(((r1 - price) / price * 100), 1) if price > 0 and r1 > price else 5.0
     target_section = f"🎯 <b>Mục tiêu R1:</b> <b>{r1:,.0f} đ</b> (+{upside_pct:.1f}%)\n"
 
-  entry_max = round(price * 1.005, -2)
-  entry_range = f"{price:,.0f} - {entry_max:,.0f} đ"
+  entry_zone = stock.get('entryZone') or stock.get('entry_zone')
+  if not entry_zone:
+    atr_val = float(stock.get('atr14') or stock.get('atr') or (price * 0.02))
+    safe_min = s1 if s1 > 0 else round(price * 0.985, -2)
+    safe_max = round(min(price * 1.005, s1 + 0.35 * atr_val if s1 > 0 else price), -2)
+    if safe_min > safe_max:
+      safe_min = round(safe_max * 0.985, -2)
+    entry_range = f"{safe_min:,.0f} - {safe_max:,.0f} đ"
+  else:
+    entry_range = entry_zone
 
   access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
   auth_param = f"&auth={access_pin}" if access_pin else ""
@@ -402,7 +423,8 @@ def format_actionable_buy_alert(
   msg = (
       f"{header}\n"
       f"🏢 {name}\n\n"
-      f"💰 <b>Vùng vào lệnh:</b> <b>{entry_range}</b> ({sign}{change_pct:.2f}%)\n"
+      f"💰 <b>Thị giá hiện tại:</b> <b>{price:,.0f} đ</b> ({sign}{change_pct:.2f}%)\n"
+      f"🎯 <b>Vùng gom an toàn:</b> <b>{entry_range}</b> (Sát nền S1)\n"
       f"{rs_line}"
       f"📊 <b>Dòng tiền:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
       f"{target_section}"
@@ -410,6 +432,7 @@ def format_actionable_buy_alert(
       f"⚖️ <b>Tỷ lệ Net R:R:</b> <b>1:{net_rr:.2f}</b> (Đạt chuẩn T+ an toàn)\n\n"
       f"💡 <b>Hành động:</b> <b>{action_text}</b> <i>(Tỷ trọng: 30-40% vị thế)</i>\n"
       f"📝 <b>Đặc điểm:</b> {note_text}\n"
+      f"⚠️ <b>Lưu ý vị thế:</b> <b>VỊ THẾ MUA MỚI</b> - Tuyệt đối không mua đuổi khi giá vượt quá vùng gom.\n"
   )
 
   buttons = [

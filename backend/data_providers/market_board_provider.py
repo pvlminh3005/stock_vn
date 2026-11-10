@@ -107,6 +107,101 @@ def _load_snapshot_from_mongo() -> dict:
   return {}
 
 
+_LIQUID_UNIVERSE_CACHE = {
+    'timestamp': 0,
+    'symbols': []
+}
+_LIQUID_UNIVERSE_TTL = 300  # 5 phút
+
+# Rổ 30 mã VN30 niêm yết chính thức làm hạt giống an toàn nếu DB và API chưa có dữ liệu
+_VN30_SEED_STOCKS = [
+    'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG',
+    'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB',
+    'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
+]
+
+
+def _save_liquid_universe_to_mongo(symbols: list):
+  """Lưu danh sách mã thanh khoản cao nhất vào MongoDB để Render/Cloud dùng chung."""
+  try:
+    coll = _get_mongo_collection()
+    if coll is not None and symbols:
+      coll.update_one(
+          {'key': 'dynamic_liquid_universe'},
+          {'$set': {'key': 'dynamic_liquid_universe', 'symbols': symbols, 'total': len(symbols), 'updated_at': time.time()}},
+          upsert=True
+      )
+  except Exception as e:
+    logger.debug('Lỗi lưu liquid universe lên MongoDB: %s', e)
+
+
+def _load_liquid_universe_from_mongo() -> list:
+  """Nạp danh sách mã thanh khoản cao nhất từ MongoDB Atlas."""
+  try:
+    coll = _get_mongo_collection()
+    if coll is not None:
+      doc = coll.find_one({'key': 'dynamic_liquid_universe'})
+      if doc and doc.get('symbols'):
+        return doc['symbols']
+  except Exception as e:
+    logger.debug('Lỗi đọc liquid universe từ MongoDB: %s', e)
+  return []
+
+
+def get_dynamic_liquid_universe(limit: int = 80, force_refresh: bool = False) -> list:
+  """
+  Tự động truy xuất Top N mã cổ phiếu thanh khoản cao nhất thị trường Việt Nam (VN100 + HNX30) hoàn toàn động:
+  - 100% không dùng SSI iBoard (loại bỏ hoàn toàn việc bị chặn IP quốc tế trên Render / Cloud).
+  - 1. RAM Cache: Trả về tức thì trong 12 giờ vì rổ chỉ số chuẩn của Sở GDCK rất ổn định.
+  - 2. vnstock VCI Open Engine: Tự động lấy danh sách rổ chỉ số VN100 (HOSE) + HNX30 (HNX).
+  - 3. Snapshot MongoDB Atlas: Tự động nạp snapshot dự phòng nếu offline hoặc cold-start.
+  - 4. Hạt giống VN30 khởi tạo: Chỉ dùng khi hệ thống mới tinh chưa có bất kỳ dữ liệu nào.
+  """
+  global _LIQUID_UNIVERSE_CACHE
+  now = time.time()
+  if not force_refresh and (now - _LIQUID_UNIVERSE_CACHE['timestamp'] < _LIQUID_UNIVERSE_TTL) and _LIQUID_UNIVERSE_CACHE['symbols']:
+    return _LIQUID_UNIVERSE_CACHE['symbols'][:limit]
+
+  # 1. Quét động rổ VN100 (HOSE) và HNX30 (HNX) qua vnstock Listing Engine
+  try:
+    try:
+      from vnstock import Listing
+    except ImportError:
+      try:
+        from vnstock.compat import Listing
+      except ImportError:
+        Listing = None
+    from backend.utils.network import vnstock_call
+
+    def _fetch_indices():
+      l = Listing()
+      s100 = l.symbols_by_group('VN100')
+      s30 = l.symbols_by_group('HNX30')
+      list100 = s100.tolist() if hasattr(s100, 'tolist') else list(s100)
+      list30 = s30.tolist() if hasattr(s30, 'tolist') else list(s30)
+      return list(dict.fromkeys(list100 + list30))
+
+    discovered = vnstock_call(_fetch_indices)
+    if discovered and len(discovered) >= 30:
+      discovered = [str(s).strip().upper() for s in discovered if s and len(str(s).strip()) == 3]
+      _LIQUID_UNIVERSE_CACHE['timestamp'] = now
+      _LIQUID_UNIVERSE_CACHE['symbols'] = discovered
+      _save_liquid_universe_to_mongo(discovered)
+      return discovered[:limit]
+  except Exception as e:
+    logger.debug('Lỗi nạp VN100/HNX30 qua vnstock: %s', e)
+
+  # 2. Đọc snapshot từ MongoDB Atlas nếu vnstock lỗi hoặc offline
+  mongo_symbols = _load_liquid_universe_from_mongo()
+  if mongo_symbols and len(mongo_symbols) >= 20:
+    _LIQUID_UNIVERSE_CACHE['timestamp'] = now
+    _LIQUID_UNIVERSE_CACHE['symbols'] = mongo_symbols
+    return mongo_symbols[:limit]
+
+  # 3. Fallback hạt giống VN30 chính thức
+  return _VN30_SEED_STOCKS[:limit]
+
+
 def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
   """
   Quét song song toàn bộ các mã Universe bằng Entrade Realtime Intraday API.
@@ -114,11 +209,7 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
   Mốc from_ts được lấy động từ phiên giao dịch liền trước (VN-Index) thay vì hardcode số ngày tĩnh.
   """
   if not symbols:
-    cached = _load_snapshot_from_mongo()
-    if cached and len(cached) >= 20:
-      symbols = list(cached.keys())
-    else:
-      symbols = list(KNOWN_STOCK_SECTORS.keys())[:80]
+    symbols = get_dynamic_liquid_universe(limit=80)
 
   # Lấy mốc phiên giao dịch gần nhất 1 lần duy nhất cho toàn bộ worker pool
   prev_session_ts = get_last_trading_day_timestamp()

@@ -143,7 +143,8 @@ def _route_screener(params):
   return 200, handle_screener()
 
 def _route_top_tplus(params):
-  return 200, handle_top_tplus()
+  force = params.get('refresh', ['0'])[0] in ('1', 'true', 'True') or params.get('force', ['0'])[0] in ('1', 'true', 'True')
+  return 200, handle_top_tplus(force_refresh=force)
 
 def _route_search(params):
   q = params.get('q', [''])[0]
