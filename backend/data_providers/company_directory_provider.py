@@ -294,6 +294,27 @@ def is_valid_ticker(ticker: str) -> bool:
     return any(c.get('ticker') == sym for c in companies)
 
 
+def get_company_by_ticker(ticker: str) -> Optional[Dict[str, Any]]:
+    """Lấy thông tin chi tiết một công ty từ danh bạ (gồm tên, ngành, sàn niêm yết)."""
+    sym = (ticker or '').strip().upper()
+    if not sym:
+        return None
+    if _DIRECTORY_CACHE['by_ticker'] and sym in _DIRECTORY_CACHE['by_ticker']:
+        return _DIRECTORY_CACHE['by_ticker'][sym]
+    companies = fetch_and_cache_company_directory()
+    return _DIRECTORY_CACHE.get('by_ticker', {}).get(sym)
+
+
+def get_stock_exchange(ticker: str, fallback: str = 'HOSE') -> str:
+    """Xác định chính xác sàn niêm yết (HOSE, HNX, UPCoM) của một mã cổ phiếu."""
+    comp = get_company_by_ticker(ticker)
+    if comp:
+        ex = comp.get('stockExchange') or comp.get('exchange')
+        if ex:
+            return str(ex).strip().upper()
+    return fallback.strip().upper()
+
+
 def search_companies(query: str, limit: int = 15) -> List[Dict[str, Any]]:
     """
     Tìm kiếm thông minh trên MongoDB Atlas (1,626 mã):

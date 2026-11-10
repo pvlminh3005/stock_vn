@@ -176,18 +176,35 @@ def format_breakout_alert(
   buy_ratio = float(buy_ratio_val or 50.0)
   net_rr = float(stock.get('net_rr', stock.get('netRR', 0.0)))
   s1 = float(stock.get('support', stock.get('s1', 0)))
-  r1 = float(stock.get('target1', stock.get('resistance', 0)))
+  r1 = float(stock.get('target1', stock.get('resistance', stock.get('r1', 0))))
+  r2 = float(stock.get('target2', stock.get('resistance2', stock.get('r2', 0))))
   stop_loss = float(stock.get('stop_loss', stock.get('stopLoss', 0)))
   sector = stock.get('sector', '')
 
-  # 2. Tính toán % kỳ vọng động cho Mục tiêu R1 và Cắt lỗ SL
-  if price > 0 and r1 > 0:
+  # Kiểm tra logic Pivot Breakout: giá áp sát cản R1 hoặc chớm bứt phá
+  is_pivot = bool(stock.get('isBreakoutPivot'))
+  if not is_pivot and price > 0 and r1 > 0:
+    if ((r1 - price) / r1 <= 0.025) or (price >= r1):
+      is_pivot = True
+
+  if is_pivot and r2 <= price:
+    r2 = round(r1 * 1.07, -2) if r1 > 0 else round(price * 1.08, -2)
+
+  # 2. Tính toán % kỳ vọng động cho Mục tiêu và Cắt lỗ SL
+  if is_pivot and r2 > price:
+    upside_r2 = round(((r2 - price) / price * 100), 1)
+    r1_status = "Đang test bứt phá" if price < r1 else "Đã bứt phá đỉnh"
+    target_block = (
+        f"⚡ <b>Mốc bứt phá R1:</b> <b>{r1:,.0f} đ</b> ({r1_status})\n"
+        f"🎯 <b>Mục tiêu mở sóng (R2):</b> <b>{r2:,.0f} đ</b> (+{upside_r2:.1f}%)"
+    )
+  elif price > 0 and r1 > 0:
     upside_pct = round(((r1 - price) / price * 100), 2)
-    r1_display = f"<b>{r1:,.0f} đ</b> (+{upside_pct:.1f}%)"
+    target_block = f"🎯 <b>Mục tiêu R1:</b> <b>{r1:,.0f} đ</b> (+{upside_pct:.1f}%)"
   elif r1 > 0:
-    r1_display = f"<b>{r1:,.0f} đ</b>"
+    target_block = f"🎯 <b>Mục tiêu R1:</b> <b>{r1:,.0f} đ</b>"
   else:
-    r1_display = "<i>Dữ liệu chưa ghi nhận</i>"
+    target_block = "🎯 <b>Mục tiêu R1:</b> <i>Dữ liệu chưa ghi nhận</i>"
 
   if price > 0 and stop_loss > 0:
     downside_pct = round(((stop_loss - price) / price * 100), 2)
@@ -220,8 +237,10 @@ def format_breakout_alert(
   # Fallback phân loại dứt khoát nếu chưa có badge từ Engine
   if not action_badge:
     primary_act = stock.get('primary_action') or stock.get('actionStatus', '')
-    if primary_act in ['BUY_READY', 'BUY', 'BUY_PROBE']:
-      action_badge = '🟢 MUA THĂM DÒ'
+    if is_pivot:
+      action_badge = '🚀 BỨT PHÁ VƯỢT ĐỈNH (PIVOT R1)'
+    elif primary_act in ['BUY_READY', 'BUY', 'BUY_PROBE']:
+      action_badge = '🟢 SÓNG SỚM CHÂN NỀN'
     elif primary_act in ['OVER_EXTENDED', 'WAIT', 'WAITING_CONFIRMATION']:
       action_badge = '🟡 ĐỨNG NGOÀI / CHỜ RETEST'
     elif primary_act in ['REDUCE', 'SELL', 'RISK_HIGH']:
@@ -237,14 +256,18 @@ def format_breakout_alert(
     alloc_display = "0% NAV (Chưa giải ngân)"
   elif alloc_pct is not None and float(alloc_pct) > 0:
     alloc_display = f"{float(alloc_pct):.0f}% NAV"
-  elif 'MUA' in badge_str:
+  elif 'BỨT PHÁ' in badge_str or 'PIVOT' in badge_str:
+    alloc_display = "20-30% NAV (Gia tăng theo sóng)"
+  elif 'MUA' in badge_str or 'SÓNG SỚM' in badge_str:
     alloc_display = "15-20% NAV"
   else:
     alloc_display = "0% NAV (Theo dõi)"
 
   if not action_reason:
-    if 'MUA' in badge_str or 'THĂM DÒ' in badge_str:
-      action_reason = f"Dòng tiền nhập cuộc tích cực (Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.0f}%). Mở vị thế thăm dò 20-30% để lấy lợi thế T+0."
+    if is_pivot and r2 > price:
+      action_reason = f"Dòng tiền lớn hấp thụ mạnh sát cản R1 ({r1:,.0f} đ, Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.0f}%). Vượt cản Pivot xác nhận mở rộng sóng tăng hướng tới R2 ({r2:,.0f} đ)."
+    elif 'MUA' in badge_str or 'THĂM DÒ' in badge_str or 'SÓNG SỚM' in badge_str:
+      action_reason = f"Dòng tiền nhập cuộc tích cực chân sóng (Vol x{vol_run_rate:.1f} TB20, Mua CĐ {buy_ratio:.0f}%). Mở vị thế thăm dò 20-30% để lấy lợi thế T+0."
     elif s1 > 0 and price > 0:
       dist_s1 = round(((price - s1) / s1 * 100), 1)
       if dist_s1 <= 2.5:
@@ -264,17 +287,19 @@ def format_breakout_alert(
   sector_tag = f" <i>(Sóng {sector})</i>" if sector else ""
 
   if not header_title:
-    if stock.get('isEarlyBird'):
+    if is_pivot:
+      header_title = f"🚀 <b>CẢNH BÁO BỨT PHÁ VƯỢT ĐỈNH (PIVOT R1): {symbol}</b>{sector_tag}"
+    elif stock.get('isEarlyBird'):
       header_title = f"🚀 <b>RADAR SÓNG SỚM SAU ATO: {symbol}</b>{sector_tag}"
     else:
-      header_title = f"⚡ <b>CẢNH BÁO BÙNG NỔ T0: {symbol}</b>{sector_tag}"
+      header_title = f"🟢 <b>CẢNH BÁO SÓNG SỚM CHÂN NỀN: {symbol}</b>{sector_tag}"
 
   msg = (
       f"{header_title}\n"
       f"🏢 {name}\n\n"
       f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
       f"📊 <b>Khối lượng:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
-      f"🎯 <b>Mục tiêu R1:</b> {r1_display} | 🛡️ <b>Cắt lỗ SL:</b> {sl_display}\n"
+      f"{target_block} | 🛡️ <b>Cắt lỗ SL:</b> {sl_display}\n"
       f"⚖️ <b>Net R:R:</b> {vsr_status}\n\n"
       f"💡 <b>Khuyến nghị:</b> <b>{action_badge}</b> <i>(Tỷ trọng: {alloc_display})</i>\n"
       f"📝 <b>Lý do:</b> {action_reason}\n"
@@ -296,7 +321,7 @@ def format_actionable_buy_alert(
   Định dạng tối ưu hóa để nhà đầu tư ra quyết định tức thì trong 30 giây:
   - Giá vào lệnh cụ thể (ngay tại thị giá)
   - Khối lượng nổ & Mua chủ động
-  - Target R1, Cắt lỗ S1, Net R:R
+  - Target R1 / Pivot R2, Cắt lỗ S1, Net R:R
   - Khuyến nghị tỷ trọng dứt khoát
   """
   base_url = get_public_url(public_url)
@@ -318,12 +343,31 @@ def format_actionable_buy_alert(
   buy_ratio = float(stock.get('buyRatio', stock.get('buy_ratio', 55.0)) or 55.0)
   net_rr = float(stock.get('net_rr', stock.get('netRR', 1.5)) or 1.5)
   s1 = float(stock.get('support', stock.get('s1', 0)))
-  r1 = float(stock.get('target1', stock.get('resistance', 0)))
+  r1 = float(stock.get('target1', stock.get('resistance', stock.get('r1', 0))))
+  r2 = float(stock.get('target2', stock.get('resistance2', stock.get('r2', 0))))
   stop_loss = float(stock.get('stop_loss', stock.get('stopLoss', s1)))
 
+  # Kiểm tra trạng thái Pivot Breakout
+  is_pivot = bool(stock.get('isBreakoutPivot'))
+  if not is_pivot and price > 0 and r1 > 0:
+    if ((r1 - price) / r1 <= 0.025) or (price >= r1):
+      is_pivot = True
+
+  if is_pivot and r2 <= price:
+    r2 = round(r1 * 1.07, -2) if r1 > 0 else round(price * 1.08, -2)
+
   sign = '+' if change_pct >= 0 else ''
-  upside_pct = round(((r1 - price) / price * 100), 1) if price > 0 and r1 > price else 5.0
   downside_pct = round(((stop_loss - price) / price * 100), 1) if price > 0 and stop_loss > 0 else -3.0
+
+  if is_pivot and r2 > price:
+    upside_r2 = round(((r2 - price) / price * 100), 1)
+    target_section = (
+        f"⚡ <b>Mốc bứt phá R1:</b> <b>{r1:,.0f} đ</b> (Đang thử thách bứt phá)\n"
+        f"🎯 <b>Mục tiêu mở sóng (R2):</b> <b>{r2:,.0f} đ</b> (+{upside_r2:.1f}%)\n"
+    )
+  else:
+    upside_pct = round(((r1 - price) / price * 100), 1) if price > 0 and r1 > price else 5.0
+    target_section = f"🎯 <b>Mục tiêu R1:</b> <b>{r1:,.0f} đ</b> (+{upside_pct:.1f}%)\n"
 
   entry_max = round(price * 1.005, -2)
   entry_range = f"{price:,.0f} - {entry_max:,.0f} đ"
@@ -337,13 +381,23 @@ def format_actionable_buy_alert(
   rs_line = f"🏆 <b>Sức mạnh giá:</b> RS Rating <b>{rs_score}/99</b> (Vượt trội thị trường)\n" if rs_score else ""
 
   if is_leader:
-    header = f"⭐ <b>ĐÈN XANH: SIÊU CỔ PHIẾU DẪN DẮT: {symbol}</b> <i>(Sóng {sector})</i>"
-    action_text = "⭐ MUA NGAY (MARKET LEADER)"
-    note_text = "Siêu cổ phiếu bứt phá đỉnh dẫn dắt toàn thị trường, dòng tiền lớn áp đảo."
+    if is_pivot:
+      header = f"⭐ <b>ĐÈN XANH: SIÊU CỔ PHIẾU BỨT PHÁ ĐỈNH: {symbol}</b> <i>(Sóng {sector})</i>"
+      action_text = "⭐ MUA BỨT PHÁ (MARKET LEADER)"
+      note_text = f"Siêu cổ phiếu bứt phá đỉnh R1 ({r1:,.0f} đ) dẫn dắt toàn thị trường, mở sóng lớn tới {r2:,.0f} đ."
+    else:
+      header = f"⭐ <b>ĐÈN XANH: SIÊU CỔ PHIẾU DẪN DẮT: {symbol}</b> <i>(Sóng {sector})</i>"
+      action_text = "⭐ MUA NGAY (MARKET LEADER)"
+      note_text = "Siêu cổ phiếu chân sóng bứt phá dẫn dắt toàn thị trường, dòng tiền lớn áp đảo."
   else:
-    header = f"🟢 <b>ĐÈN XANH: MUA NGAY T0: {symbol}</b> <i>(Nhóm {sector})</i>"
-    action_text = "🟢 MUA NGAY T0"
-    note_text = "Dòng tiền Tứ trụ vào mạnh chân sóng, sát nền hỗ trợ, không rủi ro đu đỉnh."
+    if is_pivot:
+      header = f"🚀 <b>ĐÈN XANH: BỨT PHÁ VƯỢT ĐỈNH (PIVOT R1): {symbol}</b> <i>(Nhóm {sector})</i>"
+      action_text = "🚀 MUA BỨT PHÁ PIVOT T0"
+      note_text = f"Dòng tiền lớn đánh vượt cản R1 ({r1:,.0f} đ), xác nhận mở rộng nhịp tăng hướng tới {r2:,.0f} đ."
+    else:
+      header = f"🟢 <b>ĐÈN XANH: MUA NGAY T0: {symbol}</b> <i>(Nhóm {sector})</i>"
+      action_text = "🟢 MUA NGAY T0"
+      note_text = "Dòng tiền Tứ trụ vào mạnh chân sóng, sát nền hỗ trợ, không rủi ro đu đỉnh."
 
   msg = (
       f"{header}\n"
@@ -351,7 +405,7 @@ def format_actionable_buy_alert(
       f"💰 <b>Vùng vào lệnh:</b> <b>{entry_range}</b> ({sign}{change_pct:.2f}%)\n"
       f"{rs_line}"
       f"📊 <b>Dòng tiền:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
-      f"🎯 <b>Mục tiêu R1:</b> <b>{r1:,.0f} đ</b> (+{upside_pct:.1f}%)\n"
+      f"{target_section}"
       f"🛡️ <b>Cắt lỗ kỷ luật (S1):</b> <b>{stop_loss:,.0f} đ</b> ({downside_pct:.1f}%)\n"
       f"⚖️ <b>Tỷ lệ Net R:R:</b> <b>1:{net_rr:.2f}</b> (Đạt chuẩn T+ an toàn)\n\n"
       f"💡 <b>Hành động:</b> <b>{action_text}</b> <i>(Tỷ trọng: 30-40% vị thế)</i>\n"

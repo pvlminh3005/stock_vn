@@ -6,7 +6,7 @@ import { renderFutureOutlook, renderNewsReferences } from './modules/riskEngine.
 import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.8';
 import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.8';
 import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.8';
-import { initUserPortfolioModule } from './modules/portfolio.js?v=5.9';
+import { initUserPortfolioModule } from './modules/portfolio.js?v=6.0';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';

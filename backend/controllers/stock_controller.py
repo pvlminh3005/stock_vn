@@ -12,6 +12,7 @@ from backend.utils.ohlc_helpers import format_candles, merge_live_candle_to_char
 from backend.utils.time_utils import vn_date, VN_UTC_OFFSET_SEC
 from backend.data_providers.market_board_provider import get_market_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data, fetch_intraday_snapshot
+from backend.data_providers.stock_quote_provider import resolve_stock_realtime_quote
 from backend.data_providers.news_provider import fetch_live_multi_sources
 from backend.domain.valuation import get_fundamental_profile
 from backend.domain.technicals import analyze_technicals_and_scoring
@@ -24,111 +25,29 @@ def handle_stock_detail(ticker, resolution='1D'):
   """Tổng hợp toàn bộ thông tin mã cổ phiếu (bảng giá, nến, cơ bản, kỹ thuật, tin tức, rủi ro)."""
   ticker = ticker.strip().upper()
   market_board = get_market_board_data()
-  board_item = market_board.get(ticker, {})
 
-  # Nếu bảng giá ngoài phiên rỗng -> Tự động Fallback sang Entrade Intraday Live 1-min
-  if not board_item or board_item.get('matchedPrice', 0) <= 0:
-    entrade_snap = fetch_intraday_snapshot(ticker)
-    if entrade_snap and entrade_snap.get('matchedPrice', 0) > 0:
-      board_item = entrade_snap
+  quote = resolve_stock_realtime_quote(ticker, board_data=market_board, days=DAILY_HISTORY_DAYS)
 
-  # Toàn bộ phân tích (RSI, MA, ATR, hỗ trợ/kháng cự, kế hoạch T+) luôn chạy trên nến NGÀY;
-  # resolution chỉ quyết định dữ liệu nến vẽ biểu đồ.
-  chart_data = fetch_chart_data(ticker, days=DAILY_HISTORY_DAYS, resolution='1D', market_item=board_item)
-  # Ghép cây nến realtime tại thời điểm search từ Entrade vào chuỗi nến ngày
-  chart_data = merge_live_candle_to_chart_data(chart_data, board_item, resolution='1D')
+  current_price = quote['current_price']
+  ref_price = quote['ref_price']
+  price_change = quote['price_change']
+  pct_change = quote['pct_change']
+  open_price = quote['open_price']
+  company_name = quote['company_name']
+  exchange = quote['exchange']
+  ceiling = quote['ceiling']
+  floor = quote['floor']
+  highest_price = quote['highest_price']
+  lowest_price = quote['lowest_price']
+  total_vol = quote['total_vol']
+  foreign_net = quote['foreign_net']
+  board_item = quote['board_item']
+  chart_data = quote['chart_data']
 
   t_list = chart_data.get('t', [])
-  h_list = chart_data.get('h', [])
-  l_list = chart_data.get('l', [])
   c_list = chart_data.get('c', [])
-  v_list = chart_data.get('v', [])
-
   if not c_list:
     raise ValueError(f'Không tìm thấy dữ liệu cho mã {ticker}')
-
-  scale = 1000 if c_list[-1] < 1000 else 1
-  now_vn = time.gmtime(time.time() + VN_UTC_OFFSET_SEC)
-  today_str = time.strftime('%Y-%m-%d', now_vn)
-  last_candle_date = vn_date(t_list[-1]) if t_list else None
-
-  # Xác định giá tham chiếu và nến đóng cửa trước đó:
-  # Nếu nến cuối cùng trong t_list trùng ngày hôm nay (sau khi merge nến live hoặc Entrade đã chốt phiên):
-  # thì Tham chiếu là nến c_list[-2]. Nếu chưa có nến hôm nay: Tham chiếu là c_list[-1].
-  if last_candle_date == today_str and len(c_list) > 1:
-    ref_from_chart = c_list[-2] * scale
-    latest_c = c_list[-1] * scale
-  else:
-    ref_from_chart = c_list[-1] * scale
-    latest_c = ref_from_chart
-
-  # Xác định tham chiếu chuẩn:
-  # Ưu tiên refPrice của board_item nếu hợp lệ (> 0) và khác matchedPrice;
-  # nếu board_item có refPrice == matchedPrice hoặc <= 0, lấy từ nến ngày ref_from_chart
-  board_ref = float(board_item.get('refPrice') or 0)
-  board_matched = float(board_item.get('matchedPrice') or 0)
-  if board_ref > 0 and (board_matched <= 0 or abs(board_ref - board_matched) > 1e-4):
-    ref_price = board_ref
-  else:
-    ref_price = ref_from_chart if ref_from_chart > 0 else (board_matched if board_matched > 0 else latest_c)
-
-  # Dữ liệu realtime từ Entrade Market Board nếu có phiên đang mở
-  if board_item and board_matched > 0:
-    current_price = board_matched
-    price_change = round(current_price - ref_price, 2)
-    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
-    open_price = float(board_item.get('openPrice') or current_price)
-    company_name = board_item.get(
-        'companyNameVi', board_item.get('clientName', f'Cổ phiếu {ticker}')
-    )
-    exchange = board_item.get('exchange', 'HOSE').upper()
-    band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
-    ceiling = board_item.get('ceiling') or round(ref_price * (1 + band))
-    floor = board_item.get('floor') or round(ref_price * (1 - band))
-    highest_price = board_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
-    lowest_price = board_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
-    total_vol = board_item.get('stockVol', v_list[-1] if v_list else 0)
-    foreign_net = board_item.get('buyForeignQtty', 0) - board_item.get(
-        'sellForeignQtty', 0
-    )
-  elif board_item and board_ref > 0:
-    ref_price = board_ref
-    current_price = board_matched if board_matched > 0 else ref_price
-    price_change = round(current_price - ref_price, 2)
-    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
-    open_price = float(board_item.get('openPrice') or current_price)
-    company_name = board_item.get(
-        'companyNameVi', board_item.get('clientName', f'Cổ phiếu {ticker}')
-    )
-    exchange = board_item.get('exchange', 'HOSE').upper()
-    band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
-    ceiling = board_item.get('ceiling') or round(ref_price * (1 + band))
-    floor = board_item.get('floor') or round(ref_price * (1 - band))
-    highest_price = board_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
-    lowest_price = board_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
-    total_vol = board_item.get('stockVol', v_list[-1] if v_list else 0)
-    foreign_net = board_item.get('buyForeignQtty', 0) - board_item.get(
-        'sellForeignQtty', 0
-    )
-  else:
-    current_price = latest_c
-    price_change = round(latest_c - ref_price, 2)
-    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
-    open_price = current_price
-    company_name = f'Cổ phiếu {ticker}'
-    exchange = 'HOSE'
-    band = 0.07
-    ceiling = round(ref_price * (1 + band))
-    floor = round(ref_price * (1 - band))
-    highest_price = (h_list[-1] * scale) if h_list else current_price
-    lowest_price = (l_list[-1] * scale) if l_list else current_price
-    total_vol = v_list[-1] if v_list else 0
-    foreign_net = 0
-
-  if not highest_price or highest_price <= 0:
-    highest_price = current_price
-  if not lowest_price or lowest_price <= 0:
-    lowest_price = current_price
 
   # Định dạng nến cho Lightweight Charts (TradingView)
   if resolution == '1D':

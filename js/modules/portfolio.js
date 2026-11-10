@@ -47,6 +47,7 @@ let _activeView = 'HOLDINGS'; // 'HOLDINGS' (Gom nhóm) | 'TRADES' (Nhật ký t
 let _currentFilter = 'ALL';
 let _searchTerm = '';
 let _initialized = false;
+let _callbacks = {};
 
 // Hàm định dạng tiền VND kèm hậu tố đ chuẩn giao diện danh mục (500,000,000 đ)
 function formatPortfolioVND(val) {
@@ -134,6 +135,7 @@ function fillTradeForm(trade) {
  * Khởi tạo toàn bộ module Portfolio Tracker (Event Delegation)
  */
 export function initUserPortfolioModule(callbacks = {}) {
+  _callbacks = callbacks;
   if (_initialized) return;
   _initialized = true;
 
@@ -227,7 +229,7 @@ export function initUserPortfolioModule(callbacks = {}) {
       });
       filterBtn.className = activeClass;
       _currentFilter = filterBtn.getAttribute('data-filter') || 'ALL';
-      renderPortfolioTable(callbacks);
+      renderActivePortfolioView(callbacks);
       return;
     }
 
@@ -376,7 +378,7 @@ export function initUserPortfolioModule(callbacks = {}) {
   document.addEventListener('input', (e) => {
     if (e.target && e.target.id === 'portfolioSearchInput') {
       _searchTerm = e.target.value.trim().toUpperCase();
-      renderPortfolioTable(callbacks);
+      renderActivePortfolioView(callbacks);
     } else if (e.target && e.target.id === 'userPortfolioNavInput') {
       formatLiveVolumeInput(e.target);
     } else if (e.target && e.target.id === 'tradeVolumeInput') {
@@ -444,19 +446,59 @@ function switchPortfolioView(view) {
     if (tradesContainer) tradesContainer.classList.remove('hidden');
     if (holdingsContainer) holdingsContainer.classList.add('hidden');
   }
+
+  updateFilterCounters();
+  renderActivePortfolioView(_callbacks);
+}
+
+/**
+ * Cập nhật số đếm trên các nút bộ lọc Tất cả / Đang giữ / Đã đóng / Đang lãi / Đang lỗ
+ */
+function updateFilterCounters() {
+  const countAll = document.getElementById('filterCountAll');
+  const countBuy = document.getElementById('filterCountBuy');
+  const countSell = document.getElementById('filterCountSell');
+  const countProfit = document.getElementById('filterCountProfit');
+  const countLoss = document.getElementById('filterCountLoss');
+
+  if (_activeView === 'HOLDINGS') {
+    const holdings = _portfolioData.holdings || [];
+    if (countAll) countAll.textContent = holdings.length;
+    if (countBuy) countBuy.textContent = holdings.filter(h => h.holding_volume > 0).length;
+    if (countSell) countSell.textContent = holdings.filter(h => h.holding_volume === 0).length;
+    if (countProfit) countProfit.textContent = holdings.filter(h => h.total_pnl > 0).length;
+    if (countLoss) countLoss.textContent = holdings.filter(h => h.total_pnl < 0).length;
+  } else {
+    const trades = _portfolioData.trades || [];
+    if (countAll) countAll.textContent = trades.length;
+    if (countBuy) countBuy.textContent = trades.filter(t => t.order_type === 'BUY').length;
+    if (countSell) countSell.textContent = trades.filter(t => t.order_type === 'SELL').length;
+    if (countProfit) countProfit.textContent = trades.filter(t => t.order_type === 'BUY' && t.pnl_val > 0).length;
+    if (countLoss) countLoss.textContent = trades.filter(t => t.order_type === 'BUY' && t.pnl_val < 0).length;
+  }
+}
+
+/**
+ * Render cả 2 bảng (Holdings & Trades) đồng bộ theo bộ lọc hiện tại
+ */
+function renderActivePortfolioView(callbacks = _callbacks) {
+  renderHoldingsTable(callbacks);
+  renderPortfolioTable(callbacks);
 }
 
 /**
  * Tải dữ liệu danh mục từ backend
  */
 export async function loadPortfolioData(callbacks = {}) {
+  if (callbacks && Object.keys(callbacks).length > 0) {
+    _callbacks = { ..._callbacks, ...callbacks };
+  }
   try {
     const data = await getUserPortfolio();
     if (data && data.success) {
       _portfolioData = data;
       updateSummaryCards(data.summary);
-      renderHoldingsTable(callbacks);
-      renderPortfolioTable(callbacks);
+      renderActivePortfolioView(_callbacks);
     }
   } catch (err) {
     console.warn('Lỗi nạp dữ liệu sổ lệnh:', err);
@@ -539,17 +581,7 @@ function updateSummaryCards(summary) {
   if (holdingsTabBadge) holdingsTabBadge.textContent = summary.holdings_count || holdings.filter(h => h.holding_volume > 0).length;
   if (tradesTabBadge) tradesTabBadge.textContent = trades.length;
 
-  const countAll = document.getElementById('filterCountAll');
-  const countBuy = document.getElementById('filterCountBuy');
-  const countSell = document.getElementById('filterCountSell');
-  const countProfit = document.getElementById('filterCountProfit');
-  const countLoss = document.getElementById('filterCountLoss');
-
-  if (countAll) countAll.textContent = holdings.length;
-  if (countBuy) countBuy.textContent = holdings.filter(h => h.holding_volume > 0).length;
-  if (countSell) countSell.textContent = holdings.filter(h => h.holding_volume === 0).length;
-  if (countProfit) countProfit.textContent = holdings.filter(h => h.total_pnl > 0).length;
-  if (countLoss) countLoss.textContent = holdings.filter(h => h.total_pnl < 0).length;
+  updateFilterCounters();
 }
 
 /**
