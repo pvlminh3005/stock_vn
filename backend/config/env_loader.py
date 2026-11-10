@@ -104,7 +104,19 @@ def load_environment(force_reload: bool = False) -> str:
         loaded_keys = _parse_env_file(full_path, overwrite=True)
         _LOADED_FILE = target_rel_path
     else:
-        logger.warning("⚠️ Không tìm thấy file cấu hình môi trường: %s", target_rel_path)
+        # Nhận diện môi trường Cloud (Render, Docker, K8s) hoặc khi biến hệ thống đã được cấp qua Dashboard
+        is_cloud = bool(
+            os.environ.get('RENDER')
+            or os.environ.get('RENDER_EXTERNAL_URL')
+            or os.environ.get('MONGODB_URI')
+        )
+        if is_cloud:
+            logger.info(
+                "ℹ️ Đang chạy môi trường Cloud/Render: Sử dụng biến môi trường hệ thống (Environment Variables) thay cho file cục bộ %s.",
+                target_rel_path
+            )
+        else:
+            logger.warning("⚠️ Không tìm thấy file cấu hình môi trường: %s", target_rel_path)
         _LOADED_FILE = None
 
     # 2. Tự động xác định MONGODB_DB_NAME (mặc định thống nhất: stock_pro_db)
