@@ -195,6 +195,11 @@ def fetch_intraday_snapshot(ticker, from_ts=None, daily_prev_close=None):
     total_bs = buy_vol + sell_vol
     buy_ratio = round((buy_vol / total_bs * 100), 1) if total_bs > 0 else 50.0
 
+    from backend.data_providers.company_directory_provider import get_company_by_ticker
+    comp = get_company_by_ticker(sym)
+    company_name = (comp.get('nameVi') if comp else None) or f'CTCP {sym}'
+    exchange = (comp.get('stockExchange') or comp.get('exchange') if comp else None) or 'HOSE'
+
     return {
         'stockSymbol': sym,
         'matchedPrice': matched_price,
@@ -209,8 +214,8 @@ def fetch_intraday_snapshot(ticker, from_ts=None, daily_prev_close=None):
         'buyRatio': buy_ratio,
         'priceChange': price_change,
         'priceChangePercent': pct_change,
-        'companyNameVi': f'CTCP {sym}',
-        'exchange': 'HOSE',
+        'companyNameVi': company_name,
+        'exchange': exchange.upper(),
         'stockType': 's',
         'isEntradeRealtime': True,
         'sessionStart': session_start,

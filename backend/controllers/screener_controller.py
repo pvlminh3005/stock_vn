@@ -78,19 +78,20 @@ def _evaluate_telegram_alerts(screener_data):
   opps = screener_data.get('topOpportunities', [])
   regime = screener_data.get('marketRegime', 'TÍCH CỰC')
 
-  # ==================== ĐÈN XANH HÀNH ĐỘNG NGAY: TỨ TRỤ BANK - CHỨNG - THÉP - BĐS ====================
-  # Quét liên tục trong suốt phiên giao dịch (09:20 - 11:30 và 13:00 - 14:30)
+  # ==================== 1. ĐÈN XANH HÀNH ĐỘNG NGAY: TỨ TRỤ BANK - CHỨNG - THÉP - BĐS ====================
+  # Quét liên tục trong suốt phiên giao dịch (09:05 - 11:30 và 13:00 - 14:35)
   # Chốt chặn Anti-Whipsaw: Mỗi mã chỉ rung chuông duy nhất 1 lần trong ngày (cooldown 86,400s)
-  if (560 <= mins <= 690) or (780 <= mins <= 870):
+  is_trading_session = (545 <= mins <= 690) or (780 <= mins <= 875)
+  if is_trading_session:
     actionable_candidates = [
         s for s in opps
         if s.get('isActionableGreenBuy') or (
             s.get('isCoreSector') and
-            1.0 <= float(s.get('changePct', 0)) <= 3.2 and
-            float(s.get('distToS1', 99)) <= 2.5 and
+            1.0 <= float(s.get('changePct', 0)) <= 3.8 and
+            float(s.get('distToS1', 99)) <= 3.2 and
             float(s.get('volRunRate', 0)) >= 1.0 and
             float(s.get('buyRatio', 0)) >= 55.0 and
-            float(s.get('tp1Pct', 0)) >= 3.0 and
+            float(s.get('mainUpsidePct', s.get('tp1Pct', 0))) >= 3.0 and
             float(s.get('netRR', 0)) >= 1.4
         )
     ]
@@ -100,7 +101,14 @@ def _evaluate_telegram_alerts(screener_data):
       if sym not in _ALERT_TRACKER['sent_symbols'] and not is_alert_already_sent(action_key, min_interval_seconds=86400):
         msg, btns = format_actionable_buy_alert(stock)
         is_leader = stock.get('isMarketLeader') or 'LEADER' in str(stock.get('actionStatus', ''))
-        alert_title = f'Siêu Cổ Phiếu Dẫn Dắt: {sym}' if is_leader else f'Đèn Xanh Mua Ngay T0: {sym}'
+        is_pivot = stock.get('isBreakoutPivot', False)
+        if is_leader:
+          alert_title = f'Siêu Cổ Phiếu Dẫn Dắt Bứt Phá: {sym}' if is_pivot else f'Siêu Cổ Phiếu Dẫn Dắt: {sym}'
+        elif is_pivot:
+          alert_title = f'Đèn Xanh Bứt Phá Vượt Đỉnh (Pivot R1): {sym}'
+        else:
+          alert_title = f'Đèn Xanh Mua Ngay T0: {sym}'
+
         log_meta = {
             'alert_type': 'ACTIONABLE_LEADER_BUY' if is_leader else 'ACTIONABLE_GREEN_BUY',
             'title': alert_title,
@@ -109,6 +117,44 @@ def _evaluate_telegram_alerts(screener_data):
         }
         if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
           record_alert_sent(action_key, preview=f'Actionable Green Buy {sym}')
+          _ALERT_TRACKER['sent_symbols'].add(sym)
+
+    # ==================== 2. EVENT-DRIVEN REALTIME BREAKOUT (BÙNG NỔ T0 & BỨT PHÁ PIVOT R1) ====================
+    # Bắt ngay nhịp sóng bùng nổ thời gian thực, không bị trễ giam chờ đến cố định 10:15
+    # Hỗ trợ sớm cả HNX (mở 09:00) và HOSE (sau ATO 09:15)
+    breakout_candidates = [
+        s for s in opps
+        if (
+            s.get('isBreakoutPivot') or
+            s.get('tagType') == 'BREAKOUT_T0' or
+            str(s.get('badge', '')).startswith('⚡') or
+            s.get('actionStatus') in ['BREAKOUT_PIVOT', 'BUY_READY', 'ACTIONABLE_LEADER_BUY']
+        ) and
+        float(s.get('volRunRate', 0)) >= 0.9 and
+        float(s.get('buyRatio', 50)) >= 55.0 and
+        float(s.get('changePct', 0)) >= 0.8 and
+        float(s.get('mainUpsidePct', s.get('tp1Pct', 0))) >= 3.0 and
+        float(s.get('netRR', 0)) >= 1.2
+    ]
+    for stock in breakout_candidates[:2]:
+      sym = stock.get('symbol')
+      event_key = f'EVENT_BREAKOUT_{today_str}_{sym}'
+      if sym not in _ALERT_TRACKER['sent_symbols'] and not is_alert_already_sent(event_key, min_interval_seconds=86400):
+        is_pivot = stock.get('isBreakoutPivot', False)
+        is_early = stock.get('isEarlyBird', False) or (mins <= 585)
+        if is_pivot:
+          custom_title = f"🚀 <b>CẢNH BÁO BỨT PHÁ VƯỢT ĐỈNH (PIVOT R1): {sym}</b>"
+          log_title = f'Cảnh Báo Bứt Phá Vượt Đỉnh (Pivot R1): {sym}'
+        elif is_early:
+          custom_title = f"🚀 <b>RADAR SÓNG SỚM ĐẦU PHIÊN: {sym}</b>"
+          log_title = f'Radar Sóng Sớm Đầu Phiên: {sym}'
+        else:
+          custom_title = f"⚡ <b>CẢNH BÁO BÙNG NỔ T0: {sym}</b>"
+          log_title = f'Sóng Sớm Bùng Nổ T0: {sym}'
+
+        msg, btns = format_breakout_alert(stock, header_title=custom_title)
+        if send_telegram_message(msg, buttons=btns, log_meta={'alert_type': 'BREAKOUT_PIVOT' if is_pivot else 'BREAKOUT_T0', 'title': log_title, 'stocks': [stock]}):
+          record_alert_sent(event_key, preview=f'Breakout Event {sym}')
           _ALERT_TRACKER['sent_symbols'].add(sym)
 
   # ==================== MỐC 0: 09:25 - 09:40 (RADAR SÓNG SỚM SAU ATO) ====================

@@ -26,6 +26,7 @@ from backend.db.portfolio_db import (
 )
 from backend.data_providers.market_board_provider import get_market_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data, fetch_intraday_snapshot
+from backend.data_providers.stock_quote_provider import resolve_stock_realtime_quote
 
 logger = logging.getLogger('user_portfolio_controller')
 
@@ -43,51 +44,26 @@ def _format_price(val: Any) -> float:
 
 def get_entrade_stock_quote(sym: str, board_data: Optional[Dict[str, Any]] = None, default_p: float = 0.0) -> Dict[str, Any]:
     """
-    Lấy giá thời gian thực chuẩn xác 100% từ Entrade Engine:
-    1. Trong phiên: Lấy từ bảng giá Entrade / Intraday Snapshot (nến 1 phút).
-    2. Sau 15:00: Đối chiếu nến ngày 1D của Entrade để lấy giá đóng cửa chính thức sau phiên ATC.
+    Lấy giá thời gian thực chuẩn xác 100% tái sử dụng qua Unified Stock Quote Provider:
+    Đồng bộ 100% logic định giá, tham chiếu và % thay đổi với tab 'Tra cứu 1 mã' (Stock Detail).
     """
-    if board_data is None:
-        board_data = get_market_board_data() or {}
-
-    b_item = board_data.get(sym, {})
-    raw_matched = b_item.get('matchedPrice') or b_item.get('lastPrice') or b_item.get('refPrice') or 0.0
-    cur_p = _format_price(raw_matched)
-    ref_p = _format_price(b_item.get('refPrice', 0))
-    pct = float(b_item.get('priceChangePercent') or b_item.get('changePercent') or 0.0)
-
-    # Sau 15:00 hoặc khi giá bảng chưa có, lấy từ nến 1D Entrade để đảm bảo giá chốt hạ ATC (14.95)
-    now = datetime.now()
-    is_after_market = now.hour >= 15 or now.hour < 9 or now.weekday() >= 5
-    if is_after_market or cur_p == 0.0:
-        try:
-            chart = fetch_chart_data(sym, days=5, resolution='1D')
-            if chart and chart.get('c'):
-                eod_close = _format_price(chart['c'][-1])
-                if eod_close > 0:
-                    cur_p = eod_close
-                    if len(chart['c']) >= 2:
-                        ref_p = _format_price(chart['c'][-2])
-                        if ref_p > 0:
-                            pct = round(((cur_p - ref_p) / ref_p * 100), 2)
-        except Exception as e:
-            logger.debug("Lỗi đọc nến 1D Entrade cho %s: %s", sym, e)
-
-    if cur_p == 0.0:
-        snap = fetch_intraday_snapshot(sym)
-        if snap and snap.get('matchedPrice', 0) > 0:
-            cur_p = float(snap['matchedPrice'])
-            ref_p = float(snap.get('refPrice', cur_p))
-            pct = float(snap.get('priceChangePercent', 0.0))
-        else:
-            cur_p = default_p
-
-    return {
-        'current_price': cur_p,
-        'ref_price': ref_p,
-        'change_pct': pct,
-        'exchange': b_item.get('exchange', 'HOSE'),
-    }
+    try:
+        quote = resolve_stock_realtime_quote(sym, board_data=board_data)
+        cur_p = quote['current_price'] or default_p
+        return {
+            'current_price': cur_p,
+            'ref_price': quote['ref_price'],
+            'change_pct': quote['pct_change'],
+            'exchange': quote['exchange'],
+        }
+    except Exception as e:
+        logger.debug("Lỗi lấy quote realtime cho %s: %s", sym, e)
+        return {
+            'current_price': default_p,
+            'ref_price': default_p,
+            'change_pct': 0.0,
+            'exchange': 'HOSE',
+        }
 
 
 def handle_get_portfolio() -> Dict[str, Any]:
@@ -106,15 +82,30 @@ def handle_get_portfolio() -> Dict[str, Any]:
 
     board_data = get_market_board_data() or {}
 
+    # Quét trước báo giá realtime duy nhất cho từng mã (song song nếu nhiều mã, RAM cache 15s)
+    # Triệt tiêu hoàn toàn việc gọi API Entrade lặp lại nhiều lần cho cùng 1 mã trong danh mục
+    unique_syms = list({t.symbol.strip().upper() for t in trades if t.symbol})
+    quotes_map: Dict[str, Dict[str, Any]] = {}
+    if len(unique_syms) == 1:
+        s = unique_syms[0]
+        quotes_map[s] = get_entrade_stock_quote(s, board_data)
+    elif len(unique_syms) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        def _fetch(sym_code):
+            return sym_code, get_entrade_stock_quote(sym_code, board_data)
+        with ThreadPoolExecutor(max_workers=min(10, len(unique_syms))) as pool:
+            for sym_code, q_item in pool.map(_fetch, unique_syms):
+                quotes_map[sym_code] = q_item
+
     # 1. Xử lý nhật ký chi tiết từng lệnh (Enriched Trades)
     enriched_trades = []
     for t in trades:
-        sym = t.symbol
+        sym = (t.symbol or '').strip().upper()
         order_type = t.order_type
         vol = t.volume
         entry_price = t.price
 
-        q = get_entrade_stock_quote(sym, board_data, entry_price)
+        q = quotes_map.get(sym) or get_entrade_stock_quote(sym, board_data, entry_price)
         cur_p = q['current_price']
         ref_p = q['ref_price']
         chg_pct = q['change_pct']
@@ -202,7 +193,7 @@ def handle_get_portfolio() -> Dict[str, Any]:
     from backend.domain.portfolio_bundler import get_stock_sector
 
     for sym, h in holdings_map.items():
-        q = get_entrade_stock_quote(sym, board_data, h['avg_price'])
+        q = quotes_map.get(sym) or get_entrade_stock_quote(sym, board_data, h['avg_price'])
         cur_p = q['current_price']
         ref_p = q['ref_price']
         chg_pct = q['change_pct']
