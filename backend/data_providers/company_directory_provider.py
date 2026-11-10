@@ -128,11 +128,13 @@ def get_dynamic_sector(ticker: str, name_vi: str = '', sector_id: Optional[int] 
 
 
 def _get_mongo_companies_coll():
-    """Lấy MongoDB collection 'companies' nếu có kết nối."""
+    """Lấy MongoDB collection 'companies' nếu có kết nối (hỗ trợ auto-reconnect)."""
     try:
-        from backend.db.portfolio_db import _mongo_db
-        if _mongo_db is not None:
-            return _mongo_db['companies']
+        from backend.db.portfolio_db import get_mongo_db
+        from backend.constants.db import COLL_COMPANIES
+        db = get_mongo_db()
+        if db is not None:
+            return db[COLL_COMPANIES]
     except Exception:
         pass
     return None
@@ -149,6 +151,7 @@ def _sync_companies_to_mongo(companies: List[Dict[str, Any]]):
 
     try:
         from pymongo import ReplaceOne
+        from backend.models.db_models import CompanyItem
         ops = []
         for c in companies:
             sym = c.get('ticker')
@@ -159,26 +162,28 @@ def _sync_companies_to_mongo(companies: List[Dict[str, Any]]):
             sector = get_dynamic_sector(sym, name_vi, sec_id)
             name_unaccent = _strip_vietnamese_accents(name_vi).lower()
 
-            doc = {
-                'ticker': sym,
-                'nameVi': name_vi,
-                'nameEn': c.get('nameEn', ''),
-                'nameUnaccent': name_unaccent,
-                'stockExchange': c.get('stockExchange', 'HOSE'),
-                'bcEconomicSectorId': sec_id,
-                'sector': sector,
-                'imageUrl': c.get('imageUrl', ''),
-                'updated_at': int(time.time()),
-            }
-            ops.append(ReplaceOne({'ticker': sym}, doc, upsert=True))
+            item = CompanyItem(
+                ticker=sym,
+                name=c.get('name', ''),
+                name_vi=name_vi,
+                name_en=c.get('nameEn', ''),
+                name_unaccent=name_unaccent,
+                exchange=c.get('stockExchange', 'HOSE'),
+                sector=sector,
+                industry=c.get('industry', ''),
+                image_url=c.get('imageUrl', ''),
+                bc_economic_sector_id=sec_id,
+                updated_at=int(time.time()),
+            )
+            ops.append(ReplaceOne(CompanyItem.filter_by_ticker(sym), item.to_doc(), upsert=True))
 
         if ops:
             coll.bulk_write(ops, ordered=False)
             try:
-                coll.create_index('ticker', unique=True)
-                coll.create_index('nameVi')
-                coll.create_index('nameUnaccent')
-                coll.create_index('sector')
+                coll.create_index(CompanyItem.INDEX_TICKER, unique=True)
+                coll.create_index(CompanyItem.INDEX_NAME_VI)
+                coll.create_index(CompanyItem.INDEX_NAME_UNACCENT)
+                coll.create_index(CompanyItem.INDEX_SECTOR)
             except Exception:
                 pass
             logger.info("Đã đồng bộ %d công ty vào MongoDB collection 'companies'.", len(ops))
@@ -201,11 +206,12 @@ def fetch_and_cache_company_directory(force_refresh: bool = False) -> List[Dict[
     coll = _get_mongo_companies_coll()
     if coll is not None and not force_refresh:
         try:
-            mongo_docs = list(coll.find({}, {'_id': 0}))
+            from backend.models.db_models import CompanyItem
+            mongo_docs = list(coll.find({}, CompanyItem.PROJECTION_NO_ID))
             if mongo_docs and len(mongo_docs) >= 1000:
                 _DIRECTORY_CACHE['companies'] = mongo_docs
-                _DIRECTORY_CACHE['by_ticker'] = {c['ticker']: c for c in mongo_docs if 'ticker' in c}
-                _DIRECTORY_CACHE['sectors_map'] = {c['ticker']: c.get('sector', 'Thị trường chung') for c in mongo_docs if 'ticker' in c}
+                _DIRECTORY_CACHE['by_ticker'] = {c[CompanyItem.F_TICKER]: c for c in mongo_docs if CompanyItem.F_TICKER in c}
+                _DIRECTORY_CACHE['sectors_map'] = {c[CompanyItem.F_TICKER]: c.get(CompanyItem.F_SECTOR, 'Thị trường chung') for c in mongo_docs if CompanyItem.F_TICKER in c}
                 _DIRECTORY_CACHE['timestamp'] = now
                 logger.info("Đã nạp %d công ty từ MongoDB collection 'companies' vào RAM Cache.", len(mongo_docs))
                 return mongo_docs
@@ -317,36 +323,37 @@ def search_companies(query: str, limit: int = 15) -> List[Dict[str, Any]]:
     coll = _get_mongo_companies_coll()
     if coll is not None:
         try:
+            from backend.models.db_models import CompanyItem
             # Ưu tiên khớp chính xác hoặc tiền tố ticker trước
-            exact_docs = list(coll.find({'ticker': q_upper}, {'_id': 0}))
+            exact_docs = list(coll.find(CompanyItem.filter_by_ticker(q_upper), CompanyItem.PROJECTION_NO_ID))
             for d in exact_docs:
-                if d['ticker'] not in seen_tickers:
+                t = d.get(CompanyItem.F_TICKER)
+                if t and t not in seen_tickers:
                     matched_companies.append(d)
-                    seen_tickers.add(d['ticker'])
+                    seen_tickers.add(t)
 
-            prefix_docs = list(coll.find({
-                'ticker': {'$regex': f'^{q_upper}', '$options': 'i', '$nin': list(seen_tickers)}
-            }, {'_id': 0}).limit(limit))
+            prefix_docs = list(coll.find(
+                CompanyItem.filter_by_ticker_prefix(q_upper, exclude_tickers=list(seen_tickers)),
+                CompanyItem.PROJECTION_NO_ID
+            ).limit(limit))
             for d in prefix_docs:
-                if d['ticker'] not in seen_tickers:
+                t = d.get(CompanyItem.F_TICKER)
+                if t and t not in seen_tickers:
                     matched_companies.append(d)
-                    seen_tickers.add(d['ticker'])
+                    seen_tickers.add(t)
 
             # Tìm theo tên tiếng Việt hoặc tên không dấu hoặc ngành
             if len(matched_companies) < limit:
                 remain = limit - len(matched_companies)
-                name_docs = list(coll.find({
-                    '$or': [
-                        {'nameVi': {'$regex': re.escape(raw_q), '$options': 'i'}},
-                        {'nameUnaccent': {'$regex': re.escape(q_unaccent), '$options': 'i'}},
-                        {'sector': {'$regex': re.escape(raw_q), '$options': 'i'}},
-                    ],
-                    'ticker': {'$nin': list(seen_tickers)}
-                }, {'_id': 0}).limit(remain))
+                name_docs = list(coll.find(
+                    CompanyItem.filter_search_text(raw_q, q_unaccent, exclude_tickers=list(seen_tickers)),
+                    CompanyItem.PROJECTION_NO_ID
+                ).limit(remain))
                 for d in name_docs:
-                    if d['ticker'] not in seen_tickers:
+                    t = d.get(CompanyItem.F_TICKER)
+                    if t and t not in seen_tickers:
                         matched_companies.append(d)
-                        seen_tickers.add(d['ticker'])
+                        seen_tickers.add(t)
         except Exception as e:
             logger.debug("Lỗi tìm kiếm Mongo, chuyển sang RAM Cache: %s", e)
 
@@ -393,8 +400,9 @@ def search_companies(query: str, limit: int = 15) -> List[Dict[str, Any]]:
 
         results.append({
             'symbol': sym,
+            'ticker': sym,
             'name': c.get('nameVi', f'CTCP {sym}'),
-            'exchange': c.get('stockExchange', 'HOSE'),
+            'exchange': c.get('stockExchange', c.get('exchange', 'HOSE')),
             'sector': sector_name,
             'price': p,
             'change': chg,

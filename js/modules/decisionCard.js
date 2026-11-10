@@ -13,7 +13,7 @@
  * 4. Đồng bộ trực tiếp các mốc giá lên Đồ thị TradingView (Target, Vùng mua, Cắt lỗ)
  */
 
-import { formatVND } from '../utils.js?v=5.3';
+import { formatVND, formatLivePriceInput, formatPriceInput, parsePriceInputToNumber } from '../utils.js?v=6.0';
 import { setChartPriceLines } from './chart.js?v=5.3';
 
 function safeSetText(id, text) {
@@ -64,8 +64,25 @@ function setupPositionControls() {
 
   if (costInput) {
     costInput.addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value);
-      userCostPrice = (!isNaN(val) && val > 0) ? val : null;
+      formatLivePriceInput(e.target);
+      const numVal = parsePriceInputToNumber(e.target.value);
+      userCostPrice = numVal > 0 ? numVal : null;
+      updateCostPnL();
+      syncChartPriceLines();
+    });
+
+    costInput.addEventListener('blur', (e) => {
+      const val = e.target.value.trim();
+      if (!val) {
+        userCostPrice = null;
+        updateCostPnL();
+        syncChartPriceLines();
+        return;
+      }
+      const formatted = formatPriceInput(val);
+      e.target.value = formatted;
+      const num = parsePriceInputToNumber(formatted);
+      userCostPrice = num > 0 ? num : null;
       updateCostPnL();
       syncChartPriceLines();
     });

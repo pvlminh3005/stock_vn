@@ -13,6 +13,16 @@ import {
   saveUserPortfolioSettings,
 } from '../api.js?v=5.0';
 import { switchAppMode } from './portfolioBundle.js?v=5.0';
+import {
+  formatNumber,
+  formatVND,
+  formatPriceVND,
+  formatStockPrice,
+  formatLiveVolumeInput,
+  formatLivePriceInput,
+  formatPriceInput,
+  parsePriceInputToNumber,
+} from '../utils.js?v=6.0';
 
 let _portfolioData = {
   summary: {
@@ -38,24 +48,10 @@ let _currentFilter = 'ALL';
 let _searchTerm = '';
 let _initialized = false;
 
-function formatVND(val) {
+// Hàm định dạng tiền VND kèm hậu tố đ chuẩn giao diện danh mục (500,000,000 đ)
+function formatPortfolioVND(val) {
   if (val === undefined || val === null || isNaN(val)) return '0 đ';
-  return Math.round(val).toLocaleString('vi-VN') + ' đ';
-}
-
-function formatNumber(val) {
-  if (val === undefined || val === null || isNaN(val)) return '0';
-  return Number(val).toLocaleString('vi-VN');
-}
-
-/**
- * Định dạng số với dấu chấm phân cách hàng nghìn (Chuẩn dot: 500.000.000)
- */
-function formatDot(val) {
-  if (val === undefined || val === null || val === '') return '';
-  const digits = String(val).replace(/\D/g, '');
-  if (!digits) return '';
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${formatVND(val)} đ`;
 }
 
 /**
@@ -83,6 +79,54 @@ function setOrderType(type) {
     if (tradeTypeBuyBtn) {
       tradeTypeBuyBtn.className = 'flex-1 py-1 rounded-md text-xs font-bold transition cursor-pointer text-slate-400 hover:text-white flex items-center justify-center gap-1';
     }
+  }
+}
+
+/**
+ * Điền tự động thông tin từ một lệnh đã chọn lên form nhập
+ * (Giữ ngày hiện tại, note để trống để tiện bổ sung lệnh Mua/Bán mới)
+ */
+function fillTradeForm(trade) {
+  if (!trade) return;
+
+  const symInput = document.getElementById('tradeSymbolInput');
+  const volInput = document.getElementById('tradeVolumeInput');
+  const priceInput = document.getElementById('tradePriceInput');
+  const noteInput = document.getElementById('tradeNoteInput');
+  const dateInput = document.getElementById('tradeDateInput');
+  const form = document.getElementById('portfolioTradeForm');
+
+  if (symInput) symInput.value = (trade.symbol || '').toUpperCase();
+  if (volInput) volInput.value = formatNumber(trade.volume);
+  if (priceInput) priceInput.value = formatPriceInput(trade.price);
+
+  // Note để trống theo yêu cầu của user
+  if (noteInput) noteInput.value = '';
+
+  // Ngày thì vẫn giữ hiện tại lúc bấm nút edit
+  if (dateInput) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    dateInput.value = `${year}-${month}-${day}`;
+  }
+
+  // Loại Lệnh (BUY / SELL)
+  setOrderType((trade.order_type || 'BUY').toUpperCase());
+
+  // Cuộn mượt tới form và highlight nhẹ viền form
+  if (form) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    form.classList.add('ring-2', 'ring-emerald-500/80', 'transition-all');
+    setTimeout(() => {
+      form.classList.remove('ring-2', 'ring-emerald-500/80');
+    }, 1500);
+  }
+
+  if (volInput) {
+    volInput.focus();
+    volInput.select();
   }
 }
 
@@ -157,7 +201,7 @@ export function initUserPortfolioModule(callbacks = {}) {
         await saveUserPortfolioSettings({ total_nav: numVal });
         // Clear ô input sau khi lưu thành công, đặt placeholder là giá trị đã lưu
         navInput.value = '';
-        navInput.placeholder = formatDot(numVal);
+        navInput.placeholder = formatVND(numVal);
         await loadPortfolioData(callbacks);
         saveNavBtn.innerHTML = '<i class="fa-solid fa-circle-check mr-1 text-emerald-300"></i> Đã Lưu!';
         setTimeout(() => {
@@ -230,6 +274,18 @@ export function initUserPortfolioModule(callbacks = {}) {
       return;
     }
 
+    // G2. Nút Bút chì (Edit / Nạp thông tin lệnh lên form nhập)
+    const editBtn = target.closest('.edit-trade-btn');
+    if (editBtn) {
+      const id = editBtn.getAttribute('data-id');
+      const trades = _portfolioData.trades || [];
+      const trade = trades.find(t => String(t.id) === String(id));
+      if (trade) {
+        fillTradeForm(trade);
+      }
+      return;
+    }
+
     // H. Nút Xem chi tiết mã (chuyển sang phân tích Single Stock)
     const viewBtn = target.closest('.view-stock-btn');
     if (viewBtn) {
@@ -261,8 +317,9 @@ export function initUserPortfolioModule(callbacks = {}) {
     if (!symInput || !volInput || !priceInput) return;
 
     const symbol = symInput.value.trim().toUpperCase();
-    const volume = parseInt(volInput.value, 10);
-    const price = parseFloat(priceInput.value);
+    const rawVol = volInput.value.replace(/\D/g, '');
+    const volume = parseInt(rawVol, 10);
+    const price = parsePriceInputToNumber(priceInput.value);
     const tradeDate = dateInput ? dateInput.value : '';
     const orderType = typeInput ? typeInput.value : 'BUY';
     const note = noteInput ? noteInput.value.trim() : '';
@@ -315,14 +372,26 @@ export function initUserPortfolioModule(callbacks = {}) {
     }
   });
 
-  // 4. Tìm kiếm nhanh & Tự động format dấu chấm (.) cho Tổng NAV khi typing
+  // 4. Tìm kiếm nhanh & Tự động format cho các ô input khi typing
   document.addEventListener('input', (e) => {
     if (e.target && e.target.id === 'portfolioSearchInput') {
       _searchTerm = e.target.value.trim().toUpperCase();
       renderPortfolioTable(callbacks);
     } else if (e.target && e.target.id === 'userPortfolioNavInput') {
-      const rawVal = e.target.value.replace(/\D/g, '');
-      e.target.value = formatDot(rawVal);
+      formatLiveVolumeInput(e.target);
+    } else if (e.target && e.target.id === 'tradeVolumeInput') {
+      formatLiveVolumeInput(e.target);
+    } else if (e.target && e.target.id === 'tradePriceInput') {
+      formatLivePriceInput(e.target);
+    }
+  });
+
+  // Tự động chuẩn hóa Giá khớp dạng 14,85 khi rời ô input (focusout)
+  document.addEventListener('focusout', (e) => {
+    if (e.target && e.target.id === 'tradePriceInput') {
+      if (e.target.value && e.target.value.trim()) {
+        e.target.value = formatPriceInput(e.target.value);
+      }
     }
   });
 
@@ -418,18 +487,18 @@ function updateSummaryCards(summary) {
   const totalPnlPct = summary.total_pnl_pct || 0;
 
   if (navInput && totalNav > 0) {
-    navInput.placeholder = formatDot(totalNav);
+    navInput.placeholder = formatVND(totalNav);
   }
 
-  if (statTotalNav) statTotalNav.textContent = formatVND(totalNav);
-  if (statTotalInvested) statTotalInvested.textContent = formatVND(buyCost);
+  if (statTotalNav) statTotalNav.textContent = formatPortfolioVND(totalNav);
+  if (statTotalInvested) statTotalInvested.textContent = formatPortfolioVND(buyCost);
 
   if (statInvestedRatio) {
     const ratio = totalNav > 0 ? ((buyCost / totalNav) * 100).toFixed(1) : '0.0';
     statInvestedRatio.textContent = `Chiếm ${ratio}% NAV (${summary.holdings_count || 0} mã)`;
   }
 
-  if (statAvailableNav) statAvailableNav.textContent = formatVND(availNav);
+  if (statAvailableNav) statAvailableNav.textContent = formatPortfolioVND(availNav);
   if (statAvailableRatio) {
     const availRatio = totalNav > 0 ? ((availNav / totalNav) * 100).toFixed(1) : '0.0';
     statAvailableRatio.textContent = `Tiền mặt khả dụng (${availRatio}% NAV)`;
@@ -442,7 +511,7 @@ function updateSummaryCards(summary) {
     const signR = isRealizedProfit ? '+' : '';
     statRealizedPnl.className = `text-base sm:text-lg font-black font-mono ${isRealizedProfit ? 'text-emerald-400' : isRealizedLoss ? 'text-rose-400' : 'text-slate-300'
       }`;
-    statRealizedPnl.textContent = `${signR}${formatVND(realizedPnl)}`;
+    statRealizedPnl.textContent = `${signR}${formatPortfolioVND(realizedPnl)}`;
   }
 
   // Total P&L styling
@@ -453,7 +522,7 @@ function updateSummaryCards(summary) {
 
     statTotalPnl.className = `text-base sm:text-lg font-black font-mono ${isProfit ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-300'
       }`;
-    statTotalPnl.innerHTML = `${sign}${formatVND(totalPnl)} <span class="text-xs font-semibold ml-1">(${sign}${totalPnlPct.toFixed(2)}%)</span>`;
+    statTotalPnl.innerHTML = `${sign}${formatPortfolioVND(totalPnl)} <span class="text-xs font-semibold ml-1">(${sign}${totalPnlPct.toFixed(2)}%)</span>`;
 
     if (statPnlIcon) {
       statPnlIcon.className = `fa-solid ${isProfit ? 'fa-arrow-trend-up text-emerald-400' : isLoss ? 'fa-arrow-trend-down text-rose-400' : 'fa-chart-line text-slate-500'
@@ -559,20 +628,20 @@ function renderHoldingsTable(callbacks = {}) {
           <div class="text-[10px] ${changeColor}">(${changeSign}${h.change_pct}%)</div>
         </td>
         <td class="py-2.5 px-3 text-right text-slate-200 font-mono">
-          ${formatVND(h.current_value)}
+          ${formatPortfolioVND(h.current_value)}
         </td>
         <td class="py-2.5 px-3 text-right font-bold font-mono ${colorU}">
           ${isHolding
-        ? `<div>${signU}${formatVND(h.unrealized_pnl)}</div>
+        ? `<div>${signU}${formatPortfolioVND(h.unrealized_pnl)}</div>
                  <div class="text-[10px]">(${signU}${h.unrealized_pnl_pct.toFixed(2)}%)</div>`
         : `<span class="text-slate-600 text-[11px] font-sans">-</span>`
       }
         </td>
         <td class="py-2.5 px-3 text-right font-bold font-mono ${colorR}">
-          ${h.realized_pnl !== 0 ? `${signR}${formatVND(h.realized_pnl)}` : '<span class="text-slate-600 text-[11px] font-sans">0 đ</span>'}
+          ${h.realized_pnl !== 0 ? `${signR}${formatPortfolioVND(h.realized_pnl)}` : '<span class="text-slate-600 text-[11px] font-sans">0 đ</span>'}
         </td>
         <td class="py-2.5 px-3 text-right font-black font-mono ${colorT} bg-slate-900/30">
-          <div>${signT}${formatVND(h.total_pnl)}</div>
+          <div>${signT}${formatPortfolioVND(h.total_pnl)}</div>
         </td>
         <td class="py-2.5 px-3 text-right font-mono text-slate-300">
           <span class="px-1.5 py-0.5 rounded bg-slate-800/80 text-[11px] font-semibold">${h.weight_pct}%</span>
@@ -656,10 +725,10 @@ function renderPortfolioTable(callbacks = {}) {
           <div class="text-white">${formatNumber(t.current_price)} đ</div>
           <div class="text-[10px] ${changeColor}">(${changeSign}${t.change_pct}%)</div>
         </td>
-        <td class="py-2.5 px-3 text-right text-slate-300">${formatVND(t.order_type === 'BUY' ? t.current_amount : t.invested_amount)}</td>
+        <td class="py-2.5 px-3 text-right text-slate-300">${formatPortfolioVND(t.order_type === 'BUY' ? t.current_amount : t.invested_amount)}</td>
         <td class="py-2.5 px-3 text-right font-bold ${pnlColor}">
           ${isBuy
-        ? `<div>${pnlSign}${formatVND(t.pnl_val)}</div>
+        ? `<div>${pnlSign}${formatPortfolioVND(t.pnl_val)}</div>
                  <div class="text-[10px]">(${pnlSign}${t.pnl_pct.toFixed(2)}%)</div>`
         : `<span class="text-slate-500 text-[11px] font-sans">Đã chốt bán</span>`
       }
@@ -667,9 +736,14 @@ function renderPortfolioTable(callbacks = {}) {
         <td class="py-2.5 px-3 text-slate-400 text-[11px] font-sans">${t.trade_date || '-'}</td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px] font-sans max-w-[150px] truncate" title="${t.note || ''}">${t.note || '-'}</td>
         <td class="py-2.5 px-3 text-center">
-          <button type="button" class="delete-trade-btn p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer" data-id="${t.id}" title="Xóa lệnh này">
-            <i class="fa-solid fa-trash-can text-xs"></i>
-          </button>
+          <div class="flex items-center justify-center gap-1.5">
+            <button type="button" class="edit-trade-btn p-1 text-slate-400 hover:text-emerald-400 transition cursor-pointer" data-id="${t.id}" title="Nạp thông tin lệnh ${t.symbol} lên form">
+              <i class="fa-solid fa-pen-to-square text-xs"></i>
+            </button>
+            <button type="button" class="delete-trade-btn p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer" data-id="${t.id}" title="Xóa lệnh này">
+              <i class="fa-solid fa-trash-can text-xs"></i>
+            </button>
+          </div>
         </td>
       </tr>
     `;

@@ -8,32 +8,25 @@ Chống trùng lặp tự động dựa vào (symbol, order_type, volume, price,
 
 import os
 import sys
+import time
 import sqlite3
 import logging
-from datetime import datetime
 
 # Setup sys.path
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Nạp .env
-env_file = os.path.join(BASE_DIR, '.env')
-if os.path.isfile(env_file):
-    try:
-        with open(env_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    k, v = line.split('=', 1)
-                    k = k.strip()
-                    v = v.strip().strip("'\"")
-                    if k and k not in os.environ:
-                        os.environ[k] = v
-    except Exception:
-        pass
+from backend.config.env_loader import load_environment, get_mongodb_config
+from backend.constants.db import (
+    COLL_PORTFOLIO_TRADES,
+    COLL_PORTFOLIO_SETTINGS,
+    COLL_ALERT_STATES,
+)
+from backend.models.db_models import PortfolioTrade, PortfolioSetting, AlertState
 
-from backend.db.portfolio_db import RETENTION_DAYS
+load_environment()
+
 SQLITE_PORTFOLIO_DB = os.path.join(BASE_DIR, 'data', 'portfolio.db')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
@@ -42,45 +35,67 @@ logger = logging.getLogger('sync_to_mongo')
 
 def sync_local_sqlite_to_mongodb(mongo_uri: str = None, db_name: str = None) -> bool:
     """Thực hiện đồng bộ dữ liệu từ SQLite local sang MongoDB."""
-    uri = mongo_uri or os.environ.get('MONGODB_URI', '').strip()
-    target_db = db_name or os.environ.get('MONGODB_DB_NAME', 'stock_pro_db').strip()
+    default_uri, default_db = get_mongodb_config()
+    uri = default_uri if mongo_uri is None else mongo_uri
+    target_db = default_db if db_name is None else db_name
 
-    if not uri:
-        logger.error("❌ Không tìm thấy biến môi trường MONGODB_URI trong file .env!")
-        logger.info("👉 Vui lòng cấu hình MONGODB_URI trong file .env trước khi chạy sync.")
+    if not uri or not str(uri).strip():
+        logger.error("❌ Không tìm thấy biến môi trường MONGODB_URI trong cấu hình môi trường (envs/)!")
+        logger.info("👉 Vui lòng cấu hình MONGODB_URI trong file envs/.env.development hoặc envs/.env.production.")
         return False
 
     if not os.path.exists(SQLITE_PORTFOLIO_DB):
         logger.info("ℹ️ File SQLite local (%s) chưa tồn tại hoặc chưa có dữ liệu.", SQLITE_PORTFOLIO_DB)
         return False
 
+    client = None
+    mongo_kwargs = {
+        'serverSelectionTimeoutMS': 15000,
+        'connectTimeoutMS': 10000,
+        'socketTimeoutMS': 20000,
+        'retryWrites': True,
+        'retryReads': True,
+    }
     try:
-        from pymongo import MongoClient, ASCENDING
-        mongo_kwargs = {'serverSelectionTimeoutMS': 8000}
+        import certifi
+        mongo_kwargs['tlsCAFile'] = certifi.where()
+    except ImportError:
+        pass
+
+    db = None
+    for attempt in range(1, 4):
         try:
-            import certifi
-            mongo_kwargs['tlsCAFile'] = certifi.where()
-        except ImportError:
-            pass
-        client = MongoClient(uri, **mongo_kwargs)
-        client.admin.command('ping')
-        db = client[target_db]
-        logger.info("✅ Kết nối MongoDB Atlas thành công (DB: %s)", target_db)
-    except Exception as e:
-        logger.error("❌ Lỗi kết nối MongoDB Atlas: %s", e)
+            from pymongo import MongoClient
+            client = MongoClient(uri, **mongo_kwargs)
+            client.admin.command('ping')
+            db = client[target_db]
+            logger.info("✅ Kết nối MongoDB Atlas thành công (DB: %s)", target_db)
+            break
+        except Exception as e:
+            if attempt < 3:
+                logger.warning("Thử lại kết nối MongoDB Atlas lần %d/3...", attempt)
+                time.sleep(1.5)
+            else:
+                logger.error("❌ Lỗi kết nối MongoDB Atlas sau 3 lần thử: %s", e)
+                if client:
+                    client.close()
+                return False
+
+    if db is None:
+        logger.error("❌ Không thể kết nối tới cơ sở dữ liệu MongoDB Atlas.")
         return False
 
     # 1. Đảm bảo Index trên MongoDB
-    trades_coll = db['portfolio_trades']
-    trades_coll.create_index([("expire_at", ASCENDING)], expireAfterSeconds=0)
-    trades_coll.create_index([("symbol", ASCENDING)])
-    trades_coll.create_index([("order_type", ASCENDING)])
+    trades_coll = db[COLL_PORTFOLIO_TRADES]
+    trades_coll.create_index(PortfolioTrade.INDEX_EXPIRE_AT, expireAfterSeconds=0)
+    trades_coll.create_index(PortfolioTrade.INDEX_SYMBOL)
+    trades_coll.create_index(PortfolioTrade.INDEX_ORDER_TYPE)
 
-    settings_coll = db['portfolio_settings']
-    settings_coll.create_index([("key", ASCENDING)], unique=True)
+    settings_coll = db[COLL_PORTFOLIO_SETTINGS]
+    settings_coll.create_index(PortfolioSetting.INDEX_KEY, unique=True)
 
-    alert_coll = db['alert_states']
-    alert_coll.create_index([("symbol", ASCENDING)], unique=True)
+    alert_coll = db[COLL_ALERT_STATES]
+    alert_coll.create_index(AlertState.INDEX_SYMBOL, unique=True)
 
     # 2. Đọc từ SQLite và đẩy sang Mongo
     synced_trades = 0
@@ -97,9 +112,10 @@ def sync_local_sqlite_to_mongodb(mongo_uri: str = None, db_name: str = None) -> 
                 cur.execute("SELECT key, value, updated_at FROM portfolio_settings")
                 rows = cur.fetchall()
                 for r in rows:
+                    setting = PortfolioSetting(key=r['key'], value=str(r['value']), updated_at=int(r['updated_at'] or 0))
                     settings_coll.update_one(
-                        {'key': r['key']},
-                        {'$set': {'key': r['key'], 'value': str(r['value']), 'updated_at': r['updated_at']}},
+                        PortfolioSetting.filter_by_key(setting.key),
+                        {'$set': setting.to_doc()},
                         upsert=True
                     )
                     synced_settings += 1
@@ -111,29 +127,10 @@ def sync_local_sqlite_to_mongodb(mongo_uri: str = None, db_name: str = None) -> 
                 cur.execute("SELECT symbol, order_type, volume, price, trade_date, note, status, expire_at, created_at FROM portfolio_trades")
                 trades = cur.fetchall()
                 for t in trades:
-                    filter_query = {
-                        'symbol': t['symbol'],
-                        'order_type': t['order_type'],
-                        'volume': t['volume'],
-                        'price': t['price'],
-                        'trade_date': t['trade_date'],
-                    }
-                    existing = trades_coll.find_one(filter_query)
+                    trade_obj = PortfolioTrade.from_doc(dict(t))
+                    existing = trades_coll.find_one(trade_obj.identity_filter())
                     if not existing:
-                        expire_dt = datetime.fromtimestamp(t['expire_at']) if t['expire_at'] else None
-                        created_dt = datetime.fromtimestamp(t['created_at']) if t['created_at'] else datetime.now()
-                        doc = {
-                            'symbol': t['symbol'],
-                            'order_type': t['order_type'],
-                            'volume': t['volume'],
-                            'price': t['price'],
-                            'trade_date': t['trade_date'],
-                            'note': t['note'] or '',
-                            'status': t['status'] or 'HOLDING',
-                            'created_at': created_dt,
-                            'expire_at': expire_dt
-                        }
-                        trades_coll.insert_one(doc)
+                        trades_coll.insert_one(trade_obj.to_doc())
                         synced_trades += 1
             except Exception as e:
                 logger.warning("Lỗi đọc portfolio_trades từ SQLite: %s", e)
@@ -143,9 +140,10 @@ def sync_local_sqlite_to_mongodb(mongo_uri: str = None, db_name: str = None) -> 
                 cur.execute("SELECT symbol, last_alert_type, last_alert_time, flip_count_today, last_ribbon_color, pending_summary, updated_at FROM alert_states")
                 alerts = cur.fetchall()
                 for a in alerts:
+                    alert_obj = AlertState.from_doc(dict(a))
                     alert_coll.update_one(
-                        {'symbol': a['symbol']},
-                        {'$set': dict(a)},
+                        AlertState.filter_by_symbol(alert_obj.symbol),
+                        {'$set': alert_obj.to_doc()},
                         upsert=True
                     )
                     synced_alerts += 1
@@ -163,6 +161,9 @@ def sync_local_sqlite_to_mongodb(mongo_uri: str = None, db_name: str = None) -> 
     except Exception as e:
         logger.error("❌ Lỗi trong quá trình đồng bộ: %s", e)
         return False
+    finally:
+        if client:
+            client.close()
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ import time
 
 from backend.constants.config import DAILY_HISTORY_DAYS
 from backend.utils.ohlc_helpers import format_candles, merge_live_candle_to_chart_data
+from backend.utils.time_utils import vn_date, VN_UTC_OFFSET_SEC
 from backend.data_providers.market_board_provider import get_market_board_data
 from backend.data_providers.entrade_provider import fetch_chart_data, fetch_intraday_snapshot
 from backend.data_providers.news_provider import fetch_live_multi_sources
@@ -47,36 +48,55 @@ def handle_stock_detail(ticker, resolution='1D'):
     raise ValueError(f'Không tìm thấy dữ liệu cho mã {ticker}')
 
   scale = 1000 if c_list[-1] < 1000 else 1
-  latest_c = c_list[-1] * scale
-  prev_c = (c_list[-2] * scale) if len(c_list) > 1 else latest_c
+  now_vn = time.gmtime(time.time() + VN_UTC_OFFSET_SEC)
+  today_str = time.strftime('%Y-%m-%d', now_vn)
+  last_candle_date = vn_date(t_list[-1]) if t_list else None
+
+  # Xác định giá tham chiếu và nến đóng cửa trước đó:
+  # Nếu nến cuối cùng trong t_list trùng ngày hôm nay (sau khi merge nến live hoặc Entrade đã chốt phiên):
+  # thì Tham chiếu là nến c_list[-2]. Nếu chưa có nến hôm nay: Tham chiếu là c_list[-1].
+  if last_candle_date == today_str and len(c_list) > 1:
+    ref_from_chart = c_list[-2] * scale
+    latest_c = c_list[-1] * scale
+  else:
+    ref_from_chart = c_list[-1] * scale
+    latest_c = ref_from_chart
+
+  # Xác định tham chiếu chuẩn:
+  # Ưu tiên refPrice của board_item nếu hợp lệ (> 0) và khác matchedPrice;
+  # nếu board_item có refPrice == matchedPrice hoặc <= 0, lấy từ nến ngày ref_from_chart
+  board_ref = float(board_item.get('refPrice') or 0)
+  board_matched = float(board_item.get('matchedPrice') or 0)
+  if board_ref > 0 and (board_matched <= 0 or abs(board_ref - board_matched) > 1e-4):
+    ref_price = board_ref
+  else:
+    ref_price = ref_from_chart if ref_from_chart > 0 else (board_matched if board_matched > 0 else latest_c)
 
   # Dữ liệu realtime từ Entrade Market Board nếu có phiên đang mở
-  if board_item and board_item.get('matchedPrice', 0) > 0:
-    current_price = board_item['matchedPrice']
-    price_change = board_item.get('priceChange', current_price - prev_c)
-    pct_change = board_item.get(
-        'priceChangePercent',
-        round((price_change / prev_c) * 100, 2) if prev_c else 0,
-    )
+  if board_item and board_matched > 0:
+    current_price = board_matched
+    price_change = round(current_price - ref_price, 2)
+    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
+    open_price = float(board_item.get('openPrice') or current_price)
     company_name = board_item.get(
         'companyNameVi', board_item.get('clientName', f'Cổ phiếu {ticker}')
     )
     exchange = board_item.get('exchange', 'HOSE').upper()
     band = 0.07 if exchange == 'HOSE' else (0.10 if exchange == 'HNX' else 0.15)
-    ceiling = board_item.get('ceiling') or round(current_price * (1 + band))
-    floor = board_item.get('floor') or round(current_price * (1 - band))
-    ref_price = board_item.get('refPrice', prev_c)
+    ceiling = board_item.get('ceiling') or round(ref_price * (1 + band))
+    floor = board_item.get('floor') or round(ref_price * (1 - band))
     highest_price = board_item.get('highest') or (h_list[-1] * scale if h_list else current_price)
     lowest_price = board_item.get('lowest') or (l_list[-1] * scale if l_list else current_price)
     total_vol = board_item.get('stockVol', v_list[-1] if v_list else 0)
     foreign_net = board_item.get('buyForeignQtty', 0) - board_item.get(
         'sellForeignQtty', 0
     )
-  elif board_item and board_item.get('refPrice', 0) > 0:
-    ref_price = board_item['refPrice']
-    current_price = board_item.get('matchedPrice') or ref_price
-    price_change = board_item.get('priceChange', current_price - ref_price)
-    pct_change = board_item.get('priceChangePercent', 0)
+  elif board_item and board_ref > 0:
+    ref_price = board_ref
+    current_price = board_matched if board_matched > 0 else ref_price
+    price_change = round(current_price - ref_price, 2)
+    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
+    open_price = float(board_item.get('openPrice') or current_price)
     company_name = board_item.get(
         'companyNameVi', board_item.get('clientName', f'Cổ phiếu {ticker}')
     )
@@ -92,12 +112,12 @@ def handle_stock_detail(ticker, resolution='1D'):
     )
   else:
     current_price = latest_c
-    price_change = latest_c - prev_c
-    pct_change = round((price_change / prev_c) * 100, 2) if prev_c else 0
+    price_change = round(latest_c - ref_price, 2)
+    pct_change = round((price_change / ref_price) * 100, 2) if ref_price > 0 else 0.0
+    open_price = current_price
     company_name = f'Cổ phiếu {ticker}'
     exchange = 'HOSE'
     band = 0.07
-    ref_price = prev_c
     ceiling = round(ref_price * (1 + band))
     floor = round(ref_price * (1 - band))
     highest_price = (h_list[-1] * scale) if h_list else current_price
@@ -205,6 +225,7 @@ def handle_stock_detail(ticker, resolution='1D'):
       'ceiling': ceiling,
       'floor': floor,
       'refPrice': ref_price,
+      'openPrice': open_price,
       'totalVolume': total_vol,
       'foreignNet': foreign_net,
       'fundamentals': fundamental_info,

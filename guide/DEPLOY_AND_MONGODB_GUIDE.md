@@ -60,8 +60,9 @@ Hệ thống sử dụng MongoDB Atlas để lưu trữ sổ lệnh cá nhân, c
      ```
    * **Start Command**:
      ```bash
-     python3 backend/server.py
+     ./start.sh prod
      ```
+     *(hoặc: `python3 backend/server.py --env prod`)*
    * **Instance Type**: Chọn gói `Free`.
 
 ### Bước 2.2: Khai Báo Biến Môi Trường (Environment Variables)
@@ -69,6 +70,7 @@ Tại trang thiết lập dịch vụ (hoặc trong mục **Environment** ở me
 
 | Tên biến (Key) | Giá trị mẫu (Value) | Mô tả |
 | :--- | :--- | :--- |
+| `APP_ENV` | `production` | Định danh môi trường chạy Production (tự động nạp `envs/.env.production`) |
 | `TELEGRAM_BOT_TOKEN` | `<bot_token_lay_tu_botfather>` | Token của Telegram Bot dùng để bắn cảnh báo |
 | `TELEGRAM_CHAT_ID` | `<chat_id_cua_ban>` | ID tài khoản hoặc nhóm Telegram nhận thông báo |
 | `APP_PUBLIC_URL` | `https://<ten-app-cua-ban>.onrender.com` | Đường dẫn public của trang web trên Render |
@@ -76,6 +78,7 @@ Tại trang thiết lập dịch vụ (hoặc trong mục **Environment** ở me
 | `MONGODB_URI` | `mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority` | Chuỗi kết nối MongoDB Atlas đã tạo ở Phần 1 |
 | `MONGODB_DB_NAME` | `stock_pro_db` | Tên cơ sở dữ liệu lưu trữ trên MongoDB |
 | `PORTFOLIO_RETENTION_DAYS` | `180` | Số ngày tự động dọn dẹp các lệnh đã bán (Mặc định 6 tháng) |
+| `WHITELIST_HOSTS` | `minhpvl-stock-vn.onrender.com` | Host được miễn trừ kiểm tra mã PIN |
 
 5. Bấm **Save Changes** hoặc **Create Web Service** để Render tự động build và triển khai.
 
@@ -107,6 +110,12 @@ Khi server bị ngủ:
 4. Bấm **Create**.
 
 > 💡 **Kết quả**: Cứ mỗi 10 phút, cron-job.org sẽ tự động ping vào trang web của bạn một lần, giúp server Render duy trì trạng thái hoạt động liên tục trong toàn bộ các phiên giao dịch từ Thứ 2 đến Thứ 6.
+
+### Tùy Chọn Bổ Trợ: Tự Động Đánh Thức Qua GitHub Actions (`.github/workflows/wake_up_render.yml`)
+Dự án đã tích hợp sẵn GitHub Actions workflow tự động chạy vào **08:50 sáng giờ Việt Nam** (trước giờ ATO 10 phút) vào các ngày Thứ 2 đến Thứ 6 để đánh thức Render thức dậy sẵn sàng:
+- Sử dụng `curl -I` gửi request nhẹ tới endpoint `/ping`.
+- Cơ chế retry 5 lần (khoảng cách 15s) đảm bảo máy chủ thức giấc 100% kể cả khi bị ngủ sâu.
+- Bạn có thể kiểm tra hoặc kích hoạt thủ công trong tab **Actions** $\rightarrow$ **Wake up Render App** $\rightarrow$ **Run workflow**.
 
 ---
 

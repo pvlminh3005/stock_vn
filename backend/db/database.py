@@ -9,11 +9,10 @@ _MEM_FUNDAMENTALS_CACHE = {}
 
 
 def _get_mongo():
-    """Lấy kết nối MongoDB Atlas nếu có cấu hình."""
+    """Lấy kết nối MongoDB Atlas nếu có cấu hình (hỗ trợ auto-reconnect)."""
     try:
-        from backend.db.portfolio_db import _mongo_db, _use_mongo
-        if _use_mongo and _mongo_db is not None:
-            return _mongo_db
+        from backend.db.portfolio_db import get_mongo_db
+        return get_mongo_db()
     except Exception:
         pass
     return None
@@ -41,18 +40,22 @@ def get_cached_fundamental(symbol):
     mongo = _get_mongo()
     if mongo is not None:
         try:
-            doc = mongo['fundamentals'].find_one({'symbol': sym})
+            from backend.constants.db import COLL_FUNDAMENTALS
+            from backend.models.db_models import FundamentalItem
+            doc = mongo[COLL_FUNDAMENTALS].find_one(FundamentalItem.filter_by_symbol(sym))
             if doc:
-                doc.pop('_id', None)
-                updated_at = doc.get('updated_at', 0)
+                item = FundamentalItem.from_doc(doc)
+                from backend.utils.datetime_helpers import to_timestamp_int
+                updated_at = to_timestamp_int(item.updated_at)
                 if time.time() - updated_at < 604800:
                     # Kiểm tra tính hợp lệ của dữ liệu (tránh cache 0.0 bị lưu trước đây)
+                    d = item.data
                     has_valid_metrics = (
-                        doc.get('pe', 0) > 0 or doc.get('pb', 0) > 0 or doc.get('eps', 0) > 0 or doc.get('roe', 0) != 0
+                        d.get('pe', 0) > 0 or d.get('pb', 0) > 0 or d.get('eps', 0) > 0 or d.get('roe', 0) != 0
                     )
-                    if has_valid_metrics and doc.get('reportPeriod'):
-                        _MEM_FUNDAMENTALS_CACHE[sym] = (doc, updated_at)
-                        return doc
+                    if has_valid_metrics and d.get('reportPeriod'):
+                        _MEM_FUNDAMENTALS_CACHE[sym] = (d, updated_at)
+                        return d
         except Exception as e_mongo:
             print(f'Lỗi đọc MongoDB fundamentals {sym}:', e_mongo)
 
@@ -69,9 +72,13 @@ def save_cached_fundamental(symbol, data):
     mongo = _get_mongo()
     if mongo is not None:
         try:
-            doc = dict(data)
-            doc['symbol'] = sym
-            doc['updated_at'] = now
-            mongo['fundamentals'].update_one({'symbol': sym}, {'$set': doc}, upsert=True)
+            from backend.constants.db import COLL_FUNDAMENTALS
+            from backend.models.db_models import FundamentalItem
+            item = FundamentalItem(symbol=sym, data=dict(data), updated_at=now)
+            mongo[COLL_FUNDAMENTALS].update_one(
+                FundamentalItem.filter_by_symbol(sym),
+                {'$set': item.to_doc()},
+                upsert=True
+            )
         except Exception as e_mongo:
             print(f'Lỗi ghi MongoDB fundamentals {sym}:', e_mongo)

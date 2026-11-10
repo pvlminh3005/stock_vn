@@ -6,3 +6,4 @@ from backend.constants.config import *
 from backend.constants.sectors import *
 
 from backend.constants.indicators import *
+from backend.constants.db import *

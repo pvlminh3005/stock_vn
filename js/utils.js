@@ -1,27 +1,40 @@
-// Định dạng hiển thị tiền VND (phân cách hàng nghìn)
-export function formatVND(num) {
-  if (num === null || num === undefined || isNaN(num)) return "--";
-  return Math.round(num).toLocaleString('vi-VN');
+/**
+ * Stock RT - Common Utility Functions
+ * Module chuẩn hóa định dạng số liệu, tiền tệ, khối lượng, tỷ lệ %, ngày tháng
+ * và các bộ xử lý input trực tiếp cho toàn bộ ứng dụng.
+ */
+
+// 1. Định dạng số nguyên / khối lượng với dấu phẩy phân cách hàng nghìn (ví dụ: 1,000, 10,000)
+export function formatNumber(num) {
+  if (num === null || num === undefined || isNaN(num)) return "0";
+  return Math.round(Number(num)).toLocaleString('en-US');
 }
 
-// Định dạng giá VNĐ kèm ký hiệu đ cho biểu đồ và bảng giá
+// 2. Định dạng hiển thị tiền VND (phân cách hàng nghìn bằng dấu phẩy, ví dụ: 500,000,000)
+export function formatVND(num, withSuffix = false) {
+  if (num === null || num === undefined || isNaN(num)) return withSuffix ? "-- đ" : "--";
+  const formatted = Math.round(Number(num)).toLocaleString('en-US');
+  return withSuffix ? `${formatted} đ` : formatted;
+}
+
+// 3. Định dạng giá VNĐ kèm ký hiệu đ (ví dụ: 27,500 đ)
 export function formatPriceVND(price) {
   if (price === null || price === undefined || isNaN(price)) return "--";
-  return Math.round(Number(price)).toLocaleString('vi-VN') + " đ";
+  return Math.round(Number(price)).toLocaleString('en-US') + " đ";
 }
 
-// Định dạng giá cổ phiếu chuẩn bảng điện tử (chia 1000, 2 chữ số thập phân, ví dụ: 62,70)
+// 4. Định dạng giá cổ phiếu chuẩn bảng điện tử (14,85; 157,50; ...)
+// Có 2 chữ số thập phân, phân cách thập phân bằng dấu phẩy ','
 export function formatStockPrice(price) {
   if (price === null || price === undefined || isNaN(price)) return "--";
-  const num = Number(price);
-  const val = num >= 1000 ? num / 1000 : num;
-  return val.toLocaleString('vi-VN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  let num = Number(price);
+  if (num >= 1000) {
+    num = num / 1000;
+  }
+  return num.toFixed(2).replace('.', ',');
 }
 
-// Định dạng khối lượng hoặc vốn hóa gọn gàng (K, M, Tỷ)
+// 5. Định dạng khối lượng hoặc vốn hóa gọn gàng (K, M, Tỷ)
 export function formatCompactNumber(num) {
   if (num === null || num === undefined || isNaN(num)) return "--";
   const abs = Math.abs(num);
@@ -34,7 +47,101 @@ export function formatCompactNumber(num) {
   if (abs >= 1e3) {
     return (num / 1e3).toFixed(1) + "k";
   }
-  return formatVND(num);
+  return formatNumber(num);
+}
+
+// 6. Live Formatter cho các ô input số nguyên / khối lượng / vốn NAV (giữ nguyên vị trí con trỏ)
+export function formatLiveVolumeInput(input) {
+  if (!input) return;
+  const oldVal = input.value;
+  const oldPos = input.selectionStart || 0;
+  const digitsBefore = oldVal.slice(0, oldPos).replace(/\D/g, '').length;
+  const raw = oldVal.replace(/\D/g, '');
+  if (!raw) {
+    input.value = '';
+    return;
+  }
+  const formatted = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  input.value = formatted;
+  let newPos = 0;
+  let digitCount = 0;
+  for (let i = 0; i < formatted.length; i++) {
+    if (/\d/.test(formatted[i])) {
+      digitCount++;
+    }
+    if (digitCount === digitsBefore) {
+      newPos = i + 1;
+      break;
+    }
+  }
+  if (typeof input.setSelectionRange === 'function') {
+    input.setSelectionRange(newPos, newPos);
+  }
+}
+
+// 7. Live Formatter cho các ô nhập Giá cổ phiếu (cho phép dấu phẩy thập phân duy nhất, tự chuyển phím '.' thành ',')
+export function formatLivePriceInput(input) {
+  if (!input) return;
+  let val = input.value.replace('.', ',');
+  val = val.replace(/[^0-9,]/g, '');
+  const parts = val.split(',');
+  if (parts.length > 2) {
+    val = parts[0] + ',' + parts.slice(1).join('');
+  }
+  if (parts.length === 2 && parts[1].length > 2) {
+    val = parts[0] + ',' + parts[1].slice(0, 2);
+  }
+  if (input.value !== val) {
+    input.value = val;
+  }
+}
+
+// 8. Chuẩn hóa giá cổ phiếu khi hoàn tất nhập (blur) hoặc format hiển thị (14,85; 157,50)
+// Hỗ trợ cả 3 cách nhập:
+// - Đã có dấu thập phân: 14,85 hoặc 14.85 -> 14,85
+// - Nhập chia theo 100: 1485 hoặc 2750 -> chia 100 thành 14,85 hoặc 27,50
+// - Nhập đầy đủ theo đồng: >= 10000 (14850, 27500) -> chia 1000 thành 14,85 hoặc 27,50
+export function formatPriceInput(val) {
+  if (val === undefined || val === null || val === '') return '';
+  const str = String(val).trim().replace(/\s/g, '');
+  const hasCommaOrDot = str.includes(',') || str.includes('.');
+  let num = parseFloat(str.replace(',', '.'));
+  if (isNaN(num) || num <= 0) return '';
+
+  if (!hasCommaOrDot) {
+    if (num >= 10000) {
+      num = num / 1000;
+    } else if (num >= 1000) {
+      num = num / 100;
+    }
+  } else {
+    if (num >= 1000) {
+      num = num / 1000;
+    }
+  }
+  return num.toFixed(2).replace('.', ',');
+}
+
+// 9. Chuyển đổi chuỗi giá người dùng nhập thành số thực cho API hoặc tính toán (ví dụ: 14.85 hoặc 14850)
+export function parsePriceInputToNumber(val) {
+  if (val === undefined || val === null || val === '') return 0;
+  const str = String(val).trim().replace(/\s/g, '');
+  const hasCommaOrDot = str.includes(',') || str.includes('.');
+  let num = parseFloat(str.replace(',', '.'));
+  if (isNaN(num) || num <= 0) return 0;
+
+  if (!hasCommaOrDot) {
+    if (num >= 10000) {
+      num = num / 1000;
+    } else if (num >= 1000) {
+      num = num / 100;
+    }
+  } else {
+    if (num >= 1000) {
+      num = num / 1000;
+    }
+  }
+  return num;
 }
 
 // Định dạng ngày hiển thị chuẩn Việt Nam (DD/MM/YYYY)

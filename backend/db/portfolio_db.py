@@ -8,93 +8,143 @@ import os
 import time
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-from bson import ObjectId
+from typing import Dict, List, Optional, Any, Union
 
 logger = logging.getLogger('portfolio_db')
 
+from backend.config.env_loader import (
+    load_environment,
+    get_app_env,
+    is_production,
+    get_mongodb_config,
+)
+from backend.constants.db import (
+    COLL_PORTFOLIO_TRADES,
+    COLL_PORTFOLIO_SETTINGS,
+    COLL_ALERT_STATES,
+    COLL_TELEGRAM_ALERT_LOGS,
+    COLL_TELEGRAM_SENT_LOGS,
+    COLL_FUNDAMENTALS,
+    COLL_VCI_HISTORY,
+    COLL_MARKET_SNAPSHOT,
+)
+from backend.models.db_models import (
+    PortfolioTrade,
+    PortfolioSetting,
+    AlertState,
+    TelegramAlertLog,
+    TelegramSentLog,
+    FundamentalItem,
+    VciHistoryItem,
+    MarketBoardSnapshot,
+)
+from backend.utils.datetime_helpers import VN_TZ
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Tự động nạp file .env nội bộ nếu có
-_env_path = os.path.join(BASE_DIR, '.env')
-if os.path.isfile(_env_path):
-    try:
-        with open(_env_path, 'r', encoding='utf-8') as _f:
-            for _line in _f:
-                _line = _line.strip()
-                if _line and not _line.startswith('#') and '=' in _line:
-                    _k, _v = _line.split('=', 1)
-                    _k = _k.strip()
-                    _v = _v.strip().strip("'\"")
-                    if _k:
-                        os.environ[_k] = _v
-    except Exception:
-        pass
-
-MONGODB_URI = os.environ.get('MONGODB_URI', '').strip().strip("'\"")
-MONGODB_DB_NAME = os.environ.get('MONGODB_DB_NAME', 'stock_pro_db').strip().strip("'\"")
+# Tự động nạp cấu hình đa môi trường
+load_environment()
+MONGODB_URI, MONGODB_DB_NAME = get_mongodb_config()
 RETENTION_DAYS = int(os.environ.get('PORTFOLIO_RETENTION_DAYS', 180))
 
 _mongo_client = None
 _mongo_db = None
 _use_mongo = False
+_last_reconnect_attempt = 0.0
+_RECONNECT_COOLDOWN_SEC = 5.0
 
 
-def init_portfolio_db() -> bool:
-    """Khởi tạo kết nối MongoDB Atlas."""
-    global _mongo_client, _mongo_db, _use_mongo
+def init_portfolio_db(retries: int = 3, retry_delay: float = 2.0) -> bool:
+    """Khởi tạo kết nối MongoDB Atlas theo profile môi trường có cơ chế retry tự động."""
+    global _mongo_client, _mongo_db, _use_mongo, MONGODB_URI, MONGODB_DB_NAME
+
+    # Cập nhật cấu hình mới nhất từ env_loader
+    MONGODB_URI, MONGODB_DB_NAME = get_mongodb_config()
+    current_env = get_app_env()
 
     if not MONGODB_URI:
-        logger.warning("CẢNH BÁO: MONGODB_URI chưa được cấu hình trong biến môi trường!")
-        return False
-
-    try:
-        from pymongo import MongoClient, ASCENDING, DESCENDING
-        mongo_kwargs = {'serverSelectionTimeoutMS': 5000}
-        try:
-            import certifi
-            mongo_kwargs['tlsCAFile'] = certifi.where()
-        except ImportError:
-            pass
-
-        client = MongoClient(MONGODB_URI, **mongo_kwargs)
-        # Ping kiểm tra kết nối
-        client.admin.command('ping')
-        _mongo_client = client
-        _mongo_db = _mongo_client[MONGODB_DB_NAME]
-        _use_mongo = True
-        logger.info(
-            "Kết nối MongoDB thành công: %s (DB: %s)",
-            MONGODB_URI.split('@')[-1] if '@' in MONGODB_URI else 'Local Mongo',
-            MONGODB_DB_NAME
+        logger.warning(
+            "CẢNH BÁO [%s]: MONGODB_URI chưa được cấu hình! Tạm thời vô hiệu hóa MongoDB.",
+            current_env.upper()
         )
-
-        # 1. Index cho portfolio_trades
-        trades_coll = _mongo_db['portfolio_trades']
-        trades_coll.create_index([("expire_at", ASCENDING)], expireAfterSeconds=0)
-        trades_coll.create_index([("symbol", ASCENDING)])
-        trades_coll.create_index([("order_type", ASCENDING)])
-
-        # 2. Index cho portfolio_settings
-        _mongo_db['portfolio_settings'].create_index([("key", ASCENDING)], unique=True)
-
-        # 3. Index cho alert states & telegram alert logs
-        _mongo_db['alert_states'].create_index([("symbol", ASCENDING)], unique=True)
-        _mongo_db['telegram_alert_logs'].create_index([("key", ASCENDING)], unique=True)
-        _mongo_db['telegram_alert_logs'].create_index([("sent_at", ASCENDING)], expireAfterSeconds=86400 * 7)
-        _mongo_db['telegram_sent_logs'].create_index([("sent_at", DESCENDING)])
-        _mongo_db['telegram_sent_logs'].create_index([("sent_at", ASCENDING)], expireAfterSeconds=86400 * 30)
-
-        # 4. Index cho fundamentals & market snapshot
-        _mongo_db['fundamentals'].create_index([("symbol", ASCENDING)], unique=True)
-        _mongo_db['vci_history'].create_index([("symbol", ASCENDING)], unique=True)
-        _mongo_db['market_board_snapshot'].create_index([("key", ASCENDING)], unique=True)
-
-        return True
-    except Exception as e:
-        logger.error("Lỗi kết nối MongoDB Atlas: %s", e)
-        _use_mongo = False
         return False
+
+    from pymongo import MongoClient
+    mongo_kwargs = {
+        'serverSelectionTimeoutMS': 15000,
+        'connectTimeoutMS': 10000,
+        'socketTimeoutMS': 20000,
+        'retryWrites': True,
+        'retryReads': True,
+    }
+    try:
+        import certifi
+        mongo_kwargs['tlsCAFile'] = certifi.where()
+    except ImportError:
+        pass
+
+    for attempt in range(1, retries + 1):
+        try:
+            client = MongoClient(MONGODB_URI, **mongo_kwargs)
+            # Ping kiểm tra kết nối với cụm replica set
+            client.admin.command('ping')
+            _mongo_client = client
+            _mongo_db = _mongo_client[MONGODB_DB_NAME]
+            _use_mongo = True
+
+            env_tag = "🔴 PROD (DỮ LIỆU THẬT)" if is_production() else f"🟢 {current_env.upper()} (CÁCH LY AN TOÀN)"
+            logger.info(
+                "Kết nối MongoDB thành công [%s]: %s (Database: %s)",
+                env_tag,
+                MONGODB_URI.split('@')[-1] if '@' in MONGODB_URI else 'Local Mongo',
+                MONGODB_DB_NAME
+            )
+
+            # 1. Index cho portfolio_trades
+            trades_coll = _mongo_db[COLL_PORTFOLIO_TRADES]
+            trades_coll.create_index(PortfolioTrade.INDEX_EXPIRE_AT, expireAfterSeconds=0)
+            trades_coll.create_index(PortfolioTrade.INDEX_SYMBOL)
+            trades_coll.create_index(PortfolioTrade.INDEX_ORDER_TYPE)
+
+            # 2. Index cho portfolio_settings
+            _mongo_db[COLL_PORTFOLIO_SETTINGS].create_index(PortfolioSetting.INDEX_KEY, unique=True)
+
+            # 3. Index cho alert states & telegram alert logs
+            _mongo_db[COLL_ALERT_STATES].create_index(AlertState.INDEX_SYMBOL, unique=True)
+            _mongo_db[COLL_TELEGRAM_ALERT_LOGS].create_index(TelegramAlertLog.INDEX_KEY, unique=True)
+            _mongo_db[COLL_TELEGRAM_ALERT_LOGS].create_index(TelegramAlertLog.INDEX_SENT_AT, expireAfterSeconds=86400 * 7)
+            _mongo_db[COLL_TELEGRAM_SENT_LOGS].create_index(TelegramSentLog.INDEX_SENT_AT_DESC)
+            _mongo_db[COLL_TELEGRAM_SENT_LOGS].create_index(TelegramSentLog.INDEX_SENT_AT_ASC, expireAfterSeconds=86400 * 30)
+
+            # 4. Index cho fundamentals & market snapshot
+            _mongo_db[COLL_FUNDAMENTALS].create_index(FundamentalItem.INDEX_SYMBOL, unique=True)
+            _mongo_db[COLL_VCI_HISTORY].create_index(VciHistoryItem.INDEX_SYMBOL, unique=True)
+            _mongo_db[COLL_MARKET_SNAPSHOT].create_index(MarketBoardSnapshot.INDEX_KEY, unique=True)
+
+            return True
+        except Exception as e:
+            if attempt < retries:
+                logger.warning("Thử lại kết nối MongoDB Atlas lần %d/%d (lỗi: %s)...", attempt, retries, e)
+                time.sleep(retry_delay)
+            else:
+                logger.error("Lỗi kết nối MongoDB Atlas sau %d lần thử: %s", retries, e)
+
+    _use_mongo = False
+    return False
+
+
+def get_mongo_db():
+    """Lấy database MongoDB instance, tự động kết nối lại (auto-reconnect) nếu bị ngắt kết nối."""
+    global _last_reconnect_attempt
+    if _use_mongo and _mongo_db is not None:
+        return _mongo_db
+
+    now = time.time()
+    if now - _last_reconnect_attempt >= _RECONNECT_COOLDOWN_SEC:
+        _last_reconnect_attempt = now
+        if init_portfolio_db(retries=2, retry_delay=1.0):
+            return _mongo_db
+    return None
 
 
 # Tự động init khi import
@@ -102,16 +152,17 @@ init_portfolio_db()
 
 
 def save_setting(key: str, value: str) -> bool:
-    """Lưu cài đặt danh mục (ví dụ total_nav) vào MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+    """Lưu cài đặt danh mục (ví dụ total_nav) vào MongoDB thông qua PortfolioSetting Model."""
+    db = get_mongo_db()
+    if db is None:
         logger.warning("MongoDB chưa sẵn sàng, bỏ qua save_setting (%s)", key)
         return False
 
-    now_ts = int(time.time())
+    setting = PortfolioSetting(key=key, value=str(value))
     try:
-        _mongo_db['portfolio_settings'].update_one(
-            {'key': key},
-            {'$set': {'key': key, 'value': str(value), 'updated_at': now_ts}},
+        db[COLL_PORTFOLIO_SETTINGS].update_one(
+            PortfolioSetting.filter_by_key(setting.key),
+            {'$set': setting.to_doc()},
             upsert=True
         )
         return True
@@ -121,120 +172,108 @@ def save_setting(key: str, value: str) -> bool:
 
 
 def get_setting(key: str, default: str = "") -> str:
-    """Lấy giá trị cài đặt danh mục từ MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+    """Lấy giá trị cài đặt danh mục từ MongoDB thông qua PortfolioSetting Model."""
+    db = get_mongo_db()
+    if db is None:
         return default
 
     try:
-        doc = _mongo_db['portfolio_settings'].find_one({'key': key})
+        doc = db[COLL_PORTFOLIO_SETTINGS].find_one(PortfolioSetting.filter_by_key(key))
         if doc:
-            return doc.get('value', default)
+            return PortfolioSetting.from_doc(doc).value
     except Exception as e:
         logger.error("MongoDB get_setting error: %s", e)
     return default
 
 
-def add_trade(trade: Dict[str, Any]) -> Optional[str]:
-    """Thêm giao dịch mới vào MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+def add_trade(trade: Union[PortfolioTrade, Dict[str, Any]]) -> Optional[str]:
+    """Thêm giao dịch mới vào MongoDB thông qua PortfolioTrade Model."""
+    db = get_mongo_db()
+    if db is None:
         logger.error("MongoDB chưa sẵn sàng, không thể thêm giao dịch!")
         return None
 
-    symbol = trade.get('symbol', '').strip().upper()
-    order_type = trade.get('order_type', 'BUY').strip().upper()
-    volume = int(trade.get('volume', 0))
-    price = float(trade.get('price', 0))
-    trade_date = trade.get('trade_date', datetime.now().strftime('%Y-%m-%d')).strip()
-    note = trade.get('note', '').strip()
-    status = trade.get('status', 'HOLDING' if order_type == 'BUY' else 'CLOSED')
+    trade_obj = trade if isinstance(trade, PortfolioTrade) else PortfolioTrade.from_doc(trade)
+    now_dt = datetime.now(VN_TZ)
 
-    now_dt = datetime.now()
-
-    expire_dt = None
-    if order_type == 'SELL' or status == 'CLOSED':
-        expire_dt = now_dt + timedelta(days=RETENTION_DAYS)
+    if trade_obj.order_type == 'SELL' or trade_obj.status == 'CLOSED':
+        trade_obj.expire_at = now_dt + timedelta(days=RETENTION_DAYS)
 
     try:
-        doc = {
-            'symbol': symbol,
-            'order_type': order_type,
-            'volume': volume,
-            'price': price,
-            'trade_date': trade_date,
-            'note': note,
-            'status': status,
-            'created_at': now_dt,
-            'expire_at': expire_dt
-        }
-        res = _mongo_db['portfolio_trades'].insert_one(doc)
+        res = db[COLL_PORTFOLIO_TRADES].insert_one(trade_obj.to_doc())
         return str(res.inserted_id)
     except Exception as e:
         logger.error("MongoDB add_trade error: %s", e)
         return None
 
 
-def get_all_trades() -> List[Dict[str, Any]]:
-    """Lấy danh sách tất cả các giao dịch trong sổ lệnh từ MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+def get_all_trade_models() -> List[PortfolioTrade]:
+    """Lấy danh sách tất cả các giao dịch trong sổ lệnh dưới dạng typed PortfolioTrade Object."""
+    db = get_mongo_db()
+    if db is None:
         return []
 
     try:
-        cursor = _mongo_db['portfolio_trades'].find().sort('trade_date', -1)
-        trades = []
-        for doc in cursor:
-            doc['id'] = str(doc.get('_id'))
-            doc.pop('_id', None)
-            if isinstance(doc.get('created_at'), datetime):
-                doc['created_at'] = int(doc['created_at'].timestamp())
-            if isinstance(doc.get('expire_at'), datetime):
-                doc['expire_at'] = int(doc['expire_at'].timestamp())
-            trades.append(doc)
-        return trades
+        cursor = db[COLL_PORTFOLIO_TRADES].find().sort([PortfolioTrade.SORT_TRADE_DATE_DESC])
+        return [PortfolioTrade.from_doc(doc) for doc in cursor]
     except Exception as e:
-        logger.error("MongoDB get_all_trades error: %s", e)
+        logger.error("MongoDB get_all_trade_models error: %s", e)
         return []
+
+
+def get_all_trades() -> List[Dict[str, Any]]:
+    """Lấy danh sách tất cả các giao dịch trong sổ lệnh từ MongoDB thông qua PortfolioTrade Model."""
+    return [t.to_dict() for t in get_all_trade_models()]
 
 
 def delete_trade(trade_id: str) -> bool:
     """
-    Xóa một giao dịch theo id.
+    Xóa một giao dịch theo id thông qua PortfolioTrade Model.
     Đồng thời kiểm tra nếu mã đó không còn lệnh MUA nào đang nắm giữ,
     tự động dọn sạch alert_states tương ứng để tránh bị rác hoặc cảnh báo sót.
     """
-    if not _use_mongo or _mongo_db is None:
+    db = get_mongo_db()
+    if db is None:
         logger.error("MongoDB chưa sẵn sàng, không thể xóa giao dịch!")
         return False
 
     trade = None
+    query_id = PortfolioTrade.filter_by_id(trade_id)
     try:
-        trade = _mongo_db['portfolio_trades'].find_one({'_id': ObjectId(trade_id)})
+        trade = db[COLL_PORTFOLIO_TRADES].find_one(query_id)
     except Exception:
         pass
+
     if not trade:
-        trade = _mongo_db['portfolio_trades'].find_one({'id': trade_id})
+        try:
+            trade = db[COLL_PORTFOLIO_TRADES].find_one(PortfolioTrade.filter_by_id_str(str(trade_id)))
+        except Exception:
+            pass
 
     deleted = False
     try:
-        res = _mongo_db['portfolio_trades'].delete_one({'_id': ObjectId(trade_id)})
+        res = db[COLL_PORTFOLIO_TRADES].delete_one(query_id)
         deleted = res.deleted_count > 0
     except Exception:
         pass
 
     if not deleted:
         try:
-            res = _mongo_db['portfolio_trades'].delete_one({'id': trade_id})
+            res = db[COLL_PORTFOLIO_TRADES].delete_one(PortfolioTrade.filter_by_id_str(str(trade_id)))
             deleted = res.deleted_count > 0
         except Exception as e:
             logger.error("MongoDB delete_trade error: %s", e)
             return False
 
     if deleted and trade:
-        sym = trade.get('symbol', '').strip().upper()
+        sym = trade.get(PortfolioTrade.F_SYMBOL, '').strip().upper()
         if sym:
-            remaining = _mongo_db['portfolio_trades'].count_documents({'symbol': sym, 'order_type': 'BUY'})
+            remaining = db[COLL_PORTFOLIO_TRADES].count_documents(
+                PortfolioTrade.filter_by_symbol_and_type(sym, 'BUY')
+            )
             if remaining == 0:
                 try:
-                    _mongo_db['alert_states'].delete_one({'symbol': sym})
+                    db[COLL_ALERT_STATES].delete_one(AlertState.filter_by_symbol(sym))
                     logger.info("Đã xóa alert_states cho mã %s vì không còn lệnh BUY trong danh mục.", sym)
                 except Exception as e_alert:
                     logger.warning("Lỗi xóa alert_states cho mã %s: %s", sym, e_alert)
@@ -242,15 +281,25 @@ def delete_trade(trade_id: str) -> bool:
     return deleted
 
 
-def reset_all_trades() -> bool:
-    """Xóa trắng toàn bộ giao dịch trong sổ lệnh và dọn sạch alert_states trong MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+def reset_all_trades(force_prod: bool = False) -> bool:
+    """Xóa trắng toàn bộ giao dịch trong sổ lệnh và dọn sạch alert_states trong MongoDB.
+    Trên môi trường PRODUCTION, bắt buộc phải truyền force_prod=True để tránh xóa nhầm dữ liệu thật.
+    """
+    db = get_mongo_db()
+    if db is None:
+        return False
+
+    if is_production() and not force_prod:
+        logger.warning(
+            "CẢNH BÁO AN TOÀN: Thao tác reset toàn bộ sổ lệnh trên môi trường PRODUCTION bị chặn! "
+            "Cần truyền force_prod=True để xác nhận xóa thật."
+        )
         return False
 
     try:
-        _mongo_db['portfolio_trades'].delete_many({})
-        _mongo_db['alert_states'].delete_many({})
-        logger.info("Đã xóa sạch portfolio_trades và alert_states trong MongoDB.")
+        db[COLL_PORTFOLIO_TRADES].delete_many({})
+        db[COLL_ALERT_STATES].delete_many({})
+        logger.info("Đã xóa sạch portfolio_trades và alert_states trong MongoDB (%s).", MONGODB_DB_NAME)
         return True
     except Exception as e:
         logger.error("MongoDB reset_all_trades error: %s", e)
@@ -259,11 +308,15 @@ def reset_all_trades() -> bool:
 
 def get_active_holding_symbols() -> List[str]:
     """Lấy danh sách mã CK duy nhất đang có vị thế MUA (HOLDING) từ MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+    db = get_mongo_db()
+    if db is None:
         return []
 
     try:
-        symbols = _mongo_db['portfolio_trades'].distinct('symbol', {'order_type': 'BUY'})
+        symbols = db[COLL_PORTFOLIO_TRADES].distinct(
+            PortfolioTrade.F_SYMBOL,
+            PortfolioTrade.filter_active_holdings()
+        )
         return sorted([s.strip().upper() for s in symbols if s and s.strip()])
     except Exception as e:
         logger.error("MongoDB get_active_holding_symbols error: %s", e)
@@ -272,45 +325,39 @@ def get_active_holding_symbols() -> List[str]:
 
 # ==================== ALERT STATES (Chống spam Telegram) ====================
 def get_alert_state(symbol: str) -> Dict[str, Any]:
-    """Lấy trạng thái cảnh báo gần nhất của một mã từ MongoDB."""
+    """Lấy trạng thái cảnh báo gần nhất của một mã từ MongoDB thông qua AlertState Model."""
     sym = symbol.upper()
-    default_state = {
-        'symbol': sym,
-        'last_alert_type': '',
-        'last_alert_time': 0,
-        'flip_count_today': 0,
-        'last_ribbon_color': '',
-        'pending_summary': '',
-        'updated_at': 0
-    }
-    if not _use_mongo or _mongo_db is None:
-        return default_state
+    db = get_mongo_db()
+    if db is None:
+        return AlertState(symbol=sym).to_dict()
 
     try:
-        doc = _mongo_db['alert_states'].find_one({'symbol': sym})
+        doc = db[COLL_ALERT_STATES].find_one(AlertState.filter_by_symbol(sym))
         if doc:
             doc.pop('_id', None)
-            return doc
+            return AlertState.from_doc(doc, symbol=sym).to_dict()
     except Exception as e:
         logger.error("MongoDB get_alert_state error: %s", e)
 
-    return default_state
+    return AlertState(symbol=sym).to_dict()
 
 
-def save_alert_state(symbol: str, data: Dict[str, Any]) -> bool:
-    """Cập nhật trạng thái cảnh báo của một mã vào MongoDB."""
-    if not _use_mongo or _mongo_db is None:
+def save_alert_state(symbol: str, data: Union[AlertState, Dict[str, Any]]) -> bool:
+    """Cập nhật trạng thái cảnh báo của một mã vào MongoDB thông qua AlertState Model."""
+    db = get_mongo_db()
+    if db is None:
         return False
 
     sym = symbol.upper()
-    now_ts = int(time.time())
-    data['updated_at'] = now_ts
-    data['symbol'] = sym
+    if isinstance(data, AlertState):
+        state_obj = data
+    else:
+        state_obj = AlertState.from_doc(data, symbol=sym)
 
     try:
-        _mongo_db['alert_states'].update_one(
-            {'symbol': sym},
-            {'$set': data},
+        db[COLL_ALERT_STATES].update_one(
+            AlertState.filter_by_symbol(sym),
+            {'$set': state_obj.to_doc()},
             upsert=True
         )
         return True
@@ -325,15 +372,18 @@ def is_alert_already_sent(alert_key: str, min_interval_seconds: int = 7200) -> b
     Kiểm tra xem một loại cảnh báo đã được gửi qua Telegram gần đây hay chưa (hỗ trợ phân tán Multi-Instance / Render + Local).
     Trả về True nếu ĐÃ gửi trong vòng min_interval_seconds giây qua.
     """
-    if not _use_mongo or _mongo_db is None:
+    db = get_mongo_db()
+    if db is None:
         return False
 
     now_ts = int(time.time())
     try:
-        doc = _mongo_db['telegram_alert_logs'].find_one({'key': alert_key})
+        doc = db[COLL_TELEGRAM_ALERT_LOGS].find_one(TelegramAlertLog.filter_by_key(alert_key))
         if doc:
-            sent_at = doc.get('sent_at', 0)
-            if now_ts - sent_at < min_interval_seconds:
+            log_item = TelegramAlertLog.from_doc(doc)
+            from backend.utils.datetime_helpers import to_timestamp_int
+            sent_ts = to_timestamp_int(log_item.sent_at)
+            if now_ts - sent_ts < min_interval_seconds:
                 return True
         return False
     except Exception as e:
@@ -343,14 +393,15 @@ def is_alert_already_sent(alert_key: str, min_interval_seconds: int = 7200) -> b
 
 def record_alert_sent(alert_key: str, preview: str = '') -> bool:
     """Ghi nhận cảnh báo Telegram đã gửi thành công để chống trùng lặp đa tiến trình/đám mây."""
-    if not _use_mongo or _mongo_db is None:
+    db = get_mongo_db()
+    if db is None:
         return False
 
-    now_ts = int(time.time())
+    log_item = TelegramAlertLog(key=alert_key, preview=preview)
     try:
-        _mongo_db['telegram_alert_logs'].update_one(
-            {'key': alert_key},
-            {'$set': {'key': alert_key, 'sent_at': now_ts, 'preview': preview[:100]}},
+        db[COLL_TELEGRAM_ALERT_LOGS].update_one(
+            TelegramAlertLog.filter_by_key(alert_key),
+            {'$set': log_item.to_doc()},
             upsert=True
         )
         return True
@@ -374,7 +425,8 @@ def save_telegram_sent_log(
     không lưu HTML dài để tối ưu dung lượng và tiện tra cứu audit.
     Hỗ trợ cả truyền dict (log_meta) hoặc các tham số rời.
     """
-    if not _use_mongo or _mongo_db is None:
+    db = get_mongo_db()
+    if db is None:
         return False
 
     if isinstance(alert_type, dict):
@@ -409,20 +461,20 @@ def save_telegram_sent_log(
             'net_rr': float(s.get('net_rr') if s.get('net_rr') is not None else (s.get('netRR', 0.0) if s.get('netRR') is not None else 0.0)),
         })
 
-    log_doc = {
-        'alert_type': str(alert_type).upper(),
-        'title': title,
-        'sent_at': now_ts,
-        'sent_time_vn': vn_time_str,
-        'market_regime': market_regime,
-        'vnindex': vnindex,
-        'stocks': clean_stocks,
-        'message_id': message_id,
-        'status': status,
-    }
+    sent_log = TelegramSentLog(
+        alert_type=str(alert_type).upper(),
+        title=title,
+        sent_at=now_ts,
+        sent_time_vn=vn_time_str,
+        market_regime=market_regime,
+        vnindex=vnindex,
+        stocks=clean_stocks,
+        message_id=message_id,
+        status=status,
+    )
 
     try:
-        res = _mongo_db['telegram_sent_logs'].insert_one(log_doc)
+        res = db[COLL_TELEGRAM_SENT_LOGS].insert_one(sent_log.to_doc())
         return str(res.inserted_id) if res.inserted_id else True
     except Exception as e:
         logger.warning("MongoDB save_telegram_sent_log error: %s", e)
@@ -430,17 +482,14 @@ def save_telegram_sent_log(
 
 
 def get_telegram_sent_logs(limit: int = 50) -> list:
-    """Lấy danh sách lịch sử cảnh báo Telegram đã gửi từ MongoDB Atlas."""
-    if not _use_mongo or _mongo_db is None:
+    """Lấy danh sách lịch sử cảnh báo Telegram đã gửi từ MongoDB Atlas thông qua TelegramSentLog Model."""
+    db = get_mongo_db()
+    if db is None:
         return []
 
     try:
-        cursor = _mongo_db['telegram_sent_logs'].find().sort('sent_at', -1).limit(limit)
-        results = []
-        for doc in cursor:
-            doc.pop('_id', None)
-            results.append(doc)
-        return results
+        cursor = db[COLL_TELEGRAM_SENT_LOGS].find().sort([TelegramSentLog.SORT_SENT_AT_DESC]).limit(limit)
+        return [TelegramSentLog.from_doc(doc).to_dict() for doc in cursor]
     except Exception as e:
         logger.warning("MongoDB get_telegram_sent_logs error: %s", e)
         return []

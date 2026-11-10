@@ -4,6 +4,11 @@ __pycache__/
 *.so
 .DS_Store
 .env
+.env.*
+!.env.example
+envs/.env*
+envs/*.env
+!envs/.env.example
 .venv/
 env/
 venv/

@@ -1,4 +1,4 @@
-import { formatVND } from '../utils.js?v=5.0';
+import { formatVND, formatNumber, formatLiveVolumeInput } from '../utils.js?v=6.0';
 import { getPortfolioBundle, getPortfolioAlternatives, getPortfolioSectors, searchStocks, getStockDetail } from '../api.js?v=5.0';
 
 let currentCapital = 20000000;
@@ -57,8 +57,12 @@ export function initPortfolioBundle(selectStockCb) {
         });
         loadBundleData(currentCapital, currentStyle);
       } else {
-        alert('Vui lòng nhập số vốn tối thiểu từ 5.000.000 đ');
+        alert('Vui lòng nhập số vốn tối thiểu từ 5,000,000 đ');
       }
+    });
+
+    customInput.addEventListener('input', (e) => {
+      formatLiveVolumeInput(e.target);
     });
 
     customInput.addEventListener('keydown', (e) => {
@@ -510,7 +514,7 @@ function renderAlternativesList(alts, budget) {
             Giá: <strong class="text-white font-mono">${formatVND(s.price)} đ</strong>
             <span class="ml-1.5 font-bold ${isUp ? 'text-emerald-400' : 'text-rose-400'}">${isUp ? '+' : ''}${s.percentChange}%</span>
             <span class="text-slate-500 ml-1.5">|</span>
-            <span class="text-slate-400 ml-1.5">Mua tối đa: <strong class="text-blue-400 font-mono">${s.suggestedQty} CP</strong> (~${formatVND(s.totalCost)} đ)</span>
+            <span class="text-slate-400 ml-1.5">Mua tối đa: <strong class="text-blue-400 font-mono">${formatNumber(s.suggestedQty)} CP</strong> (~${formatVND(s.totalCost)} đ)</span>
           </div>
         </div>
         <div>

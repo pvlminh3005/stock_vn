@@ -15,21 +15,9 @@ from backend.constants.urls import build_telegram_url
 
 logger = logging.getLogger('telegram_bot')
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_env_path = os.path.join(BASE_DIR, '.env')
-if os.path.isfile(_env_path):
-  try:
-    with open(_env_path, 'r', encoding='utf-8') as _f:
-      for _line in _f:
-        _line = _line.strip()
-        if _line and not _line.startswith('#') and '=' in _line:
-          _k, _v = _line.split('=', 1)
-          _k = _k.strip()
-          _v = _v.strip().strip("'\"")
-          if _k and _k not in os.environ:
-            os.environ[_k] = _v
-  except Exception:
-    pass
+from backend.config.env_loader import load_environment
+
+load_environment()
 
 # Cấu hình mặc định từ biến môi trường (Bảo mật: không hardcode key/id trên Git)
 DEFAULT_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')

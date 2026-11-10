@@ -26,29 +26,17 @@ for p in [ROOT_DIR, BACKEND_DIR]:
   if p not in sys.path:
     sys.path.insert(0, p)
 
-# Tự động nạp file .env nội bộ (nếu có) để đọc config bảo mật
-def reload_env_file():
-  """Đọc và nạp các biến môi trường từ file .env nội bộ nếu có."""
-  env_path = os.path.join(ROOT_DIR, '.env')
-  found_keys = set()
-  if os.path.isfile(env_path):
-    try:
-      with open(env_path, 'r', encoding='utf-8') as f:
-        for line in f:
-          line = line.strip()
-          if line and not line.startswith('#') and '=' in line:
-            k, v = line.split('=', 1)
-            k = k.strip()
-            v = v.strip().strip("'\"")
-            if k:
-              os.environ[k] = v
-              found_keys.add(k)
-    except Exception:
-      pass
+from backend.config.env_loader import (
+    load_environment,
+    get_app_env,
+    is_production,
+    get_mongodb_config,
+)
 
-  # Nếu WHITELIST_HOSTS bị xóa hoặc comment khỏi file .env -> Xóa ngay khỏi os.environ
-  if 'WHITELIST_HOSTS' not in found_keys:
-    os.environ.pop('WHITELIST_HOSTS', None)
+# Tự động nạp file .env nội bộ theo profile môi trường (dev / prod / test)
+def reload_env_file():
+  """Đọc và nạp các biến môi trường từ file .env nội bộ tương ứng với profile."""
+  load_environment(force_reload=True)
 
 reload_env_file()
 
@@ -124,6 +112,127 @@ def render_template_html(file_path):
     print('Lỗi render template HTML:', e)
     with open(file_path, 'r', encoding='utf-8') as f:
       return f.read()
+
+
+
+# ==================== ROUTE REGISTRY & DISPATCHER ====================
+
+def _route_chart(params):
+  ticker_list = params.get('ticker', [''])
+  ticker = ticker_list[0].strip().upper() if ticker_list else ''
+  if not ticker:
+    return 400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'}
+  resolution = params.get('resolution', ['1D'])[0]
+  return 200, handle_chart(ticker, resolution=resolution)
+
+def _route_stock(params):
+  ticker_list = params.get('ticker', [''])
+  ticker = ticker_list[0].strip().upper() if ticker_list else ''
+  if not ticker:
+    return 400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'}
+  resolution = params.get('resolution', ['1D'])[0]
+  return 200, handle_stock_detail(ticker, resolution=resolution)
+
+def _route_market_regime(params):
+  return 200, handle_market_regime()
+
+def _route_market_sentiment(params):
+  return 200, handle_market_sentiment()
+
+def _route_screener(params):
+  return 200, handle_screener()
+
+def _route_top_tplus(params):
+  return 200, handle_top_tplus()
+
+def _route_search(params):
+  q = params.get('q', [''])[0]
+  return 200, handle_search(q)
+
+def _route_portfolio_bundle(params):
+  cap = params.get('capital', ['20000000'])[0]
+  style = params.get('style', ['balanced'])[0]
+  return 200, handle_portfolio_bundle(capital=cap, style=style)
+
+def _route_portfolio_alternatives(params):
+  sym = params.get('symbol', [''])[0]
+  sector = params.get('sector', [''])[0]
+  max_budget = params.get('budget', ['10000000'])[0]
+  exclude_sector = params.get('exclude_sector', [None])[0]
+  target_sector = params.get('target_sector', [None])[0]
+  return 200, handle_portfolio_alternatives(
+      current_symbol=sym,
+      sector=sector,
+      max_budget=max_budget,
+      exclude_sector=exclude_sector,
+      target_sector=target_sector,
+  )
+
+def _route_portfolio_sectors(params):
+  max_budget = params.get('budget', ['10000000'])[0]
+  exclude_sector = params.get('exclude_sector', [None])[0]
+  return 200, handle_portfolio_sectors(
+      max_budget=max_budget,
+      exclude_sector=exclude_sector,
+  )
+
+def _route_telegram_test(params):
+  sym = params.get('ticker', ['SSI'])[0]
+  return 200, handle_telegram_test(ticker=sym)
+
+def _route_telegram_logs(params):
+  limit_str = params.get('limit', ['50'])[0]
+  limit_val = int(limit_str) if limit_str.isdigit() else 50
+  from backend.db.portfolio_db import get_telegram_sent_logs
+  return 200, {'status': 'success', 'data': get_telegram_sent_logs(limit=limit_val)}
+
+def _route_portfolio_get(params):
+  return 200, handle_get_portfolio()
+
+def _route_portfolio_delete_get(params):
+  trade_id = params.get('id', [''])[0]
+  return 200, handle_delete_trade(trade_id)
+
+GET_ROUTES = {
+    '/api/chart': _route_chart,
+    '/api/stock': _route_stock,
+    '/api/market-regime': _route_market_regime,
+    '/api/market-sentiment': _route_market_sentiment,
+    '/api/screener': _route_screener,
+    '/api/top-tplus': _route_top_tplus,
+    '/api/search': _route_search,
+    '/api/portfolio-bundle': _route_portfolio_bundle,
+    '/api/portfolio-alternatives': _route_portfolio_alternatives,
+    '/api/portfolio-sectors': _route_portfolio_sectors,
+    '/api/telegram/test': _route_telegram_test,
+    '/api/telegram/logs': _route_telegram_logs,
+    '/api/portfolio': _route_portfolio_get,
+    '/api/portfolio/delete': _route_portfolio_delete_get,
+}
+
+def _route_portfolio_trade_add(body, params):
+  res = handle_add_trade(body)
+  return (200 if res.get('success') else 400), res
+
+def _route_portfolio_trade_delete(body, params):
+  trade_id = str(body.get('id') or params.get('id', [''])[0])
+  res = handle_delete_trade(trade_id)
+  return (200 if res.get('success') else 400), res
+
+def _route_portfolio_settings(body, params):
+  res = handle_save_settings(body)
+  return (200 if res.get('success') else 400), res
+
+def _route_portfolio_reset(body, params):
+  res = handle_reset_portfolio()
+  return (200 if res.get('success') else 400), res
+
+POST_ROUTES = {
+    '/api/portfolio/trade': _route_portfolio_trade_add,
+    '/api/portfolio/trade/delete': _route_portfolio_trade_delete,
+    '/api/portfolio/settings': _route_portfolio_settings,
+    '/api/portfolio/reset': _route_portfolio_reset,
+}
 
 
 class ModularStockServer(http.server.SimpleHTTPRequestHandler):
@@ -277,146 +386,12 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         self.send_json(401, {'error': 'UNAUTHORIZED', 'message': 'Yêu cầu mã PIN bảo vệ để truy cập hệ thống'})
         return
 
-    # 1. API: Nến Biểu đồ nhanh
-    if path == '/api/chart':
-      ticker_list = params.get('ticker', [''])
-      ticker = ticker_list[0].strip().upper() if ticker_list else ''
-      if not ticker:
-        self.send_json(400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'})
-        return
-      resolution = params.get('resolution', ['1D'])[0]
+    # Dispatcher cho các GET API routes
+    handler = GET_ROUTES.get(path)
+    if handler:
       try:
-        self.send_json(200, handle_chart(ticker, resolution=resolution))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 2. API: Chi tiết Cổ phiếu
-    if path == '/api/stock' or self.path.startswith('/api/stock?'):
-      ticker_list = params.get('ticker', [''])
-      ticker = ticker_list[0].strip().upper() if ticker_list else ''
-      if not ticker:
-        self.send_json(400, {'error': 'Vui lòng cung cấp mã cổ phiếu (ticker)'})
-        return
-      resolution = params.get('resolution', ['1D'])[0]
-      try:
-        self.send_json(200, handle_stock_detail(ticker, resolution=resolution))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 3. API: Regime thị trường
-    if path == '/api/market-regime':
-      try:
-        self.send_json(200, handle_market_regime())
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 4. API: Tâm lý thị trường (Fear & Greed)
-    if path == '/api/market-sentiment':
-      try:
-        self.send_json(200, handle_market_sentiment())
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 5. API: Screener & Top T+
-    if path == '/api/screener':
-      try:
-        self.send_json(200, handle_screener())
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/top-tplus':
-      try:
-        self.send_json(200, handle_top_tplus())
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 6. API: Tìm kiếm mã
-    if path == '/api/search':
-      q = params.get('q', [''])[0]
-      try:
-        self.send_json(200, handle_search(q))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 7. API: Gói danh mục đầu tư theo vốn & Mã thay thế
-    if path == '/api/portfolio-bundle':
-      cap = params.get('capital', ['20000000'])[0]
-      style = params.get('style', ['balanced'])[0]
-      try:
-        self.send_json(200, handle_portfolio_bundle(capital=cap, style=style))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/portfolio-alternatives':
-      sym = params.get('symbol', [''])[0]
-      sector = params.get('sector', [''])[0]
-      max_budget = params.get('budget', ['10000000'])[0]
-      exclude_sector = params.get('exclude_sector', [None])[0]
-      target_sector = params.get('target_sector', [None])[0]
-      try:
-        self.send_json(200, handle_portfolio_alternatives(
-            current_symbol=sym,
-            sector=sector,
-            max_budget=max_budget,
-            exclude_sector=exclude_sector,
-            target_sector=target_sector,
-        ))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/portfolio-sectors':
-      max_budget = params.get('budget', ['10000000'])[0]
-      exclude_sector = params.get('exclude_sector', [None])[0]
-      try:
-        self.send_json(200, handle_portfolio_sectors(
-            max_budget=max_budget,
-            exclude_sector=exclude_sector,
-        ))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 8. API: Kiểm tra kết nối Telegram Bot & Gửi thử nghiệm
-    if path == '/api/telegram/test':
-      sym = params.get('ticker', ['SSI'])[0]
-      try:
-        self.send_json(200, handle_telegram_test(ticker=sym))
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 8.1 API: Lịch sử tin nhắn cảnh báo Telegram đã gửi (tracking)
-    if path == '/api/telegram/logs':
-      limit_str = params.get('limit', ['50'])[0]
-      try:
-        limit_val = int(limit_str) if limit_str.isdigit() else 50
-        from backend.db.portfolio_db import get_telegram_sent_logs
-        self.send_json(200, {'status': 'success', 'data': get_telegram_sent_logs(limit=limit_val)})
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    # 9. API: Sổ Lệnh / Danh Mục Cá Nhân
-    if path == '/api/portfolio':
-      try:
-        self.send_json(200, handle_get_portfolio())
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/portfolio/delete':
-      trade_id = params.get('id', [''])[0]
-      try:
-        self.send_json(200, handle_delete_trade(trade_id))
+        status, data = handler(params)
+        self.send_json(status, data)
       except Exception as e:
         self.send_json(500, {'error': str(e)})
       return
@@ -476,35 +451,11 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
         except Exception:
           post_body = {}
 
-    if path == '/api/portfolio/trade':
+    handler = POST_ROUTES.get(path)
+    if handler:
       try:
-        res = handle_add_trade(post_body)
-        self.send_json(200 if res.get('success') else 400, res)
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/portfolio/trade/delete':
-      trade_id = str(post_body.get('id') or params.get('id', [''])[0])
-      try:
-        res = handle_delete_trade(trade_id)
-        self.send_json(200 if res.get('success') else 400, res)
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/portfolio/settings':
-      try:
-        res = handle_save_settings(post_body)
-        self.send_json(200 if res.get('success') else 400, res)
-      except Exception as e:
-        self.send_json(500, {'error': str(e)})
-      return
-
-    if path == '/api/portfolio/reset':
-      try:
-        res = handle_reset_portfolio()
-        self.send_json(200 if res.get('success') else 400, res)
+        status, res = handler(post_body, params)
+        self.send_json(status, res)
       except Exception as e:
         self.send_json(500, {'error': str(e)})
       return
@@ -519,11 +470,15 @@ class ReusableTCPServer(socketserver.TCPServer):
 
 if __name__ == '__main__':
   PORT = get_configured_port(8000)
+  app_env = get_app_env()
+  _, db_name = get_mongodb_config()
+  env_tag = "PROD (DỮ LIỆU THẬT)" if is_production() else f"{app_env.upper()} (CÁCH LY AN TOÀN)"
+
   threading.Thread(target=warm_up_market_data, daemon=True).start()
   threading.Thread(target=start_screener_worker, daemon=True).start()
   start_portfolio_scheduler()
   print(
-      f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT} (PORT={PORT})'
+      f'🚀 Pro Stock Analytics Engine khởi chạy tại: http://localhost:{PORT} (PORT={PORT}) | ENV: [{env_tag}] | DB: [{db_name}]'
   )
   try:
     with ReusableTCPServer(('', PORT), ModularStockServer) as httpd:

@@ -18,11 +18,13 @@ from backend.utils.ohlc_helpers import period_key, expected_latest_report_period
 
 
 def _get_vci_mongo():
-  """Lấy collection vci_history từ MongoDB Atlas."""
+  """Lấy collection vci_history từ MongoDB Atlas (hỗ trợ auto-reconnect)."""
   try:
-    from backend.db.portfolio_db import _mongo_db, _use_mongo
-    if _use_mongo and _mongo_db is not None:
-      return _mongo_db['vci_history']
+    from backend.db.portfolio_db import get_mongo_db
+    from backend.constants.db import COLL_VCI_HISTORY
+    db = get_mongo_db()
+    if db is not None:
+      return db[COLL_VCI_HISTORY]
   except Exception:
     pass
   return None
@@ -117,11 +119,14 @@ def get_vci_financial_history(symbol):
 
   if coll is not None:
     try:
-      doc = coll.find_one({'symbol': sym})
+      from backend.models.db_models import VciHistoryItem
+      doc = coll.find_one(VciHistoryItem.filter_by_symbol(sym))
       if doc:
-        payload = doc.get('payload')
-        latest_period = doc.get('latest_period', '')
-        updated_at = doc.get('updated_at', 0)
+        item = VciHistoryItem.from_doc(doc)
+        from backend.utils.datetime_helpers import to_timestamp_int
+        payload = item.payload
+        latest_period = item.latest_period
+        updated_at = to_timestamp_int(item.updated_at)
         age = now - updated_at
         period_ok = expected is None or (period_key(latest_period) or (0, 0)) >= expected
         if age < 86400 or (age < 604800 and period_ok):
@@ -136,9 +141,16 @@ def get_vci_financial_history(symbol):
   # Không cache bản thiếu để lần sau tải lại đủ
   if hist and not hist.get('partial') and coll is not None:
     try:
+      from backend.models.db_models import VciHistoryItem
+      item = VciHistoryItem(
+          symbol=sym,
+          payload=hist,
+          latest_period=hist.get('latestPeriod', ''),
+          updated_at=now
+      )
       coll.update_one(
-          {'symbol': sym},
-          {'$set': {'symbol': sym, 'payload': hist, 'latest_period': hist.get('latestPeriod', ''), 'updated_at': now}},
+          VciHistoryItem.filter_by_symbol(sym),
+          {'$set': item.to_doc()},
           upsert=True
       )
     except Exception as e:

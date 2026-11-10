@@ -97,14 +97,20 @@ def fetch_chart_data(ticker, days=120, resolution='1D', market_item=None, ssi_it
   return raw_data
 
 
-def fetch_intraday_snapshot(ticker, daily_prev_close=None):
+def fetch_intraday_snapshot(ticker, from_ts=None, daily_prev_close=None):
   """
   Trích xuất snapshot giá và khối lượng thời gian thực (Realtime) từ luồng nến 1 phút Entrade.
   Đảm bảo cung cấp dữ liệu sống trong ngày (intraday) mà KHÔNG BỊ CHẶN IP trên Cloud / Render.
+  Mốc from_ts được lấy động từ phiên giao dịch liền trước (VN-Index) thay vì hardcode số ngày tĩnh.
   """
   sym = (ticker or '').strip().upper()
   now_ts = int(time.time())
-  from_ts = now_ts - 86400 * 2  # Lấy 2 ngày gần nhất
+  if from_ts is None or from_ts <= 0:
+    try:
+      from backend.data_providers.market_board_provider import get_last_trading_day_timestamp
+      from_ts = get_last_trading_day_timestamp()
+    except Exception:
+      from_ts = now_ts - 86400 * 4
   url = build_entrade_chart_url('stock', {'from': from_ts, 'to': now_ts, 'symbol': sym, 'resolution': 1})
 
   try:
@@ -140,9 +146,12 @@ def fetch_intraday_snapshot(ticker, daily_prev_close=None):
     if not today_indices:
       return None
 
+    first_idx = today_indices[0]
     last_idx = today_indices[-1]
     scale = 1000 if c[last_idx] < 1000 else 1
     matched_price = float(c[last_idx] * scale)
+    open_p = float(o[first_idx] * scale) if o and len(o) > first_idx else matched_price
+    session_start = int(t[first_idx] * 1000) if t and len(t) > first_idx else None
     today_highs = [h[i] * scale for i in today_indices]
     today_lows = [l[i] * scale for i in today_indices]
     today_vols = [v[i] for i in today_indices]
@@ -160,9 +169,14 @@ def fetch_intraday_snapshot(ticker, daily_prev_close=None):
       if prev_indices:
         ref_price = float(c[prev_indices[-1]] * scale)
       else:
-        ref_price = matched_price
+        cached_daily = _HISTORICAL_CHART_CACHE.get(f"{sym}_1D_120", {}).get('data')
+        if cached_daily and cached_daily.get('c'):
+          ref_c = cached_daily['c'][-1]
+          ref_price = float(ref_c * (1000 if ref_c < 1000 else 1))
+        else:
+          ref_price = matched_price
 
-    price_change = matched_price - ref_price
+    price_change = round(matched_price - ref_price, 2)
     pct_change = round((price_change / ref_price * 100), 2) if ref_price > 0 else 0.0
 
     # Lực mua / bán chủ động từ các nến 1 phút
@@ -184,6 +198,7 @@ def fetch_intraday_snapshot(ticker, daily_prev_close=None):
     return {
         'stockSymbol': sym,
         'matchedPrice': matched_price,
+        'openPrice': open_p,
         'refPrice': ref_price,
         'highest': high_p,
         'lowest': low_p,
@@ -198,6 +213,7 @@ def fetch_intraday_snapshot(ticker, daily_prev_close=None):
         'exchange': 'HOSE',
         'stockType': 's',
         'isEntradeRealtime': True,
+        'sessionStart': session_start,
     }
   except Exception:
     return None

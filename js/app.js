@@ -1,4 +1,4 @@
-import { formatVND, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=5.8';
+import { formatVND, formatPriceVND, formatNumber, formatCompactNumber, initTooltipBoundaryProtection, formatDateVN } from './utils.js?v=6.0';
 import { getStockDetail, getChartData, searchStocks } from './api.js?v=5.8';
 import { API_ENDPOINTS, buildApiUrl } from './constants/apiUrls.js?v=5.8';
 import { initChart, updateChartData } from './modules/chart.js?v=5.8';
@@ -102,6 +102,9 @@ function renderQuickHeader(data) {
   const lowPrice = data.lowest || data.lowPrice || data.floor || price;
 
   safeSetText("priceHigh", formatVND(highPrice));
+  if (data.openPrice) {
+    safeSetText("priceOpen", formatVND(data.openPrice));
+  }
   safeSetText("priceRef", formatVND(data.refPrice));
   safeSetText("priceLow", formatVND(lowPrice));
 
@@ -277,7 +280,7 @@ function renderFundamentalsTab(data) {
   const elOcfSub = document.getElementById("ocfSubTxt");
   if (elOcf) {
     if (typeof ocfVal === 'number' && ocfVal !== 0) {
-      elOcf.innerText = `${ocfVal >= 0 ? '+' : ''}${ocfVal.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} tỷ`;
+      elOcf.innerText = `${ocfVal >= 0 ? '+' : ''}${ocfVal.toLocaleString('en-US', { maximumFractionDigits: 1 })} tỷ`;
       elOcf.className = `text-lg font-bold font-mono ${ocfVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
     } else {
       elOcf.innerText = "Dữ liệu chưa ghi nhận";
@@ -506,7 +509,7 @@ function setupAutocomplete() {
         const sign = pct > 0 ? '+' : '';
         priceHtml = `
           <div class="text-right flex-shrink-0 pointer-events-none">
-            <div class="font-mono font-bold text-xs ${colorClass}">${price.toLocaleString('vi-VN')} đ</div>
+            <div class="font-mono font-bold text-xs ${colorClass}">${formatVND(price)} đ</div>
             <div class="text-[10px] font-mono ${colorClass}">${sign}${pct.toFixed(2)}%</div>
           </div>
         `;

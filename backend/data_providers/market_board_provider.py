@@ -24,26 +24,69 @@ _BOARD_CACHE = {
 }
 _CACHE_TTL = 45  # 45 giây cache RAM
 
+_PREV_SESSION_CACHE = {
+    'timestamp': 0,
+    'session_ts': 0,
+}
+
+
+def get_last_trading_day_timestamp() -> int:
+  """
+  Xác định timestamp bắt đầu của phiên giao dịch thực tế gần nhất trước hôm nay từ nến ngày VN-Index.
+  Tự động bỏ qua mọi kỳ nghỉ lễ (Tết Nguyên Đán 7-10 ngày, nghỉ lễ 30/4, cuối tuần) không phụ thuộc ngày lịch.
+  Cache RAM 5 phút để tránh gọi lặp lại.
+  """
+  now = time.time()
+  if now - _PREV_SESSION_CACHE['timestamp'] < 300 and _PREV_SESSION_CACHE['session_ts'] > 0:
+    return _PREV_SESSION_CACHE['session_ts']
+
+  from backend.utils.time_utils import vn_date, VN_UTC_OFFSET_SEC
+  now_ts = int(now)
+  from_ts = now_ts - 86400 * 30  # 30 ngày nến ngày VN-Index (chỉ ~20 cây nến, rất nhẹ)
+  url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
+  try:
+    data = fetch_json(url, timeout=5)
+    t = data.get('t', [])
+    if t:
+      today_str = time.strftime('%Y-%m-%d', time.gmtime(now + VN_UTC_OFFSET_SEC))
+      if vn_date(t[-1]) == today_str and len(t) > 1:
+        prev_ts = int(t[-2])
+      else:
+        prev_ts = int(t[-1])
+      _PREV_SESSION_CACHE['timestamp'] = now
+      _PREV_SESSION_CACHE['session_ts'] = prev_ts
+      return prev_ts
+  except Exception as e:
+    logger.debug('Lỗi xác định timestamp phiên trước từ VN-Index: %s', e)
+
+  # Fallback an toàn nếu lỗi mạng: lùi tối thiểu 4 ngày
+  fallback_ts = now_ts - 86400 * 4
+  return fallback_ts
+
 
 def _get_mongo_collection():
-  """Lấy collection snapshot từ MongoDB Atlas nếu có kết nối."""
+  """Lấy collection snapshot từ MongoDB Atlas nếu có kết nối (hỗ trợ auto-reconnect)."""
   try:
-    from backend.db.portfolio_db import _mongo_db
-    if _mongo_db is not None:
-      return _mongo_db['market_board_snapshot']
+    from backend.db.portfolio_db import get_mongo_db
+    from backend.constants.db import COLL_MARKET_SNAPSHOT
+    db = get_mongo_db()
+    if db is not None:
+      return db[COLL_MARKET_SNAPSHOT]
   except Exception:
     pass
   return None
 
 
 def _save_snapshot_to_mongo(board_data: dict):
-  """Lưu snapshot bảng giá mới nhất lên MongoDB Atlas."""
+  """Lưu snapshot bảng giá mới nhất lên MongoDB Atlas thông qua MarketBoardSnapshot Model."""
   try:
     coll = _get_mongo_collection()
     if coll is not None and board_data:
+      from backend.models.db_models import MarketBoardSnapshot
+      snapshot = MarketBoardSnapshot(data=board_data)
       coll.update_one(
-          {'key': 'latest_board'},
-          {'$set': {'key': 'latest_board', 'data': board_data, 'updated_at': int(time.time()), 'total_stocks': len(board_data)}},
+          MarketBoardSnapshot.filter_by_key(snapshot.key),
+          {'$set': snapshot.to_doc()},
           upsert=True
       )
   except Exception as e:
@@ -51,13 +94,14 @@ def _save_snapshot_to_mongo(board_data: dict):
 
 
 def _load_snapshot_from_mongo() -> dict:
-  """Đọc snapshot bảng giá mới nhất từ MongoDB Atlas."""
+  """Đọc snapshot bảng giá mới nhất từ MongoDB Atlas thông qua MarketBoardSnapshot Model."""
   try:
     coll = _get_mongo_collection()
     if coll is not None:
-      doc = coll.find_one({'key': 'latest_board'})
-      if doc and doc.get('data'):
-        return doc.get('data')
+      from backend.models.db_models import MarketBoardSnapshot
+      doc = coll.find_one(MarketBoardSnapshot.filter_by_key(MarketBoardSnapshot.KEY_LATEST_BOARD))
+      if doc:
+        return MarketBoardSnapshot.from_doc(doc).data
   except Exception as e:
     logger.debug('Lỗi đọc snapshot bảng giá từ MongoDB: %s', e)
   return {}
@@ -67,6 +111,7 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
   """
   Quét song song toàn bộ các mã Universe bằng Entrade Realtime Intraday API.
   Không bị chặn IP quốc tế trên Render/AWS/Cloudflare.
+  Mốc from_ts được lấy động từ phiên giao dịch liền trước (VN-Index) thay vì hardcode số ngày tĩnh.
   """
   if not symbols:
     cached = _load_snapshot_from_mongo()
@@ -75,11 +120,14 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
     else:
       symbols = list(KNOWN_STOCK_SECTORS.keys())[:80]
 
+  # Lấy mốc phiên giao dịch gần nhất 1 lần duy nhất cho toàn bộ worker pool
+  prev_session_ts = get_last_trading_day_timestamp()
+
   board_map = {}
 
   def _fetch_single(sym):
     try:
-      return fetch_intraday_snapshot(sym)
+      return fetch_intraday_snapshot(sym, from_ts=prev_session_ts)
     except Exception:
       return None
 
@@ -99,7 +147,7 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
 def get_vnindex_summary() -> dict:
   """Lấy dữ liệu thời gian thực của chỉ số VN-Index trực tiếp từ Entrade API."""
   now_ts = int(time.time())
-  from_ts = now_ts - 86400 * 5
+  from_ts = now_ts - 86400 * 30  # Lấy 30 ngày nến ngày VN-Index để cover trọn vẹn cả kỳ nghỉ Tết
   url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
   try:
     data = fetch_json(url, timeout=5)

@@ -200,13 +200,17 @@ def _evaluate_telegram_alerts(screener_data):
 
 
 def _save_screener_snapshot_to_mongo(data):
-  """Lưu snapshot Top T+ mới nhất lên MongoDB Atlas để đồng bộ với Render Cloud."""
+  """Lưu snapshot Top T+ mới nhất lên MongoDB Atlas thông qua ScreenerSnapshot Model."""
   try:
-    from backend.db.portfolio_db import _mongo_db
-    if _mongo_db is not None and data and data.get('topOpportunities'):
-      _mongo_db['screener_snapshots'].update_one(
-          {'key': 'top_tplus'},
-          {'$set': {'key': 'top_tplus', 'data': data, 'updated_at': int(time.time())}},
+    from backend.db.portfolio_db import get_mongo_db
+    from backend.constants.db import COLL_SCREENER_SNAPSHOTS
+    from backend.models.db_models import ScreenerSnapshot
+    db = get_mongo_db()
+    if db is not None and data and data.get('topOpportunities'):
+      snapshot = ScreenerSnapshot(data=data)
+      db[COLL_SCREENER_SNAPSHOTS].update_one(
+          ScreenerSnapshot.filter_by_key(snapshot.key),
+          {'$set': snapshot.to_doc()},
           upsert=True
       )
   except Exception as e:
@@ -214,13 +218,16 @@ def _save_screener_snapshot_to_mongo(data):
 
 
 def _load_screener_snapshot_from_mongo():
-  """Đọc snapshot Top T+ mới nhất từ MongoDB Atlas."""
+  """Đọc snapshot Top T+ mới nhất từ MongoDB Atlas thông qua ScreenerSnapshot Model."""
   try:
-    from backend.db.portfolio_db import _mongo_db
-    if _mongo_db is not None:
-      doc = _mongo_db['screener_snapshots'].find_one({'key': 'top_tplus'})
-      if doc and doc.get('data'):
-        return doc.get('data')
+    from backend.db.portfolio_db import get_mongo_db
+    from backend.constants.db import COLL_SCREENER_SNAPSHOTS
+    from backend.models.db_models import ScreenerSnapshot
+    db = get_mongo_db()
+    if db is not None:
+      doc = db[COLL_SCREENER_SNAPSHOTS].find_one(ScreenerSnapshot.filter_by_key(ScreenerSnapshot.KEY_TOP_TPLUS))
+      if doc:
+        return ScreenerSnapshot.from_doc(doc).data
   except Exception as e:
     print('Lỗi load screener snapshot từ MongoDB:', e)
   return None

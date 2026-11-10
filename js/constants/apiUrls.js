@@ -48,6 +48,8 @@ export const API_ENDPOINTS = {
   PORTFOLIO_TRADE_DELETE: '/portfolio/trade/delete',
   PORTFOLIO_RESET: '/portfolio/reset',
   PORTFOLIO_SETTINGS: '/portfolio/settings',
+  TELEGRAM_TEST: '/telegram/test',
+  TELEGRAM_LOGS: '/telegram/logs',
   AUTH_VERIFY: '/auth/verify',
   AUTH_LOGOUT: '/auth/logout',
 };

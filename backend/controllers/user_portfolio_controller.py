@@ -9,11 +9,16 @@ Quản lý sổ lệnh cá nhân, tính toán danh mục chuẩn tài chính:
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from datetime import datetime
+from backend.models import (
+    PortfolioTrade,
+    PortfolioSetting,
+    PortfolioSummary,
+)
 from backend.db.portfolio_db import (
     add_trade,
-    get_all_trades,
+    get_all_trade_models,
     delete_trade,
     reset_all_trades,
     save_setting,
@@ -92,8 +97,8 @@ def handle_get_portfolio() -> Dict[str, Any]:
     2. Danh sách nhật ký chi tiết từng lệnh (Trades History View).
     3. Tổng kết tài chính toàn diện: Tổng NAV, Vốn giải ngân, Sức mua, Lãi chốt, Lãi chạy, Tổng lãi.
     """
-    trades = get_all_trades()
-    total_nav_str = get_setting('total_nav', '0')
+    trades = get_all_trade_models()
+    total_nav_str = get_setting(PortfolioSetting.KEY_TOTAL_NAV, '0')
     try:
         total_nav = float(total_nav_str)
     except (ValueError, TypeError):
@@ -104,10 +109,10 @@ def handle_get_portfolio() -> Dict[str, Any]:
     # 1. Xử lý nhật ký chi tiết từng lệnh (Enriched Trades)
     enriched_trades = []
     for t in trades:
-        sym = t.get('symbol', '').strip().upper()
-        order_type = t.get('order_type', 'BUY').upper()
-        vol = int(t.get('volume', 0))
-        entry_price = float(t.get('price', 0))
+        sym = t.symbol
+        order_type = t.order_type
+        vol = t.volume
+        entry_price = t.price
 
         q = get_entrade_stock_quote(sym, board_data, entry_price)
         cur_p = q['current_price']
@@ -116,11 +121,11 @@ def handle_get_portfolio() -> Dict[str, Any]:
 
         invested_amt = vol * entry_price
         cur_amt = vol * cur_p
-        pnl_val = (cur_amt - invested_amt) if order_type == 'BUY' else 0.0
+        pnl_val = (cur_amt - invested_amt) if order_type == PortfolioTrade.ORDER_BUY else 0.0
         pnl_pct = round((pnl_val / invested_amt * 100), 2) if invested_amt > 0 else 0.0
 
         enriched_trades.append({
-            'id': t.get('id'),
+            'id': t.id,
             'symbol': sym,
             'order_type': order_type,
             'volume': vol,
@@ -132,23 +137,23 @@ def handle_get_portfolio() -> Dict[str, Any]:
             'current_amount': cur_amt,
             'pnl_val': round(pnl_val, 2),
             'pnl_pct': pnl_pct,
-            'trade_date': t.get('trade_date', ''),
-            'note': t.get('note', ''),
-            'status': t.get('status', 'HOLDING'),
+            'trade_date': t.trade_date,
+            'note': t.note,
+            'status': t.status,
             'exchange': q.get('exchange', 'HOSE'),
         })
 
     # 2. Gom nhóm vị thế theo mã (Consolidated Holdings Engine - VWAP + Realized + Unrealized)
-    sorted_trades = sorted(trades, key=lambda x: (x.get('trade_date', ''), str(x.get('id', ''))))
+    sorted_trades = sorted(trades, key=lambda x: (x.trade_date, str(x.id or '')))
     holdings_map = {}
 
     for t in sorted_trades:
-        sym = t.get('symbol', '').strip().upper()
+        sym = t.symbol
         if not sym:
             continue
-        order_type = t.get('order_type', 'BUY').upper()
-        vol = int(t.get('volume', 0))
-        price = float(t.get('price', 0))
+        order_type = t.order_type
+        vol = t.volume
+        price = t.price
 
         if sym not in holdings_map:
             holdings_map[sym] = {
@@ -163,14 +168,14 @@ def handle_get_portfolio() -> Dict[str, Any]:
                 'total_sell_val': 0.0,
                 'buy_trades_count': 0,
                 'sell_trades_count': 0,
-                'first_trade_date': t.get('trade_date', ''),
-                'last_trade_date': t.get('trade_date', ''),
+                'first_trade_date': t.trade_date,
+                'last_trade_date': t.trade_date,
             }
 
         h = holdings_map[sym]
-        h['last_trade_date'] = t.get('trade_date', '')
+        h['last_trade_date'] = t.trade_date
 
-        if order_type == 'BUY':
+        if order_type == PortfolioTrade.ORDER_BUY:
             new_vol = h['holding_volume'] + vol
             h['total_cost'] += (vol * price)
             h['avg_price'] = round(h['total_cost'] / new_vol, 2) if new_vol > 0 else 0.0
@@ -178,7 +183,7 @@ def handle_get_portfolio() -> Dict[str, Any]:
             h['total_buy_vol'] += vol
             h['total_buy_val'] += (vol * price)
             h['buy_trades_count'] += 1
-        elif order_type == 'SELL':
+        elif order_type == PortfolioTrade.ORDER_SELL:
             # Chốt lời/cắt lỗ cho số lượng bán theo giá vốn bình quân hiện tại
             sell_profit = vol * (price - h['avg_price'])
             h['realized_pnl'] += sell_profit
@@ -258,65 +263,45 @@ def handle_get_portfolio() -> Dict[str, Any]:
     # Sức mua tiền mặt: Tổng NAV - Vốn đang giữ + Lãi đã chốt thu về
     available_nav = (total_nav - total_holding_cost + total_realized_pnl) if total_nav > 0 else 0.0
 
+    summary_obj = PortfolioSummary(
+        total_nav=total_nav,
+        total_buy_cost=round(total_holding_cost, 2),
+        current_market_val=round(total_market_val, 2),
+        unrealized_pnl=round(total_unrealized_pnl, 2),
+        unrealized_pnl_pct=total_unrealized_pnl_pct,
+        realized_pnl=round(total_realized_pnl, 2),
+        total_pnl=round(total_combined_pnl, 2),
+        total_pnl_pct=total_combined_pnl_pct,
+        available_nav=round(available_nav, 2),
+        holdings_count=len([h for h in consolidated_holdings if h['holding_volume'] > 0]),
+        closed_count=len([h for h in consolidated_holdings if h['holding_volume'] == 0]),
+        total_trades_count=len(trades),
+    )
+
     return {
         'success': True,
-        'summary': {
-            'total_nav': total_nav,
-            'total_buy_cost': round(total_holding_cost, 2),
-            'current_market_val': round(total_market_val, 2),
-            'unrealized_pnl': round(total_unrealized_pnl, 2),
-            'unrealized_pnl_pct': total_unrealized_pnl_pct,
-            'realized_pnl': round(total_realized_pnl, 2),
-            'total_pnl': round(total_combined_pnl, 2),
-            'total_pnl_pct': total_combined_pnl_pct,
-            'available_nav': round(available_nav, 2),
-            'holdings_count': len([h for h in consolidated_holdings if h['holding_volume'] > 0]),
-            'closed_count': len([h for h in consolidated_holdings if h['holding_volume'] == 0]),
-            'total_trades_count': len(trades),
-        },
+        'summary': summary_obj.to_dict(),
         'holdings': consolidated_holdings,
         'trades': enriched_trades,
     }
 
 
-def handle_add_trade(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Thêm giao dịch mua/bán mới."""
-    sym = data.get('symbol', '').strip().upper()
-    if not sym:
-        return {'success': False, 'error': 'Vui lòng nhập mã chứng khoán'}
+def handle_add_trade(data: Union[PortfolioTrade, Dict[str, Any]]) -> Dict[str, Any]:
+    """Thêm giao dịch mua/bán mới thông qua PortfolioTrade Model."""
+    if isinstance(data, PortfolioTrade):
+        trade_obj = data
+    else:
+        trade_obj, err = PortfolioTrade.from_request(data)
+        if err:
+            return {'success': False, 'error': err}
 
-    try:
-        vol = int(data.get('volume', 0))
-        if vol <= 0:
-            return {'success': False, 'error': 'Khối lượng phải lớn hơn 0'}
-    except (ValueError, TypeError):
-        return {'success': False, 'error': 'Khối lượng không hợp lệ'}
-
-    price = _format_price(data.get('price', 0))
-    if price <= 0:
-        return {'success': False, 'error': 'Giá mua/bán phải lớn hơn 0'}
-
-    order_type = data.get('order_type', 'BUY').strip().upper()
-    if order_type not in ['BUY', 'SELL']:
-        order_type = 'BUY'
-
-    trade_date = data.get('trade_date', '').strip()
-    if not trade_date:
-        trade_date = datetime.now().strftime('%Y-%m-%d')
-
-    trade_record = {
-        'symbol': sym,
-        'order_type': order_type,
-        'volume': vol,
-        'price': price,
-        'trade_date': trade_date,
-        'note': data.get('note', '').strip(),
-        'status': 'HOLDING' if order_type == 'BUY' else 'CLOSED',
-    }
-
-    inserted_id = add_trade(trade_record)
+    inserted_id = add_trade(trade_obj)
     if inserted_id:
-        return {'success': True, 'id': inserted_id, 'message': f'Đã thêm lệnh {order_type} mã {sym} thành công'}
+        return {
+            'success': True,
+            'id': inserted_id,
+            'message': f'Đã thêm lệnh {trade_obj.order_type} mã {trade_obj.symbol} thành công'
+        }
     return {'success': False, 'error': 'Không thể ghi nhận giao dịch vào cơ sở dữ liệu'}
 
 
@@ -338,15 +323,25 @@ def handle_reset_portfolio() -> Dict[str, Any]:
     return {'success': False, 'error': 'Không thể thực hiện reset danh mục'}
 
 
-def handle_save_settings(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Lưu cài đặt tổng NAV."""
-    nav_val = data.get('total_nav')
-    if nav_val is not None:
+def handle_save_settings(data: Union[PortfolioSetting, Dict[str, Any]]) -> Dict[str, Any]:
+    """Lưu cài đặt tổng NAV thông qua PortfolioSetting Model."""
+    if isinstance(data, PortfolioSetting):
+        setting_obj = data
+    else:
+        setting_obj, err = PortfolioSetting.from_request(data)
+        if err:
+            return {'success': False, 'error': err}
+
+    ok = save_setting(setting_obj.key, setting_obj.value)
+    if ok:
         try:
-            total_nav = float(nav_val)
-            save_setting('total_nav', str(total_nav))
-            return {'success': True, 'message': 'Đã lưu cấu hình Tổng NAV thành công', 'total_nav': total_nav}
+            val_num = float(setting_obj.value)
         except (ValueError, TypeError):
-            return {'success': False, 'error': 'Giá trị Tổng NAV không hợp lệ'}
-    return {'success': False, 'error': 'Thiếu tham số cấu hình'}
+            val_num = 0.0
+        return {
+            'success': True,
+            'message': 'Đã lưu cấu hình Tổng NAV thành công',
+            'total_nav': val_num
+        }
+    return {'success': False, 'error': 'Không thể lưu cài đặt vào cơ sở dữ liệu'}
 
