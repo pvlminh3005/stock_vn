@@ -2,17 +2,6 @@
 Stock RT - Valuation & Fundamental Analysis Domain Engine
 Định giá trung dài hạn theo dải Multiple lịch sử 12 quý, chấm điểm FA và kiểm soát căng thẳng tài chính.
 """
-import io
-import sys
-import pandas as pd
-try:
-  from vnstock import Company, Finance
-except ImportError:
-  try:
-    from vnstock.compat import Company, Finance
-  except ImportError:
-    Company, Finance = None, None
-
 from backend.constants.colors import (
     DECISION_TYPE_DANGER,
     DECISION_TYPE_SUCCESS,
@@ -30,7 +19,6 @@ from backend.constants.sectors import (
     CYCLICAL_SECTORS,
     FINANCIAL_SECTORS,
     PB_PRIMARY_SECTORS,
-    SECTOR_MAP,
 )
 from backend.db.database import get_cached_fundamental, save_cached_fundamental
 from backend.data_providers.vci_provider import (
@@ -38,9 +26,7 @@ from backend.data_providers.vci_provider import (
     get_vci_financial_history,
     summarize_vci_history,
 )
-from backend.utils.network import vnstock_call
-from backend.utils.numbers import percentile, safe_num
-from backend.utils.ohlc_helpers import parse_quarter_key
+from backend.utils.numbers import percentile
 
 def classify_ocf_status(sector, ocf, profit_growth):
   """Đánh giá chất lượng dòng tiền HĐKD (Quality of Earnings)."""
@@ -53,94 +39,6 @@ def classify_ocf_status(sector, ocf, profit_growth):
   if ocf < 0:
     return "Âm (Thâm hụt dòng tiền lưu động)"
   return "Dữ liệu chưa ghi nhận"
-
-def fetch_from_vnstock(symbol):
-  """Lấy dữ liệu BCTC và hồ sơ doanh nghiệp thực tế qua vnstock."""
-  old_stdout, old_stderr = sys.stdout, sys.stderr
-  sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
-  try:
-    # 1. Thông tin doanh nghiệp từ VCI
-    ov = None
-    if Company is not None:
-      ov = vnstock_call(lambda: Company(symbol=symbol, source='VCI').overview())
-    if ov is None:
-      ov = pd.DataFrame()
-    name = (
-        ov['organ_name'].values[0]
-        if 'organ_name' in ov.columns and len(ov) > 0
-        else f'Công ty Cổ phần {symbol}'
-    )
-    raw_sector = (
-        ov['sector'].values[0]
-        if 'sector' in ov.columns and len(ov) > 0
-        else 'Doanh nghiệp'
-    )
-    sector = SECTOR_MAP.get(raw_sector, raw_sector)
-    summary = (
-        ov['company_profile'].values[0]
-        if 'company_profile' in ov.columns and len(ov) > 0
-        else ''
-    )
-
-    # 2. Chỉ số tài chính BCTC từ KBS (tham khảo & dự phòng)
-    r = None
-    if Finance is not None:
-      r = vnstock_call(lambda: Finance(source='KBS', symbol=symbol).ratio())
-    item_map = {}
-    latest_col = ''
-    if r is not None and not r.empty:
-      quarter_cols = [c for c in r.columns if c not in ['item', 'item_id']]
-      sorted_cols = sorted(quarter_cols, key=parse_quarter_key)
-      latest_col = sorted_cols[-1] if sorted_cols else r.columns[-1]
-      item_map = dict(zip(r['item'], r[latest_col]))
-
-    bvps = safe_num(item_map.get('Giá trị sổ sách của cổ phiếu (BVPS)'), 0.0)
-    pe = safe_num(item_map.get('Chỉ số giá thị trường trên thu nhập (P/E)'), 0.0)
-    pb = safe_num(item_map.get('Chỉ số giá thị trường trên giá trị sổ sách (P/B)'), 0.0)
-    ps = safe_num(item_map.get('Chỉ số giá thị trường trên doanh thu thuần (P/S)'), 0.0)
-    roe = safe_num(item_map.get('ROE bình quân 4 quý gần nhất'), 0.0)
-    eps = safe_num(item_map.get('Thu nhập trên mỗi cổ phần của 4 quý gần nhất (EPS)'), 0.0)
-    debt = safe_num(item_map.get('Tỷ số Nợ trên Vốn chủ sở hữu'), 0.0) / 100.0
-    rev_growth = safe_num(item_map.get('Tăng trưởng  doanh thu thuần'), 0.0)
-    profit_growth = safe_num(item_map.get('Tăng trưởng lợi nhuận sau thuế của CĐ công ty mẹ'), 0.0)
-    gross_margin = safe_num(item_map.get('Tỷ suất lợi nhuận gộp biên'), 0.0)
-    net_margin = safe_num(item_map.get('Tỷ suất sinh lợi trên doanh thu thuần'), 0.0)
-    interest_cov = safe_num(item_map.get('Khả năng thanh toán lãi vay'), 0.0)
-    nim = safe_num(item_map.get('Tỷ lệ thu nhập lãi thuần (NIM)'), 0.0)
-    ldr = safe_num(item_map.get('Dư nợ cho vay khách hàng/Tổng vốn huy động (LDR)'), 0.0)
-
-    ocf = 0.0
-    ocf_status = classify_ocf_status(sector, ocf, profit_growth)
-    has_audited_data = (pe > 0 or pb > 0 or roe != 0 or eps > 0 or len(ov) > 0)
-
-    return {
-        'name': name,
-        'sector': sector,
-        'pe': round(pe, 1) if pe > 0 else 0.0,
-        'peStatic': round(pe, 2) if pe > 0 else 0.0,
-        'pb': round(pb, 2) if pb > 0 else 0.0,
-        'ps': round(ps, 2) if ps > 0 else 0.0,
-        'roe': round(roe, 1) if roe != 0 else 0.0,
-        'eps': round(eps) if eps > 0 else 0.0,
-        'bvps': round(bvps) if bvps > 0 else 0.0,
-        'debtToEquity': round(debt, 2),
-        'revGrowth': round(rev_growth, 1),
-        'profitGrowth': round(profit_growth, 1),
-        'grossMargin': round(gross_margin, 1),
-        'netMargin': round(net_margin, 1),
-        'interestCoverage': round(interest_cov, 1),
-        'ocf': round(ocf / 1e9, 1),
-        'ocfStatus': ocf_status,
-        'nim': round(nim, 2),
-        'ldr': round(ldr, 1),
-        'reportPeriod': str(latest_col),
-        'summary': summary or f'Doanh nghiệp {symbol} niêm yết trên thị trường chứng khoán Việt Nam.',
-        'isAudited': has_audited_data,
-    }
-  except Exception:
-    return None
-  finally:
-    sys.stdout, sys.stderr = old_stdout, old_stderr
 
 def compute_valuation_band(hist, sector, eps, bvps, roe_now, current_price):
   """
@@ -386,7 +284,7 @@ def assess_financial_distress(fundamental_info, sector):
 
 
 def get_fundamental_profile(ticker, current_price):
-  """Trả về hồ sơ cơ bản chuẩn hóa và điểm FA lấy từ vnstock/VCI."""
+  """Trả về hồ sơ cơ bản chuẩn hóa và điểm FA lấy từ Simplize và Vietcap IQ (VCI)."""
   sym = ticker.upper()
 
   # 1. Kiểm tra cache
@@ -402,8 +300,6 @@ def get_fundamental_profile(ticker, current_price):
   ):
     from backend.data_providers.fundamental_provider import fetch_company_fundamentals
     fetched = fetch_company_fundamentals(sym, current_price=current_price)
-    if not fetched:
-      fetched = fetch_from_vnstock(sym)
     if fetched:
       save_cached_fundamental(sym, fetched)
       info = dict(fetched)

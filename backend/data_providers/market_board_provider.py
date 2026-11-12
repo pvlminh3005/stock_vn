@@ -12,9 +12,9 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.constants.sectors import KNOWN_STOCK_SECTORS
-from backend.constants.urls import build_entrade_chart_url
+from backend.constants.urls import build_entrade_chart_url, build_vietcap_group_url
 from backend.data_providers.entrade_provider import fetch_intraday_snapshot
-from backend.utils.network import fetch_json
+from backend.utils.network import fetch_json, VIETCAP_TRADING_HEADERS
 
 logger = logging.getLogger('market_board_provider')
 
@@ -152,8 +152,8 @@ def get_dynamic_liquid_universe(limit: int = 80, force_refresh: bool = False) ->
   """
   Tự động truy xuất Top N mã cổ phiếu thanh khoản cao nhất thị trường Việt Nam (VN100 + HNX30) hoàn toàn động:
   - 100% không dùng SSI iBoard (loại bỏ hoàn toàn việc bị chặn IP quốc tế trên Render / Cloud).
-  - 1. RAM Cache: Trả về tức thì trong 12 giờ vì rổ chỉ số chuẩn của Sở GDCK rất ổn định.
-  - 2. vnstock VCI Open Engine: Tự động lấy danh sách rổ chỉ số VN100 (HOSE) + HNX30 (HNX).
+  - 1. RAM Cache: Trả về tức thì trong 5 phút vì rổ chỉ số chuẩn của Sở GDCK rất ổn định.
+  - 2. Vietcap Open API: Tự động lấy danh sách rổ chỉ số VN100 (HOSE) + HNX30 (HNX).
   - 3. Snapshot MongoDB Atlas: Tự động nạp snapshot dự phòng nếu offline hoặc cold-start.
   - 4. Hạt giống VN30 khởi tạo: Chỉ dùng khi hệ thống mới tinh chưa có bất kỳ dữ liệu nào.
   """
@@ -162,36 +162,32 @@ def get_dynamic_liquid_universe(limit: int = 80, force_refresh: bool = False) ->
   if not force_refresh and (now - _LIQUID_UNIVERSE_CACHE['timestamp'] < _LIQUID_UNIVERSE_TTL) and _LIQUID_UNIVERSE_CACHE['symbols']:
     return _LIQUID_UNIVERSE_CACHE['symbols'][:limit]
 
-  # 1. Quét động rổ VN100 (HOSE) và HNX30 (HNX) qua vnstock Listing Engine
-  try:
+  # 1. Quét động rổ VN100 (HOSE) và HNX30 (HNX) qua Vietcap Open API
+  discovered = []
+  for group in ('VN100', 'HNX30'):
     try:
-      from vnstock import Listing
-    except ImportError:
-      try:
-        from vnstock.compat import Listing
-      except ImportError:
-        Listing = None
-    from backend.utils.network import vnstock_call
+      items = fetch_json(
+          build_vietcap_group_url(group),
+          headers=VIETCAP_TRADING_HEADERS,
+          timeout=5,
+      )
+      if isinstance(items, list):
+        for item in items:
+          if isinstance(item, dict) and item.get('symbol'):
+            sym = str(item['symbol']).strip().upper()
+            if len(sym) == 3:
+              discovered.append(sym)
+    except Exception as e:
+      logger.debug('Lỗi nạp rổ %s qua Vietcap Open API: %s', group, e)
 
-    def _fetch_indices():
-      l = Listing()
-      s100 = l.symbols_by_group('VN100')
-      s30 = l.symbols_by_group('HNX30')
-      list100 = s100.tolist() if hasattr(s100, 'tolist') else list(s100)
-      list30 = s30.tolist() if hasattr(s30, 'tolist') else list(s30)
-      return list(dict.fromkeys(list100 + list30))
+  discovered = list(dict.fromkeys(discovered))
+  if len(discovered) >= 30:
+    _LIQUID_UNIVERSE_CACHE['timestamp'] = now
+    _LIQUID_UNIVERSE_CACHE['symbols'] = discovered
+    _save_liquid_universe_to_mongo(discovered)
+    return discovered[:limit]
 
-    discovered = vnstock_call(_fetch_indices)
-    if discovered and len(discovered) >= 30:
-      discovered = [str(s).strip().upper() for s in discovered if s and len(str(s).strip()) == 3]
-      _LIQUID_UNIVERSE_CACHE['timestamp'] = now
-      _LIQUID_UNIVERSE_CACHE['symbols'] = discovered
-      _save_liquid_universe_to_mongo(discovered)
-      return discovered[:limit]
-  except Exception as e:
-    logger.debug('Lỗi nạp VN100/HNX30 qua vnstock: %s', e)
-
-  # 2. Đọc snapshot từ MongoDB Atlas nếu vnstock lỗi hoặc offline
+  # 2. Đọc snapshot từ MongoDB Atlas nếu API lỗi hoặc offline
   mongo_symbols = _load_liquid_universe_from_mongo()
   if mongo_symbols and len(mongo_symbols) >= 20:
     _LIQUID_UNIVERSE_CACHE['timestamp'] = now

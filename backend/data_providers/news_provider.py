@@ -8,15 +8,6 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup
-try:
-  from vnstock import Company, status
-except ImportError:
-  try:
-    from vnstock.account import status
-    from vnstock.compat import Company
-  except ImportError:
-    Company = None
-    def status(): return {}
 
 from backend.constants.colors import (
     BADGE_COLOR_COMPANY,
@@ -35,8 +26,9 @@ from backend.constants.urls import (
     build_cafef_search_url,
     build_cafef_events_url,
     build_vietstock_finance_url,
+    build_vndirect_events_url,
 )
-from backend.utils.network import vnstock_call
+from backend.utils.network import fetch_json
 
 _LIVE_NEWS_CACHE = {}
 _LIVE_NEWS_CACHE_TTL = 600  # 10 phút cache cho mỗi mã cổ phiếu
@@ -114,35 +106,30 @@ def fetch_live_multi_sources(ticker, market_item=None, fundamental_info=None, cu
       pass
     return items
 
-  # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX): sự kiện mới nhất theo ngày công bố
+  # 2. Cổng Sự kiện Doanh Nghiệp (HoSE/HNX): sự kiện mới nhất qua VNDirect Finfo API
   def trace_events():
     try:
-      # vnstock 5.x yêu cầu tài khoản bản quyền/Pro cho Company.events()
-      s = status()
-      if not s.get('authenticated', False) and s.get('tier') == 'guest':
-        return None
-      if Company is None:
-        return None
-      events = vnstock_call(lambda: Company(symbol=ticker, source='VCI').events())
-      if events is not None and not events.empty:
-        if 'public_date' in events.columns:
-          events = events.sort_values('public_date', ascending=False)
-        e0 = events.iloc[0]
-        title = str(
-            e0.get('event_title_vi')
-            or e0.get('event_name_vi')
-            or f'Công bố thông tin {ticker}'
-        )
-        pub_date = e0.get('public_date')
-        return {
-            'source': 'Cổng Sự Kiện Doanh Nghiệp (HoSE/HNX)',
-            'badge': 'SỰ KIỆN & CỔ TỨC',
-            'badgeColor': BADGE_COLOR_EVENT,
-            'title': title,
-            'date': str(pub_date)[:10] if isinstance(pub_date, str) else '',
-            'url': build_cafef_events_url(ticker),
-            'tickerSpecific': True,
-        }
+      resp = fetch_json(build_vndirect_events_url(ticker, size=5), timeout=3.5)
+      rows = resp.get('data') if isinstance(resp, dict) else None
+      if rows and isinstance(rows, list):
+        e0 = next((r for r in rows if isinstance(r, dict) and (r.get('note') or r.get('typeDesc'))), None)
+        if e0:
+          type_desc = str(e0.get('typeDesc') or '').strip()
+          note = str(e0.get('note') or '').strip()
+          if type_desc and note and type_desc.lower() not in note.lower():
+            title = f"{type_desc}: {note}"
+          else:
+            title = note or type_desc or f'Công bố thông tin {ticker}'
+          pub_date = e0.get('disclosureDate') or e0.get('effectiveDate') or ''
+          return {
+              'source': 'Cổng Sự Kiện Doanh Nghiệp (HoSE/HNX)',
+              'badge': 'SỰ KIỆN & CỔ TỨC',
+              'badgeColor': BADGE_COLOR_EVENT,
+              'title': title,
+              'date': str(pub_date)[:10] if pub_date else '',
+              'url': build_cafef_events_url(ticker),
+              'tickerSpecific': True,
+          }
     except Exception:
       pass
     return None
@@ -219,7 +206,7 @@ def fetch_live_multi_sources(ticker, market_item=None, fundamental_info=None, cu
   if events_item:
     news_records.append(events_item)
 
-  # 3. Chỉ số BCTC chuẩn hóa từ VCI (Vietcap qua vnstock)
+  # 3. Chỉ số BCTC chuẩn hóa từ Vietcap / Simplize
   pe = fundamental_info.get('pe', 0.0) if fundamental_info else 0.0
   pb = fundamental_info.get('pb', 0.0) if fundamental_info else 0.0
   roe = fundamental_info.get('roe', 0.0) if fundamental_info else 0.0
@@ -251,7 +238,7 @@ def fetch_live_multi_sources(ticker, market_item=None, fundamental_info=None, cu
         ' đầy đủ từ nguồn dữ liệu.'
     )
   news_records.append({
-      'source': 'Chỉ số BCTC (VCI qua vnstock)',
+      'source': 'Chỉ số BCTC (Vietcap / Simplize)',
       'badge': 'BÁO CÁO TÀI CHÍNH',
       'badgeColor': BADGE_COLOR_FINANCE,
       'title': fin_title,

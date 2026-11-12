@@ -76,7 +76,8 @@ def _is_sweet_spot_new_buy(stock: dict, is_early_session: bool = False) -> tuple
   price = float(stock.get('price') or stock.get('p') or 0.0)
   change_pct = float(stock.get('changePct') or stock.get('pct_change') or 0.0)
   dist_s1 = float(stock.get('distToS1', 99.0))
-  tp1_pct = float(stock.get('tp1Pct') or stock.get('mainUpsidePct') or 0.0)
+  is_pivot = bool(stock.get('isBreakoutPivot') or stock.get('tagType') == 'BREAKOUT_PIVOT')
+  tp1_pct = float(stock.get('mainUpsidePct') if is_pivot else (stock.get('tp1Pct') or stock.get('mainUpsidePct') or 0.0))
   net_rr = float(stock.get('netRR') or stock.get('net_rr') or 0.0)
   vol_run_rate = float(stock.get('volRunRate') or stock.get('volRatio') or 0.0)
   buy_ratio = float(stock.get('buyRatio') or stock.get('buy_ratio') or 0.0)
@@ -138,6 +139,16 @@ def _is_sweet_spot_new_buy(stock: dict, is_early_session: bool = False) -> tuple
     return False, f"Vol Run Rate chưa đủ mạnh ({vol_run_rate:.2f} < {min_vol})"
   if buy_ratio < min_buy_ratio:
     return False, f"Lực mua chủ động chưa chiếm ưu thế ({buy_ratio:.1f}% < {min_buy_ratio}%)"
+
+  # 7. Thanh khoản trung bình - khá (Chống kẹt hàng T+)
+  traded_val = float(stock.get('tradedValue') or stock.get('value') or 0.0)
+  stock_vol = float(stock.get('volume') or stock.get('vol') or 0.0)
+  if is_early_session:
+    if traded_val < 2_000_000_000 and stock_vol < 80_000:
+      return False, f"Thanh khoản đầu phiên quá mỏng ({stock_vol:,.0f} CP, {traded_val/1e9:.1f} tỷ)"
+  else:
+    if traded_val < 8_000_000_000 or stock_vol < 250_000:
+      return False, f"Thanh khoản chưa đạt mức khá ({stock_vol:,.0f} CP, {traded_val/1e9:.1f} tỷ)"
 
   return True, "Thỏa mãn Sweet-Spot Mua Mới Động"
 

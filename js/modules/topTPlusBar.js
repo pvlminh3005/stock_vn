@@ -48,6 +48,36 @@ function startCountdown() {
   }, 1000);
 }
 
+let currentFilter = 'ALL'; // 'ALL' | 'BREAKOUT' | 'PULLBACK'
+
+function setupFilterTabs() {
+  const tabs = document.querySelectorAll('.top-tplus-tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      const filter = tab.getAttribute('data-filter') || 'ALL';
+      if (filter === currentFilter) return;
+      currentFilter = filter;
+      updateTabButtonStyles();
+      if (cachedOpportunities) {
+        renderCards(cachedOpportunities);
+      }
+    });
+  });
+}
+
+function updateTabButtonStyles() {
+  const tabs = document.querySelectorAll('.top-tplus-tab');
+  tabs.forEach(tab => {
+    const filter = tab.getAttribute('data-filter') || 'ALL';
+    if (filter === currentFilter) {
+      tab.className = 'top-tplus-tab px-2.5 py-1 rounded-lg bg-blue-600 text-white font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95';
+    } else {
+      tab.className = 'top-tplus-tab px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer border border-slate-700/60 active:scale-95';
+    }
+  });
+}
+
 /**
  * Render danh sách tối đa 8 thẻ cơ hội T+
  */
@@ -55,11 +85,42 @@ function renderCards(opportunities) {
   const container = document.getElementById('topTPlusListContainer');
   if (!container) return;
 
-  if (!opportunities || opportunities.length === 0) {
+  // Cập nhật số lượng đếm trên từng Tab
+  const allCount = opportunities ? opportunities.length : 0;
+  const boCount = opportunities ? opportunities.filter(o => ['BREAKOUT_T0', 'BREAKOUT_PIVOT'].includes(o.tagType || o.tier)).length : 0;
+  const pbCount = opportunities ? opportunities.filter(o => (o.tagType || o.tier) === 'PULLBACK_T1_T2').length : 0;
+
+  const elAll = document.getElementById('tabCountAll');
+  const elBo = document.getElementById('tabCountBreakout');
+  const elPb = document.getElementById('tabCountPullback');
+  if (elAll) elAll.innerText = allCount;
+  if (elBo) elBo.innerText = boCount;
+  if (elPb) elPb.innerText = pbCount;
+
+  // Lọc danh sách theo Tab đang chọn
+  let filtered = opportunities || [];
+  if (currentFilter === 'BREAKOUT') {
+    filtered = filtered.filter(o => ['BREAKOUT_T0', 'BREAKOUT_PIVOT'].includes(o.tagType || o.tier));
+  } else if (currentFilter === 'PULLBACK') {
+    filtered = filtered.filter(o => (o.tagType || o.tier) === 'PULLBACK_T1_T2');
+  }
+
+  if (filtered.length === 0) {
+    let emptyTitle = 'Thị trường chưa có mã đạt chuẩn Sweet-Spot T+ an toàn';
+    if (currentFilter === 'BREAKOUT') {
+      emptyTitle = 'Chưa có mã Bùng nổ nào đạt chuẩn an toàn T+0';
+    } else if (currentFilter === 'PULLBACK') {
+      emptyTitle = 'Chưa có mã Gom nền nào đạt vùng đón lõng cạn vol';
+    }
     container.innerHTML = `
-      <div class="w-full py-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/60">
-        <i class="fa-solid fa-circle-info text-blue-400 mr-1.5"></i>
-        <span>Hiện chưa có mã đạt chuẩn R/R &ge; 1.3 &amp; Vol/MA20 hoặc thị trường đang ngoài giờ giao dịch.</span>
+      <div class="w-full py-6 px-4 text-center bg-slate-950/60 rounded-xl border border-slate-800/80 space-y-2">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-slate-800/80 text-amber-400 mb-1 shadow-inner">
+          <i class="fa-solid fa-shield-halved text-base"></i>
+        </div>
+        <h4 class="text-xs sm:text-sm font-bold text-slate-200">${emptyTitle}</h4>
+        <p class="text-[11px] text-slate-400 max-w-md mx-auto">
+          Bảo vệ vốn là ưu tiên hàng đầu. Kiên nhẫn chờ dòng tiền xác nhận hoặc kiểm định vùng hỗ trợ retest trước khi giải ngân.
+        </p>
       </div>
     `;
     return;
@@ -79,14 +140,15 @@ function renderCards(opportunities) {
   }
 
   const html = opportunities.map(opp => {
-    const isBreakout = (opp.tagType || opp.tier) === 'BREAKOUT_T0';
+    const isBreakout = ['BREAKOUT_T0', 'BREAKOUT_PIVOT'].includes(opp.tagType || opp.tier);
     const isSectorWave = !!opp.isSectorWave;
     const isActive = activeTicker && activeTicker.toUpperCase() === opp.symbol.toUpperCase();
     const actionStatus = opp.actionStatus || 'BUY_READY';
 
     // Nhận diện trạng thái vừa mới chuyển sang MUA NGAY trong phiên treo app
+    const isBuyNow = ['BUY_READY', 'ACTIONABLE_BUY_NOW', 'ACTIONABLE_LEADER_BUY'].includes(actionStatus);
     const prevStatus = previousStatuses[opp.symbol];
-    const justActivated = (actionStatus === 'BUY_READY') && (prevStatus && prevStatus !== 'BUY_READY');
+    const justActivated = isBuyNow && (prevStatus && !['BUY_READY', 'ACTIONABLE_BUY_NOW', 'ACTIONABLE_LEADER_BUY'].includes(prevStatus));
 
     // Lưu trạng thái hiện tại
     previousStatuses[opp.symbol] = actionStatus;
@@ -98,14 +160,33 @@ function renderCards(opportunities) {
 
     // Đèn Hành Động (Action Status Badge)
     let actionBadgeHtml = '';
-    if (actionStatus === 'BUY_READY') {
+    if (isBuyNow) {
+      const isLeader = actionStatus === 'ACTIONABLE_LEADER_BUY';
       actionBadgeHtml = `
-        <span class="text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/60 flex items-center gap-1 shadow-[0_0_10px_rgba(16,185,129,0.35)]">
+        <span class="text-[10px] font-black px-2 py-0.5 rounded-md ${isLeader ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/60 shadow-[0_0_10px_rgba(99,102,241,0.35)]' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.35)]'} flex items-center gap-1">
           <span class="relative flex h-1.5 w-1.5">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full ${isLeader ? 'bg-indigo-400' : 'bg-emerald-400'} opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-1.5 w-1.5 ${isLeader ? 'bg-indigo-500' : 'bg-emerald-500'}"></span>
           </span>
-          <span>MUA NGAY</span>
+          <span>${isLeader ? 'SIÊU CP' : 'MUA NGAY'}</span>
+        </span>`;
+    } else if (actionStatus === 'BREAKOUT_PIVOT') {
+      actionBadgeHtml = `
+        <span class="text-[10px] font-black px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/60 flex items-center gap-1 shadow-[0_0_10px_rgba(99,102,241,0.35)]">
+          <i class="fa-solid fa-rocket text-[9px] text-indigo-400"></i>
+          <span>BỨT PHÁ R1</span>
+        </span>`;
+    } else if (actionStatus === 'BUY_PROBE') {
+      actionBadgeHtml = `
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/50 flex items-center gap-1">
+          <i class="fa-solid fa-seedling text-[9px] text-emerald-400"></i>
+          <span>THĂM DÒ T0</span>
+        </span>`;
+    } else if (actionStatus === 'WAIT_PULLBACK') {
+      actionBadgeHtml = `
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/50 flex items-center gap-1" title="Chờ đón lõng tại vùng giá hỗ trợ">
+          <i class="fa-solid fa-crosshairs text-[9px] text-amber-400"></i>
+          <span>CANH GOM</span>
         </span>`;
     } else if (actionStatus === 'WAITING_CONFIRMATION') {
       const hintTxt = waitTimeHint ? ` (${waitTimeHint})` : '';
@@ -118,7 +199,7 @@ function renderCards(opportunities) {
       actionBadgeHtml = `
         <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/50 flex items-center gap-1">
           <i class="fa-solid fa-ban text-[9px] text-rose-400"></i>
-          <span>ĐÃ CHẠY XA</span>
+          <span>ĐÃ QUA ĐIỂM</span>
         </span>`;
     } else {
       actionBadgeHtml = `
@@ -159,8 +240,10 @@ function renderCards(opportunities) {
     } else if (justActivated) {
       // Hiệu ứng lóe sáng viền xanh 3 lần khi vừa được mở khóa MUA NGAY
       borderClass = 'border-emerald-400 bg-emerald-950/40 ring-2 ring-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.55)] animate-[pulse_1.5s_ease-in-out_3]';
-    } else if (actionStatus === 'BUY_READY') {
+    } else if (isBuyNow || actionStatus === 'BREAKOUT_PIVOT') {
       borderClass = 'border-emerald-500/60 bg-slate-950/90 shadow-[0_0_14px_rgba(16,185,129,0.15)] hover:border-emerald-400';
+    } else if (['BUY_PROBE', 'WAIT_PULLBACK'].includes(actionStatus)) {
+      borderClass = 'border-cyan-500/40 bg-slate-950/90 shadow-[0_0_10px_rgba(6,182,212,0.1)] hover:border-cyan-400';
     }
 
     const netRR = opp.netRR !== undefined ? opp.netRR : (opp.risk_reward || 0);
@@ -377,6 +460,9 @@ export function setActiveTopTPlusTicker(symbol) {
  */
 export function initTopTPlusBar(selectStockCb) {
   onSelectStockCallback = selectStockCb;
+
+  // Gắn sự kiện chuyển đổi các Tab phân loại khẩu vị đầu tư
+  setupFilterTabs();
 
   // Gắn sự kiện nút làm mới thủ công (Ép quét mới Realtime kèm chống spam)
   const btnRefresh = document.getElementById('btnRefreshTopTPlus');

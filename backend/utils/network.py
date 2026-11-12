@@ -1,40 +1,25 @@
 """
-Stock RT - Tiện ích Kết nối Mạng & Rate Limiter
+Stock RT - Tiện ích Kết nối Mạng
 """
 import json
-import threading
-import time
 import urllib.request
-from backend.constants.config import HEADERS, VNSTOCK_CALLS_PER_MINUTE
+from backend.constants.config import HEADERS
 
-_VNSTOCK_CALL_TIMES = []
-_VNSTOCK_LOCK = threading.Lock()
+VIETCAP_TRADING_HEADERS = {
+    **HEADERS,
+    'Origin': 'https://trading.vietcap.com.vn',
+    'Referer': 'https://trading.vietcap.com.vn/',
+}
+
+VIETCAP_IQ_HEADERS = {
+    **HEADERS,
+    'Origin': 'https://iq.vietcap.com.vn',
+    'Referer': 'https://iq.vietcap.com.vn/',
+}
+
 
 def fetch_json(url, headers=None, timeout=5):
   """Thực hiện HTTP GET và parse JSON an toàn."""
   req = urllib.request.Request(url, headers=headers or HEADERS)
   with urllib.request.urlopen(req, timeout=timeout) as res:
     return json.loads(res.read().decode('utf-8'))
-
-def vnstock_call(fn, *args, **kwargs):
-  """
-  Gọi vnstock an toàn: tự giới hạn tần suất và chặn SystemExit (vnai gọi sys.exit khi vượt hạn mức).
-  Bị giới hạn hoặc lỗi -> trả về None để phía gọi hiển thị 'Dữ liệu chưa ghi nhận' thay vì làm sập server.
-  """
-  with _VNSTOCK_LOCK:
-    now = time.time()
-    _VNSTOCK_CALL_TIMES[:] = [t for t in _VNSTOCK_CALL_TIMES if now - t < 60]
-    if len(_VNSTOCK_CALL_TIMES) >= VNSTOCK_CALLS_PER_MINUTE:
-      print(f'Bỏ qua lời gọi vnstock {getattr(fn, "__name__", fn)}: đạt giới hạn {VNSTOCK_CALLS_PER_MINUTE} request/phút')
-      return None
-    _VNSTOCK_CALL_TIMES.append(now)
-  try:
-    return fn(*args, **kwargs)
-  except SystemExit as e:
-    print('vnstock vượt hạn mức API (đã chặn SystemExit):', str(e)[:120])
-  except Exception as e:
-    err_msg = str(e)
-    # Không log cảnh báo với các tính năng vnstock đã khai tử hoặc yêu cầu gói bản quyền Pro (vượt quyền cấp Khách)
-    if 'không thuộc quyền của cấp Khách' not in err_msg and 'đã ngừng hỗ trợ' not in err_msg:
-      print(f'Lỗi gọi vnstock {getattr(fn, "__name__", fn)}:', err_msg[:120])
-  return None

@@ -45,7 +45,6 @@ BROWSER_HEADERS = {
 }
 
 # API Rate Limits & Timeouts
-VNSTOCK_CALLS_PER_MINUTE = 40
 DEFAULT_TIMEOUT = 5
 
 # Cache TTL (giây)
@@ -78,24 +77,32 @@ REGIME_LEVELS = [
     (0, 'NO_NEW_RISK', 0.0),
 ]
 
-# Cấu hình mapping trường VCI
+# Cấu hình mapping trường Vietcap IQ (VCI)
 _VCI_RATIO_FIELDS = {
-    'pe_ratio': 'pe', 'pb_ratio': 'pb', 'ps_ratio': 'ps', 'roe': 'roe',
-    'gross_margin': 'grossMargin', 'net_margin': 'netMargin',
-    'debtPerEquity': 'borrowDE', 'market_cap': 'marketCap',
-    'outstanding_shares': 'shares', 'npl': 'npl',
-    'loan_loss_reserves_to_npls': 'nplCoverage', 'casa_ratio': 'casa', 'car': 'car',
-    'net_interest_margin': 'nim',
+    'pe': 'pe',
+    'pb': 'pb',
+    'ps': 'ps',
+    'roe': 'roe',
+    'grossMargin': 'grossMargin',
+    'afterTaxProfitMargin': 'netMargin',
+    'debtPerEquity': 'borrowDE',
+    'marketCap': 'marketCap',
+    'numberOfSharesMktCap': 'shares',
+    'npl': 'npl',
+    'loansLossReservesToNPLs': 'nplCoverage',
+    'casaRatio': 'casa',
+    'car': 'car',
+    'netInterestMargin': 'nim',
 }
 
 _VCI_BS_FIELDS = {
-    'cash_and_cash_equivalents': 'cash',
-    'short_term_investments': 'shortInvestments',
-    'short_term_borrowings': 'shortBorrowings',
-    'long_term_borrowings': 'longBorrowings',
-    'owners_equity': 'equity',
+    'bsa2': 'cash',
+    'bsa5': 'shortInvestments',
+    'bsa56': 'shortBorrowings',
+    'bsa71': 'longBorrowings',
+    'bsa78': 'equity',
 }
 
 _VCI_CF_FIELDS = {
-    'net_cash_inflows_outflows_from_operating_activities': 'cfo',
+    'cfa18': 'cfo',
 }

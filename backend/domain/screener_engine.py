@@ -134,9 +134,15 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         change = p - prev_c
         pct_change = round((change / prev_c * 100), 2) if prev_c else 0.0
 
-    # Lọc thanh khoản tối thiểu: Giá trị giao dịch >= 3 tỷ VNĐ (hoặc 100k CP)
-    if traded_val < 3_000_000_000 and vol < 100_000:
-      return None
+    # Sơ lọc thanh khoản phiên ban đầu: Tránh các mã hoàn toàn không có giao dịch
+    in_session = is_market_hours(now)
+    if in_session:
+      if traded_val < 1_500_000_000 and vol < 50_000:
+        return None
+    else:
+      # Ngoài giờ/Hết phiên: Bắt buộc phiên phải đạt tối thiểu 6 tỷ VNĐ và 200k CP
+      if traded_val < 6_000_000_000 or vol < 200_000:
+        return None
 
     tech = analyze_technicals_and_scoring(chart, market_item=item, current_price=p, fundamental_info={}, ticker=symbol, exchange=exchange, regime=regime)
 
@@ -149,6 +155,15 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
     is_flip_buy = st.get('isFlipBuy', False)
     ema9 = tech.get('ema9', p)
     vol_ma20 = tech.get('volMa20', 100_000)
+    val_ma20 = (vol_ma20 * p) if p > 0 else 0.0
+
+    # Chốt chặn thanh khoản Trung bình - Khá cho vị thế Lướt sóng T+ (Chống kẹt hàng / Slippage):
+    # Chuẩn 1 (Phổ thông): Vol MA20 >= 300,000 CP/phiên VÀ Val MA20 >= 10 tỷ VNĐ/phiên
+    # Chuẩn 2 (Thị giá cao P >= 60,000 đ): Vol MA20 >= 150,000 CP/phiên VÀ Val MA20 >= 15 tỷ VNĐ/phiên (Dòng tiền lớn)
+    is_liquid_standard = (vol_ma20 >= 300_000 and val_ma20 >= 10_000_000_000)
+    is_liquid_high_price = (p >= 60_000 and vol_ma20 >= 150_000 and val_ma20 >= 15_000_000_000)
+    if not (is_liquid_standard or is_liquid_high_price):
+      return None
 
     vol_run_rate = calculate_volume_run_rate(vol, vol_ma20, now)
     upper_wick = calculate_upper_wick_ratio(high, low, p)
@@ -258,16 +273,21 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
 
     sl_pct = round(((stop_loss - p) / p) * 100, 1)
     tp1_pct = round(((target1 - p) / p) * 100, 1)
+    target_upside = active_upside_pct if is_at_r1_pivot else tp1_pct
 
-    max_breakout_dist_s1 = round(min(0.65 * atr_pct, 0.35 * limit_pct), 2)
-    max_breakout_pct_change = round(min(0.85 * atr_pct, 0.45 * limit_pct), 2)
-    min_tp1_pct = round(max(4.0, 1.1 * atr_pct), 2)
+    max_breakout_dist_s1 = round(min(max(2.2, 0.70 * atr_pct), 0.35 * limit_pct), 2)
+    max_breakout_pct_change = round(min(max(2.8, 0.85 * atr_pct), 0.45 * limit_pct), 2)
+    min_tp1_pct = round(max(3.5, 1.0 * atr_pct), 2)
 
     is_overextended = False
-    if is_breakout and (dist_s1 > max_breakout_dist_s1 or pct_change > max_breakout_pct_change or tp1_pct < min_tp1_pct):
-      is_overextended = True
-    elif is_pullback and (dist_s1 > round(0.5 * atr_pct, 2) or pct_change > round(0.4 * atr_pct, 2)):
-      is_overextended = True
+    if is_breakout:
+      if dist_s1 > max_breakout_dist_s1 or pct_change > max_breakout_pct_change or target_upside < min_tp1_pct:
+        is_overextended = True
+    elif is_pullback:
+      # Đối với Pullback: Không áp đặt logic tăng quá đà của Breakout.
+      # Chỉ cảnh báo nếu dư địa tăng quá hẹp (< 3.0%) hoặc giá thủng nền S1 sâu (> 2.0%)
+      if target_upside < 3.0 or dist_s1 < -2.0:
+        is_overextended = True
 
     # Khóa 3: Thị trường chung (VN-Index Kill-Switch)
     is_market_adverse = regime in ('DOWN_TREND', 'DISTRIBUTION', 'RISK_OFF')
@@ -282,7 +302,7 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         p >= open_p and
         round(max(0.4, 0.15 * atr_pct), 2) <= pct_change <= early_max_pct and
         dist_s1 <= round(min(0.45 * atr_pct, 0.30 * limit_pct), 2) and
-        tp1_pct >= min_tp1_pct and
+        target_upside >= min_tp1_pct and
         buy_ratio >= 60.0
     )
 
@@ -299,7 +319,7 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         vol_run_rate >= 1.0 and
         buy_ratio >= 55.0 and
         upper_wick <= 0.35 and
-        tp1_pct >= min_tp1_pct and
+        target_upside >= min_tp1_pct and
         net_rr >= 1.4 and
         not is_market_adverse
     )
@@ -317,7 +337,7 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         vol_run_rate >= 1.35 and
         buy_ratio >= 58.0 and
         upper_wick <= 0.35 and
-        tp1_pct >= min_tp1_pct and
+        target_upside >= min_tp1_pct and
         net_rr >= 1.4
     )
 
@@ -557,20 +577,17 @@ def build_top_tplus_opportunities(max_total=8):
   # Chọn lọc Universe Top mã chất lượng từ danh mục đầu ngành có thanh khoản cao động
   from backend.data_providers.market_board_provider import get_dynamic_liquid_universe
   universe_symbols = list(dict.fromkeys(get_dynamic_liquid_universe(limit=80) + list(market_board.keys())))
-  in_trading = is_market_hours()
-  if in_trading:
-    board_symbols = [
-        sym for sym in universe_symbols
-        if sym in market_board and (market_board[sym].get('nmTotalTradedValue') or 0) > 0
-    ]
-    board_symbols.sort(key=lambda s: -(market_board[s].get('nmTotalTradedValue') or 0))
-  else:
-    board_symbols = [sym for sym in universe_symbols if sym in market_board]
+  # Luôn ưu tiên quét các mã có giá trị giao dịch cao nhất trước
+  board_symbols = [
+      sym for sym in universe_symbols
+      if sym in market_board and (market_board[sym].get('nmTotalTradedValue') or 0) > 0
+  ]
+  board_symbols.sort(key=lambda s: -(market_board[s].get('nmTotalTradedValue') or 0))
 
   if not board_symbols:
     board_symbols = [sym for sym in universe_symbols if sym in market_board]
 
-  scan_list = board_symbols[:50]
+  scan_list = board_symbols[:60]
 
   results = []
   with ThreadPoolExecutor(max_workers=10) as executor:
@@ -583,7 +600,7 @@ def build_top_tplus_opportunities(max_total=8):
       if res:
         results.append(res)
 
-  breakouts = [r for r in results if r['tagType'] == 'BREAKOUT_T0']
+  breakouts = [r for r in results if r['tagType'] in ('BREAKOUT_T0', 'BREAKOUT_PIVOT')]
   pullbacks = [r for r in results if r['tagType'] == 'PULLBACK_T1_T2']
 
   # Nhận diện sóng ngành đồng thuận (Sector Sympathy Play): Leader nổ -> Đàn em đón lõng tại P_reversal
@@ -610,21 +627,26 @@ def build_top_tplus_opportunities(max_total=8):
   breakouts.sort(key=lambda x: -x['opportunityScore'])
   pullbacks.sort(key=lambda x: -x['opportunityScore'])
 
+  # Phân loại cơ hội: Ưu tiên tuyệt đối các mã KHẢ THI (Actionable: Mua ngay / Thăm dò / Canh gom)
+  # Tuyệt đối không để mã OVER_EXTENDED (Đã qua điểm mua / Không giải ngân) chiếm slot cơ hội T+
+  actionable_bo = [x for x in breakouts if x.get('actionStatus') not in ('OVER_EXTENDED', 'MARKET_RISK')]
+  actionable_pb = [x for x in pullbacks if x.get('actionStatus') not in ('OVER_EXTENDED', 'MARKET_RISK')]
+
   # Cân bằng hạn ngạch Quota: Tối đa 5 Bùng nổ + 3 Pullback
   max_bo = 5
   max_pb = 3
 
-  selected_bo = breakouts[:max_bo]
-  selected_pb = pullbacks[:max_pb]
+  selected_bo = actionable_bo[:max_bo]
+  selected_pb = actionable_pb[:max_pb]
 
   # Bù trừ hạn ngạch nếu 1 bên không đủ
   total_selected = len(selected_bo) + len(selected_pb)
   if total_selected < max_total:
     rem = max_total - total_selected
-    if len(breakouts) > len(selected_bo):
-      selected_bo.extend(breakouts[len(selected_bo):len(selected_bo) + rem])
-    elif len(pullbacks) > len(selected_pb):
-      selected_pb.extend(pullbacks[len(selected_pb):len(selected_pb) + rem])
+    if len(actionable_bo) > len(selected_bo):
+      selected_bo.extend(actionable_bo[len(selected_bo):len(selected_bo) + rem])
+    elif len(actionable_pb) > len(selected_pb):
+      selected_pb.extend(actionable_pb[len(selected_pb):len(selected_pb) + rem])
 
   final_list = selected_bo + selected_pb
   # Sắp xếp danh sách cuối cùng theo Score để mã tiềm năng nhất lên đầu
@@ -635,7 +657,7 @@ def build_top_tplus_opportunities(max_total=8):
       'updatedAt': get_vn_now().strftime('%H:%M:%S %d/%m/%Y'),
       'marketRegime': regime.get('status', 'NEUTRAL') if isinstance(regime, dict) else 'NEUTRAL',
       'totalScanned': len(scan_list),
-      'countBreakout': len([x for x in final_list if x['tagType'] == 'BREAKOUT_T0']),
+      'countBreakout': len([x for x in final_list if x['tagType'] in ('BREAKOUT_T0', 'BREAKOUT_PIVOT')]),
       'countPullback': len([x for x in final_list if x['tagType'] == 'PULLBACK_T1_T2']),
       'topOpportunities': final_list,
       'allOpportunities': results,

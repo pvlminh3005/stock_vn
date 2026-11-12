@@ -1,10 +1,9 @@
 """
 Stock RT - VCI (Vietcap) Data Provider
-Cung cấp dữ liệu báo cáo tài chính hàng quý, bảng cân đối, dòng tiền và lịch sử định giá.
+Cung cấp dữ liệu báo cáo tài chính hàng quý, bảng cân đối, dòng tiền và lịch sử định giá từ Vietcap IQ API.
 """
-import io
 import json
-import sys
+import math
 import time
 from concurrent.futures import ThreadPoolExecutor
 from backend.constants.config import (
@@ -13,7 +12,11 @@ from backend.constants.config import (
     _VCI_BS_FIELDS,
     _VCI_CF_FIELDS,
 )
-from backend.utils.network import vnstock_call
+from backend.constants.urls import (
+    build_vietcap_financial_statement_url,
+    build_vietcap_statistics_url,
+)
+from backend.utils.network import fetch_json, VIETCAP_IQ_HEADERS
 from backend.utils.ohlc_helpers import period_key, expected_latest_report_period
 
 
@@ -36,47 +39,73 @@ def _latest(series, periods):
       return series[p], p
   return None, None
 
-def _vci_quarterly_report(symbol, report_type, fields):
-  """
-  Đọc báo cáo theo quý từ VCI (vnstock), trả về {tên_trường: {kỳ 'YYYY-Qn': giá trị}}.
-  Dùng API nội bộ _get_report(limit=200) vì Finance.ratio() công khai chỉ trả 4 kỳ đầu tiên.
-  """
-  try:
-    from vnstock.explorer.vci.financial import Finance as VCIFinance
-    f_obj = VCIFinance(symbol=symbol, period='quarter')
-    if not hasattr(f_obj, '_get_report'):
-      return {}
-    df = vnstock_call(lambda: f_obj._get_report(
-        report_type=report_type, lang='vi', mode='final', style='readable',
-        show_log=False, period='quarter', limit=200, get_all=False,
-    ))
-  except Exception:
-    return {}
-  if df is None or df.empty or 'item_id' not in df.columns:
-    return {}
-  period_cols = [c for c in df.columns if period_key(c)]
+def _parse_vietcap_quarters(rows, fields, quarter_key='lengthReport'):
+  """Chuẩn hóa danh sách các kỳ quý từ Vietcap IQ JSON sang {tên_trường: {kỳ 'YYYY-Qn': giá trị}}."""
   out = {}
-  for _, row in df.iterrows():
-    key = fields.get(row['item_id'])
-    if not key:
+  for row in rows:
+    if not isinstance(row, dict):
       continue
-    series = out.setdefault(key, {})
-    for col in period_cols:
+    yr = row.get('yearReport')
+    qt = row.get(quarter_key)
+    try:
+      yr_int = int(yr)
+      qt_int = int(qt)
+    except (TypeError, ValueError):
+      continue
+    if qt_int not in (1, 2, 3, 4):
+      continue
+    col = f'{yr_int}-Q{qt_int}'
+    if not period_key(col):
+      continue
+    for src_key, target_key in fields.items():
+      raw_val = row.get(src_key)
+      if raw_val is None:
+        continue
       try:
-        val = float(row[col])
+        val = float(raw_val)
       except (TypeError, ValueError):
         continue
-      if val != val:
+      if not math.isfinite(val):
         continue
-      # Một số khoản mục bị lặp (dòng tổng và dòng chi tiết): giữ giá trị tuyệt đối lớn nhất
+      series = out.setdefault(target_key, {})
       if col not in series or abs(val) > abs(series[col]):
         series[col] = val
   return out
 
+
+def _vci_quarterly_report(symbol, report_type, fields):
+  """
+  Đọc báo cáo theo quý trực tiếp từ Vietcap IQ API, trả về {tên_trường: {kỳ 'YYYY-Qn': giá trị}}.
+  Trả về None nếu lỗi mạng hoặc API lỗi (để tránh lưu cache thiếu dữ liệu).
+  """
+  try:
+    if report_type == 'ratio':
+      resp = fetch_json(
+          build_vietcap_statistics_url(symbol),
+          headers=VIETCAP_IQ_HEADERS,
+          timeout=8,
+      )
+      if not isinstance(resp, dict) or resp.get('status') != 200 or not isinstance(resp.get('data'), list):
+        return None
+      return _parse_vietcap_quarters(resp['data'], fields, quarter_key='quarter')
+
+    section = 'BALANCE_SHEET' if report_type == 'balance_sheet' else 'CASH_FLOW'
+    resp = fetch_json(
+        build_vietcap_financial_statement_url(symbol, section),
+        headers=VIETCAP_IQ_HEADERS,
+        timeout=8,
+    )
+    data = resp.get('data') if isinstance(resp, dict) else None
+    quarters = data.get('quarters') if isinstance(data, dict) else None
+    if not isinstance(resp, dict) or resp.get('status') != 200 or not isinstance(quarters, list):
+      return None
+    return _parse_vietcap_quarters(quarters, fields, quarter_key='lengthReport')
+  except Exception:
+    return None
+
+
 def fetch_vci_financial_history(symbol):
-  """Tải lịch sử chỉ số định giá, bảng cân đối và dòng tiền theo quý từ VCI."""
-  old_stdout, old_stderr = sys.stdout, sys.stderr
-  sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
+  """Tải lịch sử chỉ số định giá, bảng cân đối và dòng tiền theo quý từ Vietcap IQ (VCI)."""
   try:
     with ThreadPoolExecutor(max_workers=3) as pool:
       f_ratio = pool.submit(_vci_quarterly_report, symbol, 'ratio', _VCI_RATIO_FIELDS)
@@ -87,7 +116,7 @@ def fetch_vci_financial_history(symbol):
       for fut in (f_ratio, f_bs, f_cf):
         try:
           part = fut.result()
-        except BaseException:
+        except Exception:
           part = None
         if part is None:
           partial = True
@@ -104,8 +133,6 @@ def fetch_vci_financial_history(symbol):
     }
   except Exception:
     return None
-  finally:
-    sys.stdout, sys.stderr = old_stdout, old_stderr
 
 def get_vci_financial_history(symbol):
   """

@@ -60,3 +60,40 @@ def build_vietstock_finance_url(ticker: str) -> str:
     """Tạo URL hồ sơ tài chính Vietstock theo mã."""
     return f"{VIETSTOCK_FINANCE_BASE_URL}/{ticker.strip().upper()}/tai-chinh.htm"
 
+
+# 4. VIETCAP OPEN API & VIETCAP IQ (Rổ chỉ số & Báo cáo tài chính VCI)
+VIETCAP_TRADING_BASE_URL = os.environ.get('VIETCAP_TRADING_BASE_URL', 'https://trading.vietcap.com.vn').rstrip('/')
+VIETCAP_IQ_BASE_URL = os.environ.get('VIETCAP_IQ_BASE_URL', 'https://iq.vietcap.com.vn').rstrip('/')
+VNDIRECT_FINFO_BASE_URL = os.environ.get('VNDIRECT_FINFO_BASE_URL', 'https://api-finfo.vndirect.com.vn').rstrip('/')
+
+
+def build_vietcap_group_url(group: str) -> str:
+    """Tạo URL lấy danh sách mã theo rổ chỉ số từ Vietcap Open API (VD: VN100, HNX30)."""
+    return f"{VIETCAP_TRADING_BASE_URL}/api/price/symbols/getByGroup?group={group.strip().upper()}"
+
+
+def build_vietcap_company_url(symbol: str) -> str:
+    """Tạo URL lấy hồ sơ tổng quan doanh nghiệp từ Vietcap IQ."""
+    return f"{VIETCAP_IQ_BASE_URL}/api/iq-insight-service/v1/company/{symbol.strip().upper()}"
+
+
+def build_vietcap_statistics_url(symbol: str) -> str:
+    """Tạo URL lấy lịch sử chỉ số tài chính theo quý từ Vietcap IQ."""
+    return f"{VIETCAP_IQ_BASE_URL}/api/iq-insight-service/v1/company/{symbol.strip().upper()}/statistics-financial"
+
+
+def build_vietcap_financial_statement_url(symbol: str, section: str) -> str:
+    """Tạo URL lấy BCTC theo section (BALANCE_SHEET, CASH_FLOW, INCOME_STATEMENT) từ Vietcap IQ."""
+    return (
+        f"{VIETCAP_IQ_BASE_URL}/api/iq-insight-service/v1/company/"
+        f"{symbol.strip().upper()}/financial-statement?section={section.strip().upper()}"
+    )
+
+
+def build_vndirect_events_url(ticker: str, size: int = 5) -> str:
+    """Tạo URL lấy lịch sự kiện & cổ tức doanh nghiệp tiếng Việt từ VNDirect Finfo API."""
+    return (
+        f"{VNDIRECT_FINFO_BASE_URL}/v4/events?"
+        f"{urlencode({'q': f'code:{ticker.strip().upper()}~locale:VN', 'sort': 'disclosureDate:desc', 'size': size})}"
+    )
+

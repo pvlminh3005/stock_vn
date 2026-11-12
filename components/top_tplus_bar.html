@@ -16,10 +16,10 @@
           </h3>
         </div>
         <p class="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-          <span>Đèn Xanh Hành Động (3 Khóa An Toàn T+2.5):</span>
-          <span class="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40"><i class="fa-solid fa-circle-dot text-[8px] animate-pulse"></i> 🟢 Mua ngay</span>
-          <span class="inline-flex items-center gap-1 text-[10px] text-amber-300 font-semibold bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">⏳ Chờ sau 13:45</span>
-          <span class="inline-flex items-center gap-1 text-[10px] text-rose-300 font-semibold bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/40">⛔ Đã chạy xa</span>
+          <span>Trạng thái VSR (Khóa An Toàn T+2.5):</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40"><i class="fa-solid fa-circle-dot text-[8px] animate-pulse"></i> 🟢 Mua ngay / Thăm dò</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-amber-300 font-semibold bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40"><i class="fa-solid fa-crosshairs text-[8px]"></i> 🎯 Canh gom Pullback</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-blue-300 font-semibold bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-800/40"><i class="fa-solid fa-clock text-[8px]"></i> ⏳ Chờ 13:45</span>
         </p>
       </div>
     </div>
@@ -40,6 +40,26 @@
         title="Làm mới danh sách cơ hội T+ ngay lập tức">
         <i class="fa-solid fa-arrows-rotate text-xs" id="refreshTopTPlusIcon"></i>
         <span id="btnRefreshTopTPlusText">Làm mới</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Thanh Filter Tabs Phân Loại Khẩu Vị Đầu Tư (Tất cả / Bùng nổ / Gom nền) -->
+  <div class="flex items-center justify-between gap-2 pt-0.5">
+    <div class="flex items-center gap-1.5 overflow-x-auto text-xs font-mono scrollbar-none">
+      <button id="tabFilterAll" type="button" class="top-tplus-tab px-2.5 py-1 rounded-lg bg-blue-600 text-white font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95" data-filter="ALL">
+        <span>Tất cả</span>
+        <span id="tabCountAll" class="px-1.5 py-0.2 rounded-full bg-blue-900/80 text-[10px]">0</span>
+      </button>
+      <button id="tabFilterBreakout" type="button" class="top-tplus-tab px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer border border-slate-700/60 active:scale-95" data-filter="BREAKOUT">
+        <i class="fa-solid fa-bolt text-[10px] text-amber-400"></i>
+        <span>Bùng nổ</span>
+        <span id="tabCountBreakout" class="px-1.5 py-0.2 rounded-full bg-slate-900 text-slate-400 text-[10px]">0</span>
+      </button>
+      <button id="tabFilterPullback" type="button" class="top-tplus-tab px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer border border-slate-700/60 active:scale-95" data-filter="PULLBACK">
+        <i class="fa-solid fa-crosshairs text-[10px] text-cyan-400"></i>
+        <span>Gom nền</span>
+        <span id="tabCountPullback" class="px-1.5 py-0.2 rounded-full bg-slate-900 text-slate-400 text-[10px]">0</span>
       </button>
     </div>
   </div>

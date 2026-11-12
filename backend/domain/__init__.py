@@ -5,7 +5,6 @@ Re-exports for valuation, technicals, market regime, risk assessment, and outloo
 
 from backend.domain.valuation import (
     classify_ocf_status,
-    fetch_from_vnstock,
     compute_valuation_band,
     apply_vci_overlay,
     assess_financial_distress,
@@ -46,7 +45,6 @@ from backend.domain.decision_engine import evaluate_unified_decision
 
 __all__ = [
     'classify_ocf_status',
-    'fetch_from_vnstock',
     'compute_valuation_band',
     'apply_vci_overlay',
     'assess_financial_distress',
