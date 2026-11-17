@@ -8,6 +8,7 @@ Quản lý gửi cảnh báo real-time qua Telegram Bot API:
 
 import logging
 import os
+import time
 from typing import Optional, List, Dict, Any, Tuple
 import requests
 
@@ -305,9 +306,14 @@ def format_breakout_alert(
   else:
     entry_range = entry_zone
 
+  sig_date = stock.get('signal_date') or stock.get('date') or stock.get('signalDate')
+  if not sig_date:
+    sig_date = time.strftime('%Y-%m-%d', time.gmtime(time.time() + 7 * 3600))
+
   msg = (
       f"{header_title}\n"
-      f"🏢 {name}\n\n"
+      f"🏢 {name}\n"
+      f"📅 <b>Ngày phát lệnh:</b> <b>{sig_date}</b> (Phiên T0 hôm nay)\n\n"
       f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
       f"🎯 <b>Vùng gom an toàn:</b> <b>{entry_range}</b> (Sát nền S1)\n"
       f"📊 <b>Khối lượng:</b> Nổ <b>x{vol_run_rate:.1f}</b> TB20 | Mua CĐ: <b>{buy_ratio:.1f}%</b>\n"
@@ -420,9 +426,14 @@ def format_actionable_buy_alert(
       action_text = "🟢 MUA NGAY T0"
       note_text = "Dòng tiền Tứ trụ vào mạnh chân sóng, sát nền hỗ trợ, không rủi ro đu đỉnh."
 
+  sig_date = stock.get('signal_date') or stock.get('date') or stock.get('signalDate')
+  if not sig_date:
+    sig_date = time.strftime('%Y-%m-%d', time.gmtime(time.time() + 7 * 3600))
+
   msg = (
       f"{header}\n"
-      f"🏢 {name}\n\n"
+      f"🏢 {name}\n"
+      f"📅 <b>Ngày phát lệnh:</b> <b>{sig_date}</b> (Phiên T0 hôm nay)\n\n"
       f"💰 <b>Thị giá hiện tại:</b> <b>{price:,.0f} đ</b> ({sign}{change_pct:.2f}%)\n"
       f"🎯 <b>Vùng gom an toàn:</b> <b>{entry_range}</b> (Sát nền S1)\n"
       f"{rs_line}"
@@ -507,4 +518,124 @@ def format_session_digest(
       {'text': '🌐 Mở Stock RT Live Web', 'url': home_link}
   ]
   return msg, buttons
+
+
+def format_supertrend_flip_alert(
+    stock: dict,
+    is_sideway: bool = False,
+    public_url: Optional[str] = None,
+) -> Tuple[str, List[Dict[str, str]]]:
+  """
+  Định dạng tin nhắn Telegram cảnh báo mã vừa ĐẢO CHIỀU LẬT DẢI SUPERTREND (Lật Xanh hoặc Chuyển Chờ Trend).
+  Cung cấp đầy đủ: Mốc kích hoạt lật dải, Hỗ trợ dừng lỗ S1, Mục tiêu chốt lời TP1, Ngày phát lệnh, và ADX.
+  """
+  base_url = get_public_url(public_url)
+  symbol = str(stock.get('symbol', '')).upper()
+  price = float(stock.get('price', 0))
+
+  change_pct = stock.get('changePct')
+  if change_pct is None:
+    change_pct = stock.get('pct_change', stock.get('percentChange', 0.0))
+  change_pct = float(change_pct or 0.0)
+  sign = '+' if change_pct >= 0 else ''
+
+  signal_date = stock.get('signal_date') or stock.get('signalDate') or ''
+  trigger_p = float(stock.get('trigger_price', stock.get('broken_band', price)))
+  s1 = float(stock.get('support', stock.get('s1', stock.get('stop_loss', 0))))
+  r1 = float(stock.get('resistance', stock.get('r1', stock.get('target1', 0))))
+  adx_val = float(stock.get('adx', 0))
+  buy_ratio = float(stock.get('buy_ratio', stock.get('buyRatio', 50.0)))
+  vol_rate = float(stock.get('vol_run_rate', stock.get('volRunRate', 1.0)))
+
+  downside_pct = round(((s1 - price) / price * 100), 1) if price > 0 and s1 > 0 else 0.0
+  upside_pct = round(((r1 - price) / price * 100), 1) if price > 0 and r1 > price else 0.0
+
+  access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
+  auth_suffix = f"&auth={access_pin}" if access_pin else ""
+  deep_link = f"{base_url}/?ticker={symbol}{auth_suffix}"
+  portfolio_link = f"{base_url}/?mode=portfolio{auth_suffix}"
+
+  date_line = f"📅 <b>Ngày phát lệnh:</b> <b>{signal_date}</b>\n" if signal_date else ""
+
+  if is_sideway:
+    header = f"⚪ <b>TÍN HIỆU ĐẢO CHIỀU: {symbol} CHUYỂN DẢI CHỜ TREND</b>"
+    note_text = (
+        f"💡 <i>Cổ phiếu vừa bứt cản trên và lật SuperTrend sang xu hướng tăng nhưng ADX < 20 (vùng sideway tích lũy). "
+        f"Khuyến nghị theo dõi sát hoặc chỉ mở vị thế thăm dò 30% tỷ trọng quanh mốc hỗ trợ {s1:,.0f} đ, kiên nhẫn chờ dòng tiền xác nhận.</i>"
+    )
+  else:
+    header = f"🟢 <b>TÍN HIỆU ĐẢO CHIỀU: {symbol} LẬT DẢI XANH (BULLISH)</b>"
+    note_text = (
+        "💡 <i>Cổ phiếu chính thức xác nhận lật dải Xanh với động lượng xu hướng bứt phá (ADX >= 20). "
+        "Cho phép mở vị thế mua đón sóng mới với tỷ lệ R/R hấp dẫn, tuân thủ kỷ luật phòng thủ tại mốc S1.</i>"
+    )
+
+  s1_str = f"{s1:,.0f} đ ({downside_pct:.1f}%)" if s1 > 0 else "Dữ liệu chưa ghi nhận"
+  r1_str = f"{r1:,.0f} đ (+{upside_pct:.1f}%)" if r1 > 0 else "Dữ liệu chưa ghi nhận"
+  trigger_str = f"{trigger_p:,.0f} đ" if trigger_p > 0 else f"{price:,.0f} đ"
+
+  msg = (
+      f"{header}\n"
+      f"━━━━━━━━━━━━━━━━━━━━\n"
+      f"💰 <b>Thị giá:</b> <b>{price:,.0f} đ</b> ({sign}{change_pct:.2f}%)\n"
+      f"{date_line}"
+      f"⚡ <b>Mốc kích hoạt lật dải:</b> {trigger_str}\n"
+      f"🛡️ <b>Mốc Hỗ trợ / Dừng Lỗ (S1):</b> <b>{s1_str}</b>\n"
+      f"🎯 <b>Mục tiêu chốt lời (TP1):</b> <b>{r1_str}</b>\n"
+      f"📊 <b>Động lượng:</b> ADX {adx_val:.1f} | Mua CĐ: {buy_ratio:.1f}% | Vol x{vol_rate:.1f} TB20\n\n"
+      f"{note_text}"
+  )
+
+  buttons = [
+      {'text': f'📊 Mở Biểu Đồ {symbol}', 'url': deep_link},
+      {'text': '💼 Mở Sổ Lệnh Danh Mục', 'url': portfolio_link}
+  ]
+  return msg, buttons
+
+
+def format_supertrend_batch_flip_alert(
+    flips: List[dict],
+    public_url: Optional[str] = None,
+) -> Tuple[str, List[Dict[str, str]]]:
+  """Định dạng bản tin gộp khi có nhiều mã (>= 3 mã) cùng lật dải SuperTrend trong một phiên quét."""
+  base_url = get_public_url(public_url)
+  today_str = flips[0].get('signal_date', '') if flips else ''
+
+  items_text = []
+  for f in flips:
+    sym = f.get('symbol', '')
+    p = float(f.get('price', 0))
+    pct = float(f.get('changePct', 0.0))
+    sign = '+' if pct >= 0 else ''
+    is_sw = f.get('is_sideway', False)
+    icon = '⚪' if is_sw else '🟢'
+    status_label = 'Chờ Trend' if is_sw else 'Lật Xanh'
+    s1 = float(f.get('support', 0))
+    r1 = float(f.get('resistance', 0))
+    s1_text = f"SL: {s1:,.0f}" if s1 > 0 else ""
+    r1_text = f"TP1: {r1:,.0f}" if r1 > 0 else ""
+    targets = f" ({s1_text} | {r1_text})" if s1_text and r1_text else ""
+    items_text.append(f"• <b>{sym}</b>: {icon} <b>{status_label}</b> | Giá: <b>{p:,.0f} đ</b> ({sign}{pct:.2f}%){targets}")
+
+  date_header = f" - Ngày {today_str}" if today_str else ""
+  msg = (
+      f"🚀 <b>RADAR ĐẢO CHIỀU: {len(flips)} MÃ LẬT DẢI SUPERTREND{date_header}</b>\n"
+      f"━━━━━━━━━━━━━━━━━━━━\n"
+      + "\n".join(items_text) + "\n\n"
+      "💡 <i>Nhiều mã cổ phiếu cùng lật dải xác nhận dòng tiền lan tỏa tích cực. "
+      "Bấm nút bên dưới để mở web theo dõi chi tiết từng mã và đưa ra quyết định giải ngân.</i>"
+  )
+
+  access_pin = os.environ.get('APP_ACCESS_PIN', '').strip()
+  auth_param = f"?auth={access_pin}" if access_pin else ""
+  home_link = f"{base_url}/{auth_param}".rstrip('/')
+  if not home_link:
+    home_link = base_url
+
+  buttons = [
+      {'text': '🌐 Mở Stock RT Live Web', 'url': home_link},
+      {'text': '💼 Mở Sổ Lệnh Danh Mục', 'url': f"{base_url}/?mode=portfolio{auth_param}"}
+  ]
+  return msg, buttons
+
 

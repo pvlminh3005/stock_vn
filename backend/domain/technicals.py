@@ -587,7 +587,7 @@ def calculate_adx(highs, lows, closes, period=14):
   }
 
 
-def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
+def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0, bar_dates=None):
   """Tính toán dải chỉ báo SuperTrend (ATR Volatility Trailing Band).
 
   Xác định xu hướng Xanh Vào (Bullish) / Hồng Ra (Bearish) và nhận diện điểm đảo chiều Flip.
@@ -602,6 +602,8 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
         'isBearish': False,
         'isFlipBuy': False,
         'isFlipSell': False,
+        'signalDate': bar_dates[0] if bar_dates else '',
+        'holdingBars': 0,
         'bandPrice': closes[-1] if closes else 0.0,
     }
 
@@ -666,12 +668,23 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
   reversal_trigger = final_upper[-1]
   invalidation_trigger = final_lower[-1]
 
+  # Tìm cây nến đảo chiều Flip gần nhất và ngày phát lệnh tương ứng
+  last_flip_idx = 0
+  for i in range(1, n):
+    if trend[i] != trend[i - 1]:
+      last_flip_idx = i
+
+  holding_bars = (n - 1) - last_flip_idx
+  signal_date = bar_dates[last_flip_idx] if bar_dates and last_flip_idx < len(bar_dates) else ''
+
   return {
       'direction': 'BULLISH' if last_trend == 1 else 'BEARISH',
       'isBullish': last_trend == 1,
       'isBearish': last_trend == -1,
       'isFlipBuy': is_flip_buy,
       'isFlipSell': is_flip_sell,
+      'signalDate': signal_date,
+      'holdingBars': holding_bars,
       'bandPrice': round(current_band, -2) if current_band >= 1000 else round(current_band, 2),
       'supportBand': round(final_lower[-1], -2) if final_lower[-1] >= 1000 else round(final_lower[-1], 2),
       'resistanceBand': round(final_upper[-1], -2) if final_upper[-1] >= 1000 else round(final_upper[-1], 2),
@@ -1204,11 +1217,13 @@ def analyze_technicals_and_scoring(
       highs, lows, closes,
       period=TPLUS_SUPERTREND_PERIOD,
       multiplier=TPLUS_SUPERTREND_MULTIPLIER,
+      bar_dates=bar_dates,
   )
   supertrend_midterm = calculate_supertrend(
       highs, lows, closes,
       period=MIDTERM_SUPERTREND_PERIOD,
       multiplier=MIDTERM_SUPERTREND_MULTIPLIER,
+      bar_dates=bar_dates,
   )
   supertrend_info = supertrend_tplus
 
@@ -1255,7 +1270,8 @@ def analyze_technicals_and_scoring(
 
   ex_clean = (exchange or 'HOSE').upper()
   floor_cap = 15.0 if 'HOSE' in ex_clean else (10.5 if 'HNX' in ex_clean else 7.2)
-  regime = regime or {}
+  if not isinstance(regime, dict):
+    regime = {'regime': str(regime or 'NEUTRAL'), 'coefficient': 0.75}
   regime_name = regime.get('regime', 'NEUTRAL')
   regime_coef = regime.get('coefficient', 0.75)
   risk_budget_pct = round(T_PLUS_RISK_BUDGET_PCT * regime_coef, 2)

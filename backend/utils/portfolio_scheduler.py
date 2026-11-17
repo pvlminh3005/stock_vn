@@ -60,6 +60,33 @@ def is_market_hours(dt: datetime) -> bool:
     return in_morning or in_afternoon
 
 
+def get_t_plus_status(trade_date_str: str) -> str:
+    """Tính toán trạng thái T+ (T+0, T+1, T+2 Chiều về, T+3 Khả dụng) theo ngày giao dịch."""
+    if not trade_date_str:
+        return ""
+    try:
+        t_date = datetime.strptime(trade_date_str[:10], '%Y-%m-%d').date()
+        today = get_vn_now().date()
+        if today < t_date:
+            return ""
+        trading_days = 0
+        curr = t_date
+        while curr < today:
+            curr += timedelta(days=1)
+            if curr.weekday() < 5:
+                trading_days += 1
+        if trading_days == 0:
+            return "T+0 (Vừa mua hôm nay)"
+        elif trading_days == 1:
+            return "T+1 (Chưa về TK)"
+        elif trading_days == 2:
+            return "T+2 (Chiều nay về TK)"
+        else:
+            return f"T+{trading_days} (Sẵn sàng bán)"
+    except Exception:
+        return ""
+
+
 def format_portfolio_alert(symbol: str, alert_type: str, detail: dict) -> tuple:
     """Định dạng tin nhắn cảnh báo Telegram cho vị thế trong sổ lệnh."""
     base_url = get_public_url()
@@ -71,6 +98,23 @@ def format_portfolio_alert(symbol: str, alert_type: str, detail: dict) -> tuple:
     change_pct = detail.get('change_pct', 0.0)
     sign = '+' if change_pct >= 0 else ''
 
+    avg_p = detail.get('avg_price', 0)
+    pnl_pct = detail.get('pnl_pct', 0.0)
+    pnl_line = f"📊 <b>Giá vốn TB:</b> {avg_p:,.0f} đ (Lỗ tạm tính: <b>{pnl_pct:.2f}%</b>)\n" if avg_p > 0 and pnl_pct < 0 else (f"📊 <b>Giá vốn TB:</b> {avg_p:,.0f} đ (Lãi tạm tính: <b>+{pnl_pct:.2f}%</b>)\n" if avg_p > 0 else "")
+
+    trade_date = detail.get('trade_date', '')
+    signal_date = detail.get('signal_date', '')
+    holding_bars = detail.get('holding_bars')
+    t_status = get_t_plus_status(trade_date)
+
+    date_line = ""
+    if trade_date:
+        t_suffix = f" (<b>{t_status}</b>)" if t_status else ""
+        date_line = f"📅 <b>Ngày vào lệnh:</b> {trade_date}{t_suffix}\n"
+    elif signal_date:
+        bar_str = f" ({holding_bars} phiên trước)" if holding_bars else ""
+        date_line = f"📅 <b>Ngày phát lệnh kỹ thuật:</b> {signal_date}{bar_str}\n"
+
     if alert_type == 'STOPLOSS_TRIGGERED':
         stop_val = detail.get('stop_loss', 0)
         downside_pct = round(((stop_val - price) / price * 100), 2) if price > 0 and stop_val > 0 else 0.0
@@ -78,22 +122,22 @@ def format_portfolio_alert(symbol: str, alert_type: str, detail: dict) -> tuple:
             f"🚨 <b>CẢNH BÁO DANH MỤC: {symbol} CHẠM NGƯỠNG CẮT LỖ!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
+            f"{pnl_line}"
+            f"{date_line}"
             f"🛡️ <b>Mốc hỗ trợ S1 / Stoploss:</b> {stop_val:,.0f} đ ({downside_pct:.1f}%)\n\n"
             f"⚠️ <i>Giá cổ phiếu đã vi phạm hoặc xuyên thủng ngưỡng phòng thủ ban đầu. "
             f"Hãy xem xét hạ tỷ trọng hoặc đóng vị thế để bảo toàn vốn.</i>\n"
         )
     elif alert_type == 'NEAR_STOPLOSS':
         stop_val = detail.get('stop_loss', 0)
-        avg_p = detail.get('avg_price', 0)
-        pnl_pct = detail.get('pnl_pct', 0.0)
         dist_to_sl = detail.get('dist_to_sl', 0.0)
-        pnl_line = f"📊 <b>Giá vốn TB:</b> {avg_p:,.0f} đ (Lỗ tạm tính: <b>{pnl_pct:.2f}%</b>)\n" if avg_p > 0 else ""
 
         msg = (
             f"⚠️ <b>CẢNH BÁO SỚM DANH MỤC: {symbol} TIỆM CẬN DẢI DỪNG LỖ!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
             f"{pnl_line}"
+            f"{date_line}"
             f"🛡️ <b>Mốc Dừng Lỗ (SL/S1):</b> {stop_val:,.0f} đ (Cách SL: <b>chỉ còn {dist_to_sl:.1f}%</b>)\n\n"
             f"👀 <i>Giá cổ phiếu đang áp sát ngưỡng phòng thủ ban đầu (cách SL < 2% hoặc lỗ > 5%). "
             f"Hãy chuẩn bị sẵn kịch bản và theo dõi sát lực cầu quanh khung 14:15 - 14:30 (ATC). "
@@ -106,6 +150,8 @@ def format_portfolio_alert(symbol: str, alert_type: str, detail: dict) -> tuple:
             f"🎯 <b>CẢNH BÁO DANH MỤC: {symbol} ĐẠT MỤC TIÊU CHỐT LỜI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
+            f"{pnl_line}"
+            f"{date_line}"
             f"🏆 <b>Mục tiêu chốt lời R1:</b> {r1_val:,.0f} đ (+{upside_pct:.1f}%)\n\n"
             f"🎉 <i>Cổ phiếu đã chạm vùng kháng cự chốt lời kỳ vọng. "
             f"Khuyến nghị hiện thực hóa lợi nhuận từng phần hoặc nâng mốc chặn lãi (Trailing Stop).</i>\n"
@@ -138,12 +184,21 @@ def scan_portfolio_alerts():
         if not sym_code:
             continue
         if sym_code not in holdings_vwap:
-            holdings_vwap[sym_code] = {'vol': 0, 'cost': 0.0, 'avg_price': 0.0}
+            holdings_vwap[sym_code] = {
+                'vol': 0,
+                'cost': 0.0,
+                'avg_price': 0.0,
+                'first_buy_date': '',
+                'last_buy_date': '',
+            }
         h = holdings_vwap[sym_code]
         if t.order_type == 'BUY':
             h['vol'] += t.volume
             h['cost'] += (t.volume * t.price)
             h['avg_price'] = round(h['cost'] / h['vol'], 2) if h['vol'] > 0 else 0.0
+            if not h['first_buy_date']:
+                h['first_buy_date'] = t.trade_date
+            h['last_buy_date'] = t.trade_date
         elif t.order_type == 'SELL':
             h['vol'] = max(0, h['vol'] - t.volume)
             h['cost'] = h['vol'] * h['avg_price']
@@ -187,6 +242,12 @@ def scan_portfolio_alerts():
 
             h_info = holdings_vwap.get(sym, {})
             avg_price = h_info.get('avg_price', 0.0)
+            trade_date = h_info.get('last_buy_date') or h_info.get('first_buy_date') or ''
+
+            st_info = tech.get('supertrend', {})
+            signal_date = st_info.get('signalDate', '')
+            holding_bars = st_info.get('holdingBars', 0)
+
             pnl_pct = round(((current_price - avg_price) / avg_price * 100), 2) if avg_price > 0 and current_price > 0 else 0.0
             dist_to_sl = round(((current_price - s1) / current_price * 100), 2) if current_price > 0 and s1 > 0 else 0.0
 
@@ -198,12 +259,14 @@ def scan_portfolio_alerts():
                 'avg_price': avg_price,
                 'pnl_pct': pnl_pct,
                 'dist_to_sl': dist_to_sl,
+                'trade_date': trade_date,
+                'signal_date': signal_date,
+                'holding_bars': holding_bars,
             }
 
             today_str = get_vn_now().strftime('%Y-%m-%d')
             sl_key = f'PORTFOLIO_STOPLOSS_{today_str}_{sym}'
             near_sl_key = f'PORTFOLIO_NEAR_SL_{today_str}_{sym}'
-            tp_key = f'PORTFOLIO_TARGET_{today_str}_{sym}'
 
             # 1. Kiểm tra CẮT LỖ (Đã vi phạm S1 HOẶC lỗ >= 7.0%)
             if current_price > 0 and ((s1 > 0 and current_price <= s1) or (avg_price > 0 and pnl_pct <= -7.0)):
@@ -257,32 +320,9 @@ def scan_portfolio_alerts():
                         state['last_alert_time'] = now_ts
                         logger.info("Đã gửi cảnh báo CẬN DẢI DỪNG LỖ cho %s", sym)
 
-            # 3. Kiểm tra CHỐT LỜI R1
-            elif current_price > 0 and r1 > 0 and current_price >= r1:
-                if last_alert != 'TARGET_TRIGGERED' and not is_alert_already_sent(tp_key, min_interval_seconds=14400):
-                    # Bắn Telegram lần đầu khi chạm mục tiêu
-                    msg, btns = format_portfolio_alert(sym, 'TARGET_TRIGGERED', alert_data)
-                    log_meta = {
-                        'alert_type': 'PORTFOLIO_TARGET',
-                        'title': f'Cảnh báo Chốt lời R1: {sym}',
-                        'stocks': [{
-                            'symbol': sym,
-                            'price': current_price,
-                            'change_pct': change_pct,
-                            'stop_loss': s1,
-                            'target1': r1,
-                            'action': 'TARGET_TRIGGERED'
-                        }]
-                    }
-                    if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
-                        record_alert_sent(tp_key, preview=f'Target {sym}')
-                        state['last_alert_type'] = 'TARGET_TRIGGERED'
-                        state['last_alert_time'] = now_ts
-                        logger.info("Đã gửi cảnh báo TARGET cho %s", sym)
-
-            # 4. Giá trở lại vùng bình thường
+            # 3. Giá trở lại vùng an toàn bình thường (Cách SL > 2.5% và PnL > -4.5%)
             else:
-                if last_alert in ['STOPLOSS_TRIGGERED', 'NEAR_STOPLOSS', 'TARGET_TRIGGERED'] and dist_to_sl > 2.5 and pnl_pct > -4.5:
+                if last_alert in ['STOPLOSS_TRIGGERED', 'NEAR_STOPLOSS'] and dist_to_sl > 2.5 and pnl_pct > -4.5:
                     state['last_alert_type'] = 'NORMAL'
 
             save_alert_state(sym, state)
@@ -305,6 +345,23 @@ def send_daily_ribbon_digest():
     board_data = get_market_board_data() or {}
     digest_items = []
 
+    trades = get_all_trade_models()
+    holdings_vwap = {}
+    for t in sorted(trades, key=lambda x: (x.trade_date, str(x.id or ''))):
+        sym_code = (t.symbol or '').strip().upper()
+        if not sym_code:
+            continue
+        if sym_code not in holdings_vwap:
+            holdings_vwap[sym_code] = {'vol': 0, 'cost': 0.0, 'avg_price': 0.0, 'first_buy_date': '', 'last_buy_date': ''}
+        h = holdings_vwap[sym_code]
+        if t.order_type == 'BUY':
+            h['vol'] += t.volume
+            h['cost'] += (t.volume * t.price)
+            h['avg_price'] = round(h['cost'] / h['vol'], 2) if h['vol'] > 0 else 0.0
+            if not h['first_buy_date']:
+                h['first_buy_date'] = t.trade_date
+            h['last_buy_date'] = t.trade_date
+
     for sym in symbols:
         try:
             state = get_alert_state(sym)
@@ -322,6 +379,11 @@ def send_daily_ribbon_digest():
             color_icon = '🟢' if is_green else '🔴'
             color_name = 'VÙNG XANH (Tăng)' if is_green else 'VÙNG HỒNG (Giảm)'
 
+            h_info = holdings_vwap.get(sym, {})
+            t_date = h_info.get('last_buy_date') or h_info.get('first_buy_date') or ''
+            t_status = get_t_plus_status(t_date)
+            t_note = f" (Mua: {t_date}, {t_status.split(' ')[0]})" if t_date else ""
+
             note_whipsaw = ""
             if flip_count >= 2:
                 note_whipsaw = f" <i>(⚠️ Trong phiên nhấp nháy giằng co {flip_count} lần)</i>"
@@ -331,7 +393,7 @@ def send_daily_ribbon_digest():
                 note_near_sl = " <b>[⚠️ CẬN SL]</b>"
 
             digest_items.append(
-                f"• <b>{sym}</b>: {color_icon} <b>{color_name}</b> | Giá chốt phiên: <b>{p:,.0f} đ</b> ({sign}{pct:.2f}%){note_near_sl}{note_whipsaw}"
+                f"• <b>{sym}</b>: {color_icon} <b>{color_name}</b>{t_note} | Giá chốt phiên: <b>{p:,.0f} đ</b> ({sign}{pct:.2f}%){note_near_sl}{note_whipsaw}"
             )
 
             # Reset lại flip_count cho ngày hôm sau

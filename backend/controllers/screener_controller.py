@@ -16,6 +16,7 @@ logger = logging.getLogger('screener_controller')
 from backend.data_providers.market_board_provider import (
     get_market_board_data,
     get_vnindex_summary,
+    get_dynamic_liquid_universe,
 )
 from backend.domain.screener_engine import (
     build_top_tplus_opportunities,
@@ -27,6 +28,8 @@ from backend.utils.telegram_bot import (
     format_breakout_alert,
     format_session_digest,
     format_actionable_buy_alert,
+    format_supertrend_flip_alert,
+    format_supertrend_batch_flip_alert,
 )
 from backend.db.portfolio_db import (
     is_alert_already_sent,
@@ -71,7 +74,7 @@ def _is_sweet_spot_new_buy(stock: dict, is_early_session: bool = False) -> tuple
 
   # 1. Chặn ngay nếu engine đã phân loại là quá điểm mua hoặc rủi ro
   if action_status in ['OVER_EXTENDED', 'WAIT_PULLBACK', 'REDUCE', 'MARKET_RISK'] or 'ĐÃ' in badge:
-    return False, f"Trạng thái {action_status} không phù hợp mở mua mới"
+    return False, f"[{sym}] Trạng thái {action_status} không phù hợp mở mua mới"
 
   price = float(stock.get('price') or stock.get('p') or 0.0)
   change_pct = float(stock.get('changePct') or stock.get('pct_change') or 0.0)
@@ -373,6 +376,149 @@ def _load_screener_snapshot_from_mongo():
   return None
 
 
+def scan_supertrend_flip_alerts():
+  """
+  Quét toàn bộ rổ Universe thanh khoản cao (60-80 mã) để phát hiện mã LẬT DẢI SUPERTREND:
+  - Lật Xanh (Bullish, ADX >= 20)
+  - Chuyển Chờ Trend (Sideway, ADX < 20) - Như trường hợp DBC ngày 09/11/2026.
+
+  Cơ chế bảo vệ Limit Rate:
+  1. Smart Cache Entrade: Sử dụng cache nến 1D (TTL 10m) + merge nến live trong RAM -> Không tốn request Entrade.
+  2. Cooldown 24h: Khóa theo key f'SUPERTREND_FLIP_{today_str}_{sym}' -> Mỗi mã chỉ phát tín hiệu 1 lần/ngày.
+  3. Telegram Rate Limiter: Tối đa 2 tin lẻ (cách nhau 1.2s), nếu >= 3 mã thì gộp 1 bản tin tổng hợp.
+  """
+  now_vn = time.gmtime(time.time() + 7 * 3600)
+  today_str = time.strftime('%Y-%m-%d', now_vn)
+  is_weekday = now_vn.tm_wday < 5
+  if not is_weekday:
+    return
+
+  market_board = get_market_board_data() or {}
+  if not market_board:
+    return
+
+  universe = get_dynamic_liquid_universe(limit=80)
+  symbols = [s for s in universe if s in market_board and (market_board[s].get('nmTotalTradedValue') or 0) > 0]
+  if not symbols:
+    symbols = [s for s in universe if s in market_board]
+
+  new_flips = []
+  from backend.data_providers.entrade_provider import fetch_chart_data
+  from backend.domain.technicals import analyze_technicals_and_scoring
+
+  for sym in symbols:
+    flip_key = f'SUPERTREND_FLIP_{today_str}_{sym}'
+    if is_alert_already_sent(flip_key, min_interval_seconds=86400):
+      continue
+
+    item = market_board.get(sym, {})
+    raw_p = item.get('matchedPrice') or item.get('lastPrice') or item.get('refPrice') or 0
+    p = float(raw_p)
+    if p <= 0:
+      continue
+
+    # Lấy nến kỹ thuật (Smart Cache)
+    chart = fetch_chart_data(sym, days=120, resolution='1D', market_item=item)
+    if not chart or len(chart.get('c', [])) < 20:
+      continue
+
+    tech = analyze_technicals_and_scoring(
+        chart,
+        market_item=item,
+        current_price=p,
+        fundamental_info={},
+        ticker=sym,
+        exchange=item.get('floor', 'HOSE'),
+        regime={'regime': 'NEUTRAL', 'coefficient': 0.75}
+    )
+    st = tech.get('supertrend', {})
+    if not st.get('isFlipBuy'):
+      continue
+
+    # Kiểm tra điều kiện xác nhận kỹ thuật an toàn:
+    # Giá hiện tại phải đóng/khớp trên MA20 (đúng chuẩn xác nhận lật xanh)
+    ma20 = tech.get('ma20', 0)
+    if ma20 > 0 and p < ma20:
+      continue
+
+    adx_info = tech.get('adx', {})
+    adx_val = adx_info.get('adx', 20.0) if isinstance(adx_info, dict) else 20.0
+    is_sideway = adx_val < 20.0 or (isinstance(adx_info, dict) and adx_info.get('is_sideway', False))
+
+    vol_ma20 = tech.get('volMa20', 100_000)
+    vol = float(item.get('nmTotalTradedQty') or item.get('totalVolume') or 0)
+    vol_rate = round(vol / vol_ma20, 2) if vol_ma20 > 0 else 1.0
+
+    buy_vol = float(item.get('totalBuyTradeVolume') or 0)
+    sell_vol = float(item.get('totalSellTradeVolume') or 0)
+    total_bs = buy_vol + sell_vol
+    buy_ratio = round((buy_vol / total_bs * 100), 1) if total_bs > 0 else 50.0
+
+    s1 = tech.get('support', st.get('supportBand', round(p * 0.95, -2)))
+    r1 = tech.get('resistance', round(p * 1.08, -2))
+    signal_date = st.get('signalDate') or today_str
+    trigger_p = st.get('brokenBand', p)
+
+    new_flips.append({
+        'symbol': sym,
+        'name': item.get('companyNameVi', item.get('clientName', sym)),
+        'price': p,
+        'changePct': item.get('priceChangePercent', item.get('pct_change', 0.0)),
+        'signal_date': signal_date,
+        'trigger_price': trigger_p,
+        'support': s1,
+        'resistance': r1,
+        'adx': adx_val,
+        'is_sideway': is_sideway,
+        'vol_run_rate': vol_rate,
+        'buy_ratio': buy_ratio,
+        'flip_key': flip_key,
+    })
+
+  if not new_flips:
+    return
+
+  # Nếu có 1 đến 2 mã -> Gửi chi tiết từng mã (kèm nút bấm)
+  if len(new_flips) <= 2:
+    for flip_data in new_flips:
+      sym = flip_data['symbol']
+      msg, btns = format_supertrend_flip_alert(flip_data, is_sideway=flip_data['is_sideway'])
+      alert_title = (
+          f"Chuyển Dải Chờ Trend: {sym}" if flip_data['is_sideway']
+          else f"Lật Dải Xanh Bullish: {sym}"
+      )
+      log_meta = {
+          'alert_type': 'SUPERTREND_WAIT_SIDEWAY' if flip_data['is_sideway'] else 'SUPERTREND_FLIP_BUY',
+          'title': alert_title,
+          'stocks': [{
+              'symbol': sym,
+              'price': flip_data['price'],
+              'change_pct': flip_data['changePct'],
+              'support': flip_data['support'],
+              'resistance': flip_data['resistance'],
+              'action': 'WAIT_SIDEWAY' if flip_data['is_sideway'] else 'FLIP_BUY',
+          }]
+      }
+      if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
+        record_alert_sent(flip_data['flip_key'], preview=f"Flip {sym}")
+        logger.info("Đã gửi cảnh báo SuperTrend Flip cho %s", sym)
+      time.sleep(1.2)  # Tuân thủ rate limit 1 msg/s của Telegram
+  else:
+    # Nếu có từ 3 mã trở lên cùng lật một lúc -> Gom vào 1 bản tin tổng hợp duy nhất
+    msg, btns = format_supertrend_batch_flip_alert(new_flips)
+    log_meta = {
+        'alert_type': 'SUPERTREND_FLIP_BATCH',
+        'title': f'Phát hiện {len(new_flips)} mã lật dải SuperTrend',
+        'stocks': [{'symbol': f['symbol'], 'price': f['price']} for f in new_flips]
+    }
+    batch_key = f'SUPERTREND_BATCH_{today_str}'
+    if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
+      for flip_data in new_flips:
+        record_alert_sent(flip_data['flip_key'], preview=f"Flip {flip_data['symbol']}")
+      record_alert_sent(batch_key, preview=f"Batch {len(new_flips)} flips")
+      logger.info("Đã gửi bản tin tổng hợp SuperTrend Flip cho %d mã", len(new_flips))
+
+
 def _screener_worker_loop():
   """Tiến trình chạy ngầm làm mới dữ liệu Top T+ định kỳ 3 phút trong giờ giao dịch & bắn cảnh báo."""
   while True:
@@ -393,6 +539,12 @@ def _screener_worker_loop():
           _evaluate_telegram_alerts(data)
         except Exception as errAlert:
           print('Lỗi đánh giá Telegram alert:', errAlert)
+
+      # Quét cảnh báo đảo chiều lật dải SuperTrend (Chờ Trend / Mua Mới) trên toàn bộ Universe
+      try:
+        scan_supertrend_flip_alerts()
+      except Exception as errFlip:
+        print('Lỗi quét SuperTrend flip alert:', errFlip)
       
       if in_market:
         time.sleep(_CACHE_TTL_SEC)  # 3 phút trong phiên giao dịch
