@@ -12,7 +12,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.constants.sectors import KNOWN_STOCK_SECTORS
-from backend.constants.urls import build_entrade_chart_url, build_vietcap_group_url
+from backend.constants.urls import build_entrade_chart_url, build_vietcap_group_url, build_vps_index_detail_url
 from backend.data_providers.entrade_provider import fetch_intraday_snapshot
 from backend.utils.network import fetch_json, VIETCAP_TRADING_HEADERS
 
@@ -232,27 +232,115 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
 
 
 def get_vnindex_summary() -> dict:
-  """Lấy dữ liệu thời gian thực của chỉ số VN-Index trực tiếp từ Entrade API."""
-  now_ts = int(time.time())
-  from_ts = now_ts - 86400 * 30  # Lấy 30 ngày nến ngày VN-Index để cover trọn vẹn cả kỳ nghỉ Tết
-  url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
+  """
+  Lấy dữ liệu thời gian thực của chỉ số VN-Index trực tiếp với cơ chế đa tầng:
+  1. Tầng 1 (VPS Realtime Index Datafeed - Mã 10 = VN-INDEX):
+     Lấy trực tiếp cIndex (giá khớp realtime), oIndex (giá tham chiếu phiên hôm nay),
+     khối lượng tích lũy vol và độ rộng thị trường (advances, declines, noChange).
+  2. Tầng 2 (Entrade Intraday 1M + Tham chiếu 1D):
+     Dự phòng nếu VPS gián đoạn: Lấy giá realtime từ nến 1 phút và tham chiếu từ nến 1D
+     đúng theo ngày giao dịch.
+  3. Tầng 3 (Entrade Daily EOD):
+     Dự phòng ngoài giờ giao dịch hoặc cuối tuần.
+  """
+  # Tầng 1: VPS Live Index Datafeed (Mã 10: VN-INDEX)
   try:
-    data = fetch_json(url, timeout=5)
-    c = data.get('c', [])
-    if c and len(c) >= 2:
-      curr = float(c[-1])
-      ref = float(c[-2])
+    vps_url = build_vps_index_detail_url('10')
+    data = fetch_json(vps_url, timeout=3)
+    if isinstance(data, list) and len(data) > 0 and data[0]:
+      item = data[0]
+      curr = float(item.get('cIndex', 0))
+      ref = float(item.get('oIndex', 0))
+      if curr > 0 and ref > 0:
+        change = round(curr - ref, 2)
+        change_pct = round((change / ref * 100), 2)
+        vol = int(item.get('vol', 0))
+        ot = item.get('ot', '')
+        advances = declines = no_change = None
+        if ot and '|' in ot:
+          parts = ot.split('|')
+          if len(parts) >= 6:
+            try:
+              advances = int(parts[3])
+              declines = int(parts[4])
+              no_change = int(parts[5])
+            except (ValueError, TypeError):
+              pass
+        return {
+            'index': 'VNINDEX',
+            'price': curr,
+            'change': change,
+            'changePercent': change_pct,
+            'volume': vol,
+            'ref': ref,
+            'source': 'VPS_REALTIME',
+            'advances': advances,
+            'declines': declines,
+            'noChange': no_change,
+        }
+  except Exception as e:
+    logger.debug('Lỗi fetch VN-Index từ VPS Datafeed: %s', e)
+
+  # Tầng 2 & 3: Entrade Realtime Fallback (Nến 1 phút + Nến ngày 1D)
+  now = time.time()
+  now_ts = int(now)
+  from backend.utils.time_utils import vn_date, VN_UTC_OFFSET_SEC
+  today_str = time.strftime('%Y-%m-%d', time.gmtime(now + VN_UTC_OFFSET_SEC))
+
+  try:
+    from_ts = now_ts - 86400 * 30
+    daily_url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
+    daily_data = fetch_json(daily_url, timeout=4)
+    daily_c = daily_data.get('c', [])
+    daily_t = daily_data.get('t', [])
+
+    ref = 0.0
+    if daily_c and daily_t:
+      if vn_date(daily_t[-1]) == today_str and len(daily_c) >= 2:
+        ref = float(daily_c[-2])
+      else:
+        ref = float(daily_c[-1])
+
+    # Thử nến 1 phút trong ngày
+    m1_url = build_entrade_chart_url('index', {'from': now_ts - 21600, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1'})
+    m1_data = fetch_json(m1_url, timeout=4)
+    m1_c = m1_data.get('c', [])
+    m1_t = m1_data.get('t', [])
+    m1_v = m1_data.get('v', [])
+
+    if m1_c and m1_t and vn_date(m1_t[-1]) == today_str and ref > 0:
+      curr = float(m1_c[-1])
       change = round(curr - ref, 2)
-      change_pct = round((change / ref * 100), 2) if ref > 0 else 0.0
+      change_pct = round((change / ref * 100), 2)
+      vol = int(sum(m1_v))
       return {
           'index': 'VNINDEX',
           'price': curr,
           'change': change,
           'changePercent': change_pct,
-          'volume': int(data.get('v', [0])[-1]),
+          'volume': vol,
+          'ref': ref,
+          'source': 'ENTRADE_1M',
+      }
+
+    # Tầng 3: Nến ngày 1D
+    if daily_c and len(daily_c) >= 2:
+      curr = float(daily_c[-1])
+      prev = float(daily_c[-2])
+      change = round(curr - prev, 2)
+      change_pct = round((change / prev * 100), 2) if prev > 0 else 0.0
+      return {
+          'index': 'VNINDEX',
+          'price': curr,
+          'change': change,
+          'changePercent': change_pct,
+          'volume': int(daily_data.get('v', [0])[-1]),
+          'ref': prev,
+          'source': 'ENTRADE_1D',
       }
   except Exception as e:
-    logger.debug('Lỗi fetch VN-Index từ Entrade: %s', e)
+    logger.debug('Lỗi fetch VN-Index fallback từ Entrade: %s', e)
+
   return {'index': 'VNINDEX', 'price': 1250.0, 'change': 0.0, 'changePercent': 0.0, 'volume': 0}
 
 

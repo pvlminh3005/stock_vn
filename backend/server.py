@@ -190,6 +190,11 @@ def _route_telegram_logs(params):
 def _route_portfolio_get(params):
   return 200, handle_get_portfolio()
 
+def _route_portfolio_scan(params):
+  from backend.utils.portfolio_scheduler import scan_portfolio_alerts
+  scan_portfolio_alerts()
+  return 200, {'status': 'success', 'message': 'Đã hoàn tất quét cảnh báo danh mục.'}
+
 def _route_portfolio_delete_get(params):
   trade_id = params.get('id', [''])[0]
   return 200, handle_delete_trade(trade_id)
@@ -208,6 +213,7 @@ GET_ROUTES = {
     '/api/telegram/test': _route_telegram_test,
     '/api/telegram/logs': _route_telegram_logs,
     '/api/portfolio': _route_portfolio_get,
+    '/api/portfolio/scan': _route_portfolio_scan,
     '/api/portfolio/delete': _route_portfolio_delete_get,
 }
 
@@ -258,11 +264,13 @@ class ModularStockServer(http.server.SimpleHTTPRequestHandler):
 
   def send_json(self, status, payload):
     try:
+      encoded = json.dumps(payload, ensure_ascii=False, default=str).encode('utf-8')
       self.send_response(status)
       self.send_header('Content-Type', 'application/json; charset=utf-8')
+      self.send_header('Content-Length', str(len(encoded)))
       self.send_header('Access-Control-Allow-Origin', '*')
       self.end_headers()
-      self.wfile.write(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
+      self.wfile.write(encoded)
     except (BrokenPipeError, ConnectionResetError):
       pass
 

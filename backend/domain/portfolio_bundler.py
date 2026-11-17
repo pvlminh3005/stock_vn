@@ -277,14 +277,16 @@ def generate_portfolio_bundle(capital: float = 20_000_000, style: str = 'balance
 
   market_board = get_market_board_data()
   regime = evaluate_market_regime(market_board)
-  regime_label = regime.get('regime', 'Neutral')
-  regime_score = regime.get('score', 3)
-  regime_advice = regime.get('recommendation', 'Thị trường thận trọng')
+  regime_raw = regime.get('regime', 'NEUTRAL') if isinstance(regime, dict) else str(regime or 'NEUTRAL')
+  regime_upper = regime_raw.upper()
+  regime_label = regime_upper.replace('_', ' ').title()
+  regime_score = regime.get('score', 3) if isinstance(regime, dict) else 3
+  regime_advice = regime.get('recommendation', 'Thị trường thận trọng') if isinstance(regime, dict) else 'Thị trường thận trọng'
 
   # 1. Tỷ lệ giải ngân theo Market Regime
-  if 'Risk-on' in regime_label:
+  if 'RISK_ON' in regime_upper:
     alloc_rate = 0.88  # Giải ngân 88%, dự phòng 12%
-  elif 'Defensive' in regime_label or 'No-new' in regime_label:
+  elif 'DEFENSIVE' in regime_upper or 'NO_NEW' in regime_upper:
     alloc_rate = 0.55  # Giải ngân 55%, giữ 45% tiền mặt phòng thủ
   else:
     alloc_rate = 0.75  # Trung tính: Giải ngân 75%, giữ 25% tiền mặt

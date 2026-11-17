@@ -290,7 +290,10 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         is_overextended = True
 
     # Khóa 3: Thị trường chung (VN-Index Kill-Switch)
-    is_market_adverse = regime in ('DOWN_TREND', 'DISTRIBUTION', 'RISK_OFF')
+    # Ngắt mạch tuyệt đối khi thị trường rơi vào trạng thái nguy hiểm cao nhất (NO_NEW_RISK: 0-1 điểm tiêu chí)
+    regime_name = (regime.get('regime') if isinstance(regime, dict) else str(regime or '')).upper()
+    is_market_adverse = (regime_name == 'NO_NEW_RISK')
+    is_defensive_regime = (regime_name == 'DEFENSIVE')
 
     # Nhận diện sóng sớm sau ATO (9:25 - 9:45)
     open_p = item.get('openPrice') or ref
@@ -354,7 +357,9 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
       action_status = 'MARKET_RISK'
       action_label = '⚠️ THỊ TRƯỜNG RỦI RO'
       action_badge_color = 'rose'
-      action_guide = 'VN-Index chịu áp lực bán lớn. Tạm dừng mở vị thế mua để bảo vệ vốn.'
+      action_guide = 'VN-Index chịu áp lực bán lớn (NO_NEW_RISK). Tạm dừng mở vị thế mua để bảo vệ vốn.'
+      alloc_advice = 'Không giải ngân - Thị trường rủi ro cao'
+      alloc_pct = 0
     elif is_market_leader:
       action_status = 'ACTIONABLE_LEADER_BUY'
       action_label = '⭐ SIÊU CỔ PHIẾU DẪN DẮT'
@@ -417,7 +422,13 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
         action_guide = f'Thị giá {p:,.0f} đ sát cản R1 ({r1:,.0f} đ, +{tp1_pct}%). Không mua đuổi, kiên nhẫn đặt lệnh đón lõng tại Vùng gom {entry_zone}.'
       else:
         if is_breakout:
-          if is_at_r1_pivot:
+          if vol_run_rate < 0.85:
+            action_status = 'WAITING_CONFIRMATION'
+            action_label = '⏳ CHỜ VOL XÁC NHẬN'
+            action_badge_color = 'amber'
+            action_guide = f'Giá giữ nhịp tăng (+{pct_change:.1f}%) nhưng Vol hiện tại mới đạt x{vol_run_rate:.1f} TB20 (chưa nổ vol). Cần chờ dòng tiền lớn nhập cuộc trước ATC.'
+            timing_note = f'Chờ xác nhận dòng tiền: Vol x{vol_run_rate:.1f} TB20 chưa đạt chuẩn nổ vol.'
+          elif is_at_r1_pivot:
             action_status = 'BREAKOUT_PIVOT'
             action_label = '🚀 BỨT PHÁ VƯỢT ĐỈNH (PIVOT R1)'
             action_badge_color = 'indigo'
@@ -432,6 +443,11 @@ def evaluate_single_stock_opportunity(symbol, market_item=None, regime=None, now
           action_label = '🟢 MUA NGAY'
           action_badge_color = 'emerald'
           action_guide = f'Test nền chuẩn trong vùng {entry_zone}, cạn kiệt vol, rủi ro thấp. Gom thăm dò 30-50% size sát vùng {s1:,.0f} đ.'
+
+    # Điều tiết quy mô vị thế theo Market Regime (Thị trường Phòng thủ giảm 50% size):
+    if is_defensive_regime and alloc_pct > 0:
+      alloc_pct = max(15, int(alloc_pct * 0.5))
+      alloc_advice = f"{alloc_advice} (Thị trường Phòng thủ: giảm 50% size)"
 
     return {
         'symbol': symbol,

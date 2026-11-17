@@ -218,7 +218,8 @@ class SuperTrendCloudPrimitive {
       if (x === null) continue;
 
       const isBuy = s.type === 'BUY';
-      let labelText = s.text || (isBuy ? 'MUA' : 'BÁN');
+      const isProbe = s.type === 'PROBE_REVERSAL';
+      let labelText = s.text || (isBuy ? 'MUA' : (isProbe ? 'THĂM DÒ' : 'BÁN'));
 
       // Tối ưu độ dài nhãn trên Mobile / Tablet để tránh che lấp nến
       if (isMobile) {
@@ -226,6 +227,7 @@ class SuperTrendCloudPrimitive {
         else if (labelText.includes('TP2')) labelText = 'TP2';
         else if (labelText.includes('Khóa') || labelText.includes('KHÓA')) labelText = 'KHÓA';
         else if (labelText.includes('Chờ') || labelText.includes('CHỜ')) labelText = 'CHỜ';
+        else if (labelText.includes('Thăm') || labelText.includes('THĂM')) labelText = 'THĂM DÒ';
       }
 
       const textMetrics = ctx.measureText(labelText);
@@ -235,7 +237,7 @@ class SuperTrendCloudPrimitive {
       const boxWidth = Math.max(textW + (isMobile ? 8 : 12), isMobile ? 32 : 44);
       const boxX = x - boxWidth / 2;
 
-      if (isBuy || s.type === 'WAIT_SIDEWAY') {
+      if (isBuy || s.type === 'WAIT_SIDEWAY' || isProbe) {
         const isSideway = s.type === 'WAIT_SIDEWAY';
         const priceVal = s.low !== undefined ? s.low : s.price;
         const yBase = series.priceToCoordinate(priceVal);
@@ -251,22 +253,22 @@ class SuperTrendCloudPrimitive {
         ctx.lineTo(x - (isMobile ? 4 : 5), arrowBaseY);
         ctx.lineTo(x + (isMobile ? 4 : 5), arrowBaseY);
         ctx.closePath();
-        ctx.fillStyle = isSideway ? '#64748b' : '#16a34a';
+        ctx.fillStyle = isProbe ? '#f59e0b' : (isSideway ? '#64748b' : '#16a34a');
         ctx.fill();
-        ctx.strokeStyle = isSideway ? '#475569' : '#15803d';
+        ctx.strokeStyle = isProbe ? '#d97706' : (isSideway ? '#475569' : '#15803d');
         ctx.lineWidth = 1;
         ctx.stroke();
 
         // 2. Ô chữ nhật bo góc
         drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 3);
-        ctx.fillStyle = isSideway ? '#475569' : '#16a34a';
+        ctx.fillStyle = isProbe ? '#b45309' : (isSideway ? '#475569' : '#16a34a');
         ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
         ctx.shadowBlur = 4;
         ctx.shadowOffsetY = 1;
         ctx.fill();
 
         ctx.shadowColor = 'transparent';
-        ctx.strokeStyle = isSideway ? '#94a3b8' : '#22c55e';
+        ctx.strokeStyle = isProbe ? '#f59e0b' : (isSideway ? '#94a3b8' : '#22c55e');
         ctx.lineWidth = 1;
         ctx.stroke();
 
@@ -484,6 +486,39 @@ export function syncSummaryPriceCard(config = cachedPriceLinesConfig, currentPri
       ? `${isProhibited ? 'Ngưỡng thoát vị thế bảo toàn vốn' : (isLockProfit ? 'Hỗ trợ Chặn Lãi / Chốt lời toàn bộ bảo toàn đệm lãi' : (isMidTerm ? 'Ngưỡng QTRR Tuần' : (isBreakEven ? 'Chặn hòa vốn' : (isTrailing ? 'Trailing Stop' : 'Giá cắt lỗ'))))}: ${formatStockPrice(slPrice)} ${slPctFormatted}`
       : '';
   }
+
+  // 4. Mốc XX Đảo Chiều (Lật Xanh) / Mốc Invalid (Bảo vệ Mây)
+  const revBox = document.getElementById("stbSummaryReversalBox");
+  if (revBox) {
+    const revPrice = config.reversalTrigger;
+    if (revPrice && revPrice > 0) {
+      revBox.classList.remove("hidden");
+      const revLabelEl = document.getElementById("stbSummaryReversalLabel");
+      const revEl = document.getElementById("stbSummaryReversal");
+      const revPctEl = document.getElementById("stbSummaryReversalPct");
+
+      if (revLabelEl) {
+        revLabelEl.innerText = config.reversalTriggerLabel || "MỐC XX (LẬT XANH)";
+      }
+      safeSetText("stbSummaryReversal", formatStockPrice(revPrice));
+      if (currentPrice > 0) {
+        const diffPct = (((revPrice - currentPrice) / currentPrice) * 100).toFixed(1);
+        safeSetText("stbSummaryReversalPct", `(${diffPct >= 0 ? '+' : ''}${diffPct}%)`);
+      }
+      if (revEl) {
+        revEl.className = (config.reversalTriggerLabel && config.reversalTriggerLabel.includes("INVALID"))
+          ? "font-bold text-sky-400 text-xs"
+          : "font-bold text-amber-400 text-xs";
+      }
+      if (revPctEl) {
+        revPctEl.className = (config.reversalTriggerLabel && config.reversalTriggerLabel.includes("INVALID"))
+          ? "text-[10px] font-bold font-mono text-sky-400"
+          : "text-[10px] font-bold font-mono text-amber-400";
+      }
+    } else {
+      revBox.classList.add("hidden");
+    }
+  }
 }
 
 export function setChartPriceLines(config = {}) {
@@ -629,6 +664,38 @@ export function setChartPriceLines(config = {}) {
       activePriceLines.push(line);
     } catch (err) {
       console.warn("Lỗi tạo đường Cắt lỗ:", err);
+    }
+  }
+
+  // 4. Đường Mốc XX (Đảo chiều) / Invalid - Nét chấm màu hổ phách (Amber) hoặc xanh ngọc
+  if (config.reversalTrigger && config.reversalTrigger > 0) {
+    try {
+      const isInvalid = config.reversalTriggerLabel && config.reversalTriggerLabel.includes("INVALID");
+      const lineColor = isInvalid ? '#0ea5e9' : '#f59e0b';
+      const pctRev = curP > 0 ? (((config.reversalTrigger - curP) / curP) * 100).toFixed(1) : null;
+      const pctRevStr = pctRev !== null ? ` (${pctRev >= 0 ? '+' : ''}${pctRev}%)` : '';
+
+      let titleRev = '';
+      if (isMobile) {
+        titleRev = isInvalid ? `Mốc Inv${pctRevStr}` : `Mốc XX${pctRevStr}`;
+      } else if (isTablet) {
+        titleRev = isInvalid ? `Mốc Invalid${pctRevStr}` : `Mốc XX${pctRevStr}`;
+      } else {
+        titleRev = config.reversalTriggerLabel || (isInvalid ? 'Mốc Invalid (Thủng mây)' : 'Mốc XX (Lật Xanh)');
+        if (!titleRev.includes('%')) titleRev += pctRevStr;
+      }
+
+      const line = candleSeries.createPriceLine({
+        price: config.reversalTrigger,
+        color: lineColor,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: titleRev,
+      });
+      activePriceLines.push(line);
+    } catch (err) {
+      console.warn("Lỗi tạo đường Mốc XX:", err);
     }
   }
 }
@@ -921,10 +988,11 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
   const cloudData = [];
   const volColors = [];
 
-  // 1. Tính True Range (TR), EMA Close & EMA 9
+  // 1. Tính True Range (TR), EMA Close, EMA 9 & MA20
   const kClose = 2 / (period + 1);
   const kEma9 = 2 / (9 + 1);
   const ema9Arr = new Array(n);
+  const ma20Arr = new Array(n);
   let sumTR = 0;
 
   for (let i = 0; i < n; i++) {
@@ -946,6 +1014,14 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
     } else {
       atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
     }
+
+    let sum20 = 0;
+    let count20 = 0;
+    for (let j = Math.max(0, i - 19); j <= i; j++) {
+      sum20 += candles[j].close;
+      count20++;
+    }
+    ma20Arr[i] = sum20 / count20;
   }
 
   // 2. Tính Bands & Nhận diện điểm đảo chiều lật dải (Flip), Chốt lời Đa tầng (TP1/TP2) & Chặn lãi (Ratchet Trailing Stop)
@@ -977,22 +1053,15 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
         lastBuyIdx = 0;
       }
     } else {
-      if (upperBand[i] < finalUpper[i - 1] || candles[i - 1].close > finalUpper[i - 1]) {
-        finalUpper[i] = upperBand[i];
-      } else {
-        finalUpper[i] = finalUpper[i - 1];
-      }
-
-      if (lowerBand[i] > finalLower[i - 1] || candles[i - 1].close < finalLower[i - 1]) {
-        finalLower[i] = lowerBand[i];
-      } else {
-        finalLower[i] = finalLower[i - 1];
-      }
-
       if (trend[i - 1] === 1) {
+        finalUpper[i] = upperBand[i];
+        finalLower[i] = lowerBand[i] > finalLower[i - 1] ? lowerBand[i] : finalLower[i - 1];
         trend[i] = c.close < finalLower[i] ? -1 : 1;
       } else {
-        trend[i] = c.close > finalUpper[i] ? 1 : -1;
+        finalUpper[i] = upperBand[i] < finalUpper[i - 1] ? upperBand[i] : finalUpper[i - 1];
+        finalLower[i] = lowerBand[i];
+        const isConfirmed = ma20Arr[i] > 0 ? (c.close >= ma20Arr[i]) : true;
+        trend[i] = (c.close > finalUpper[i] && isConfirmed) ? 1 : -1;
       }
 
       if (trend[i] !== trend[i - 1]) {
@@ -1000,7 +1069,7 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
         lastFlipDate = c.time;
 
         if (trend[i] === 1) {
-          // Lật XANH (BULLISH): Kích hoạt mốc cản trên vừa bị bứt phá
+          // Lật XANH (BULLISH): Đã vượt cản mây VÀ được xác nhận đóng cửa trên MA20
           const triggerPrice = (finalUpper[i - 1] > 0 && finalUpper[i - 1] <= c.high) ? finalUpper[i - 1] : c.close;
           lastFlipPrice = triggerPrice;
           lastBuyPrice = triggerPrice;
@@ -1077,6 +1146,26 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
           });
           lastBuyPrice = 0;
         }
+      } else if (trend[i] === -1 && c.close > finalUpper[i] && candles[i - 1].close <= finalUpper[i - 1]) {
+        // Vượt mốc cản trên (Mốc XX) nhưng dưới MA20: Bẫy hồi kỹ thuật / Thăm dò tỷ trọng nhỏ trong dải mây Hồng
+        const probeTriggerPrice = (finalUpper[i - 1] > 0 && finalUpper[i - 1] <= c.high) ? finalUpper[i - 1] : c.close;
+        const probeLabel = '⚡ THĂM DÒ: ' + formatStockPrice(probeTriggerPrice);
+        signals.push({
+          time: c.time,
+          type: 'PROBE_REVERSAL',
+          price: probeTriggerPrice,
+          high: c.high,
+          low: c.low,
+          text: probeLabel
+        });
+        markers.push({
+          time: c.time,
+          position: 'belowBar',
+          color: '#f59e0b',
+          shape: 'arrowUp',
+          text: probeLabel,
+          size: 2
+        });
       } else if (trend[i] === 1 && lastBuyPrice > 0 && i > lastBuyIdx) {
         const gainPct = ((c.high - lastBuyPrice) / lastBuyPrice) * 100;
         const candleRange = c.high - c.low;
@@ -1210,6 +1299,8 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
   const isViolatingStopLoss = lastTrend === 1 && lastBuyPrice > 0 && profitPct <= -7.0;
   const isNearStopLoss = lastTrend === 1 && lastBuyPrice > 0 && profitPct <= -5.0 && profitPct > -7.0;
 
+  const isProbingBounce = lastTrend === -1 && currentPrice > finalUpper[n - 1] && currentPrice < ma20Arr[n - 1];
+
   let signalActionText = 'XANH VÀO (GIỮ MUA)';
   let signalAction = 'BUY';
   let signalColor = 'emerald';
@@ -1237,9 +1328,15 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
       signalColor = 'slate';
     }
   } else {
-    signalActionText = 'HỒNG RA (CANH BÁN)';
-    signalAction = 'EXIT';
-    signalColor = 'pink';
+    if (isProbingBounce) {
+      signalActionText = '⚡ HỒI KỸ THUẬT (THĂM DÒ DƯỚI MA20)';
+      signalAction = 'PROBE';
+      signalColor = 'amber';
+    } else {
+      signalActionText = 'HỒNG RA (CANH BÁN)';
+      signalAction = 'EXIT';
+      signalColor = 'pink';
+    }
   }
 
   const currentSignal = {
@@ -1268,7 +1365,11 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
       summaryStatusText = `vùng xanh, tiếp tục nắm giữ ${holdingBars} ${unitLabel}`;
     }
   } else {
-    summaryStatusText = `vùng hồng, canh bán / đứng ngoài ${holdingBars} ${unitLabel}`;
+    if (isProbingBounce) {
+      summaryStatusText = `vùng hồng, nảy hồi kỹ thuật vượt cản mây (thăm dò 20-30% vị thế, bảo toàn vốn do dưới MA20)`;
+    } else {
+      summaryStatusText = `vùng hồng, canh bán / đứng ngoài ${holdingBars} ${unitLabel}`;
+    }
   }
 
   let summaryBadgeText = '';
@@ -1287,7 +1388,7 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
       summaryBadgeText = 'VÙNG XANH (NẮM GIỮ)';
     }
   } else {
-    summaryBadgeText = 'VÙNG HỒNG (CANH BÁN)';
+    summaryBadgeText = isProbingBounce ? 'VÙNG HỒNG (THĂM DÒ SÓNG HỒI)' : 'VÙNG HỒNG (CANH BÁN)';
   }
 
   let summaryLastSignalType = '';
@@ -1302,7 +1403,9 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
       summaryLastSignalType = 'LỆNH MUA';
     }
   } else {
-    summaryLastSignalType = tpStage >= 1 ? 'THOÁT HẾT VỊ THẾ' : (lastWasSideway ? 'THOÁT NHỊP QUAN SÁT' : 'LỆNH HỒNG (CANH BÁN)');
+    summaryLastSignalType = isProbingBounce
+      ? 'THĂM DÒ SÓNG HỒI'
+      : (tpStage >= 1 ? 'THOÁT HẾT VỊ THẾ' : (lastWasSideway ? 'THOÁT NHỊP QUAN SÁT' : 'LỆNH HỒNG (CANH BÁN)'));
   }
 
   const summary = {
@@ -1318,6 +1421,9 @@ export function calculateSuperTrend(candles, period = TPLUS_SUPERTREND_PERIOD, m
     hasTakenProfit: tpStage >= 1,
     hasLockedProfitExit: hasLockedProfitExit,
     currentPrice: currentPrice,
+    reversalTriggerPrice: lastTrend === -1 ? finalUpper[n - 1] : finalLower[n - 1],
+    upperBand: finalUpper[n - 1],
+    lowerBand: finalLower[n - 1],
     trailingStop: lastTrend === 1 ? Math.max(finalLower[n - 1], runningTrailingStop) : finalUpper[n - 1],
     runningTrailingStop: runningTrailingStop,
     adx: adxSeries[n - 1],

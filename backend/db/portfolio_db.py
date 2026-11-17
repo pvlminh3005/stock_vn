@@ -299,6 +299,8 @@ def reset_all_trades(force_prod: bool = False) -> bool:
     try:
         db[COLL_PORTFOLIO_TRADES].delete_many({})
         db[COLL_ALERT_STATES].delete_many({})
+        if not is_production():
+            db[COLL_TELEGRAM_ALERT_LOGS].delete_many({})
         logger.info("Đã xóa sạch portfolio_trades và alert_states trong MongoDB (%s).", MONGODB_DB_NAME)
         return True
     except Exception as e:

@@ -619,6 +619,12 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
     else:
       atr[i] = (atr[i - 1] * (period - 1) + tr_list[i]) / period
 
+  # Tính MA20 chuỗi nến để lọc bẫy nảy hồi dưới MA20 trong Downtrend
+  ma20_series = [0.0] * n
+  for i in range(n):
+    slice_c = closes[max(0, i - 19) : i + 1]
+    ma20_series[i] = sum(slice_c) / len(slice_c)
+
   final_upper = [0.0] * n
   final_lower = [0.0] * n
   trend = [1] * n
@@ -633,20 +639,15 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
       final_lower[i] = basic_lower
       trend[i] = 1 if closes[i] >= highs[i] * 0.99 else -1
     else:
-      if basic_upper < final_upper[i - 1] or closes[i - 1] > final_upper[i - 1]:
-        final_upper[i] = basic_upper
-      else:
-        final_upper[i] = final_upper[i - 1]
-
-      if basic_lower > final_lower[i - 1] or closes[i - 1] < final_lower[i - 1]:
-        final_lower[i] = basic_lower
-      else:
-        final_lower[i] = final_lower[i - 1]
-
       if trend[i - 1] == 1:
+        final_upper[i] = basic_upper
+        final_lower[i] = basic_lower if basic_lower > final_lower[i - 1] else final_lower[i - 1]
         trend[i] = -1 if closes[i] < final_lower[i] else 1
       else:
-        trend[i] = 1 if closes[i] > final_upper[i] else -1
+        final_upper[i] = basic_upper if basic_upper < final_upper[i - 1] else final_upper[i - 1]
+        final_lower[i] = basic_lower
+        is_confirmed = (closes[i] >= ma20_series[i]) if ma20_series[i] > 0 else True
+        trend[i] = 1 if (closes[i] > final_upper[i] and is_confirmed) else -1
 
   last_trend = trend[-1]
   prev_trend = trend[-2] if n >= 2 else last_trend
@@ -662,6 +663,9 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
   else:
     broken_band = current_band
 
+  reversal_trigger = final_upper[-1]
+  invalidation_trigger = final_lower[-1]
+
   return {
       'direction': 'BULLISH' if last_trend == 1 else 'BEARISH',
       'isBullish': last_trend == 1,
@@ -672,6 +676,8 @@ def calculate_supertrend(highs, lows, closes, period=10, multiplier=2.0):
       'supportBand': round(final_lower[-1], -2) if final_lower[-1] >= 1000 else round(final_lower[-1], 2),
       'resistanceBand': round(final_upper[-1], -2) if final_upper[-1] >= 1000 else round(final_upper[-1], 2),
       'brokenBand': round(broken_band, -2) if broken_band >= 1000 else round(broken_band, 2),
+      'reversalTrigger': round(reversal_trigger, -2) if reversal_trigger >= 1000 else round(reversal_trigger, 2),
+      'invalidationTrigger': round(invalidation_trigger, -2) if invalidation_trigger >= 1000 else round(invalidation_trigger, 2),
   }
 
 

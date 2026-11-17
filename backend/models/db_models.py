@@ -651,6 +651,9 @@ class FundamentalItem:
         up = parse_db_datetime(doc.get(cls.F_UPDATED_AT))
         cleaned = dict(doc)
         cleaned.pop('_id', None)
+        if cls.F_UPDATED_AT in cleaned:
+            from backend.utils.datetime_helpers import to_timestamp_int
+            cleaned[cls.F_UPDATED_AT] = to_timestamp_int(up)
         return cls(symbol=sym, data=cleaned, updated_at=up)
 
 

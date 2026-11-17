@@ -16,6 +16,7 @@ import threading
 
 from backend.db.portfolio_db import (
     get_active_holding_symbols,
+    get_all_trade_models,
     get_alert_state,
     save_alert_state,
     is_alert_already_sent,
@@ -81,6 +82,23 @@ def format_portfolio_alert(symbol: str, alert_type: str, detail: dict) -> tuple:
             f"⚠️ <i>Giá cổ phiếu đã vi phạm hoặc xuyên thủng ngưỡng phòng thủ ban đầu. "
             f"Hãy xem xét hạ tỷ trọng hoặc đóng vị thế để bảo toàn vốn.</i>\n"
         )
+    elif alert_type == 'NEAR_STOPLOSS':
+        stop_val = detail.get('stop_loss', 0)
+        avg_p = detail.get('avg_price', 0)
+        pnl_pct = detail.get('pnl_pct', 0.0)
+        dist_to_sl = detail.get('dist_to_sl', 0.0)
+        pnl_line = f"📊 <b>Giá vốn TB:</b> {avg_p:,.0f} đ (Lỗ tạm tính: <b>{pnl_pct:.2f}%</b>)\n" if avg_p > 0 else ""
+
+        msg = (
+            f"⚠️ <b>CẢNH BÁO SỚM DANH MỤC: {symbol} TIỆM CẬN DẢI DỪNG LỖ!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 <b>Thị giá:</b> {price:,.0f} đ ({sign}{change_pct:.2f}%)\n"
+            f"{pnl_line}"
+            f"🛡️ <b>Mốc Dừng Lỗ (SL/S1):</b> {stop_val:,.0f} đ (Cách SL: <b>chỉ còn {dist_to_sl:.1f}%</b>)\n\n"
+            f"👀 <i>Giá cổ phiếu đang áp sát ngưỡng phòng thủ ban đầu (cách SL < 2% hoặc lỗ > 5%). "
+            f"Hãy chuẩn bị sẵn kịch bản và theo dõi sát lực cầu quanh khung 14:15 - 14:30 (ATC). "
+            f"Nếu không có dòng tiền đỡ giá và đóng nến vi phạm, chủ động kích hoạt lệnh SL bảo toàn vốn.</i>\n"
+        )
     elif alert_type == 'TARGET_TRIGGERED':
         r1_val = detail.get('target1', 0)
         upside_pct = round(((r1_val - price) / price * 100), 2) if price > 0 and r1_val > 0 else 0.0
@@ -112,6 +130,24 @@ def scan_portfolio_alerts():
     board_data = get_market_board_data() or {}
     now_ts = int(time.time())
 
+    # Tính toán giá vốn bình quân VWAP từ sổ lệnh
+    trades = get_all_trade_models()
+    holdings_vwap = {}
+    for t in sorted(trades, key=lambda x: (x.trade_date, str(x.id or ''))):
+        sym_code = (t.symbol or '').strip().upper()
+        if not sym_code:
+            continue
+        if sym_code not in holdings_vwap:
+            holdings_vwap[sym_code] = {'vol': 0, 'cost': 0.0, 'avg_price': 0.0}
+        h = holdings_vwap[sym_code]
+        if t.order_type == 'BUY':
+            h['vol'] += t.volume
+            h['cost'] += (t.volume * t.price)
+            h['avg_price'] = round(h['cost'] / h['vol'], 2) if h['vol'] > 0 else 0.0
+        elif t.order_type == 'SELL':
+            h['vol'] = max(0, h['vol'] - t.volume)
+            h['cost'] = h['vol'] * h['avg_price']
+
     for sym in symbols:
         try:
             board_item = board_data.get(sym, {})
@@ -124,6 +160,9 @@ def scan_portfolio_alerts():
 
             # Lấy chi tiết kỹ thuật từ stock controller
             detail = handle_stock_detail(sym)
+            if current_price == 0 and detail:
+                current_price = float(detail.get('price') or detail.get('prevPrice') or 0.0)
+                change_pct = float(detail.get('percentChange') or 0.0)
             tech = detail.get('technicals', {}) or detail.get('technical', {})
             decision = detail.get('decisionEngine', {}) or detail.get('decision', {})
 
@@ -146,19 +185,28 @@ def scan_portfolio_alerts():
             state['last_ribbon_color'] = ribbon_color
             state['flip_count_today'] = flip_count
 
+            h_info = holdings_vwap.get(sym, {})
+            avg_price = h_info.get('avg_price', 0.0)
+            pnl_pct = round(((current_price - avg_price) / avg_price * 100), 2) if avg_price > 0 and current_price > 0 else 0.0
+            dist_to_sl = round(((current_price - s1) / current_price * 100), 2) if current_price > 0 and s1 > 0 else 0.0
+
             alert_data = {
                 'price': current_price,
                 'change_pct': change_pct,
                 'stop_loss': s1,
                 'target1': r1,
+                'avg_price': avg_price,
+                'pnl_pct': pnl_pct,
+                'dist_to_sl': dist_to_sl,
             }
 
-            # 1. Kiểm tra CẮT LỖ S1
             today_str = get_vn_now().strftime('%Y-%m-%d')
             sl_key = f'PORTFOLIO_STOPLOSS_{today_str}_{sym}'
+            near_sl_key = f'PORTFOLIO_NEAR_SL_{today_str}_{sym}'
             tp_key = f'PORTFOLIO_TARGET_{today_str}_{sym}'
 
-            if current_price > 0 and s1 > 0 and current_price <= s1:
+            # 1. Kiểm tra CẮT LỖ (Đã vi phạm S1 HOẶC lỗ >= 7.0%)
+            if current_price > 0 and ((s1 > 0 and current_price <= s1) or (avg_price > 0 and pnl_pct <= -7.0)):
                 if last_alert != 'STOPLOSS_TRIGGERED' and not is_alert_already_sent(sl_key, min_interval_seconds=14400):
                     # Bắn Telegram lần đầu khi vi phạm
                     msg, btns = format_portfolio_alert(sym, 'STOPLOSS_TRIGGERED', alert_data)
@@ -170,7 +218,8 @@ def scan_portfolio_alerts():
                             'price': current_price,
                             'change_pct': change_pct,
                             'stop_loss': s1,
-                            'target1': r1,
+                            'avg_price': avg_price,
+                            'pnl_pct': pnl_pct,
                             'action': 'STOPLOSS_TRIGGERED'
                         }]
                     }
@@ -180,7 +229,35 @@ def scan_portfolio_alerts():
                         state['last_alert_time'] = now_ts
                         logger.info("Đã gửi cảnh báo STOPLOSS cho %s", sym)
 
-            # 2. Kiểm tra CHỐT LỜI R1
+            # 2. Kiểm tra CẬN DẢI DỪNG LỖ (Cách SL <= 2.0% HOẶC lỗ từ -5.0% đến -6.9%)
+            elif current_price > 0 and (
+                (s1 > 0 and 0 < dist_to_sl <= 2.0) or
+                (avg_price > 0 and -6.9 <= pnl_pct <= -5.0)
+            ):
+                if last_alert not in ['STOPLOSS_TRIGGERED', 'NEAR_STOPLOSS'] and not is_alert_already_sent(near_sl_key, min_interval_seconds=14400):
+                    # Bắn Telegram cảnh báo sớm tiệm cận SL
+                    msg, btns = format_portfolio_alert(sym, 'NEAR_STOPLOSS', alert_data)
+                    log_meta = {
+                        'alert_type': 'PORTFOLIO_NEAR_SL',
+                        'title': f'Cảnh báo Sớm Tiệm Cận SL: {sym}',
+                        'stocks': [{
+                            'symbol': sym,
+                            'price': current_price,
+                            'change_pct': change_pct,
+                            'stop_loss': s1,
+                            'avg_price': avg_price,
+                            'pnl_pct': pnl_pct,
+                            'dist_to_sl': dist_to_sl,
+                            'action': 'NEAR_STOPLOSS'
+                        }]
+                    }
+                    if send_telegram_message(msg, buttons=btns, log_meta=log_meta):
+                        record_alert_sent(near_sl_key, preview=f'Near Stoploss {sym}')
+                        state['last_alert_type'] = 'NEAR_STOPLOSS'
+                        state['last_alert_time'] = now_ts
+                        logger.info("Đã gửi cảnh báo CẬN DẢI DỪNG LỖ cho %s", sym)
+
+            # 3. Kiểm tra CHỐT LỜI R1
             elif current_price > 0 and r1 > 0 and current_price >= r1:
                 if last_alert != 'TARGET_TRIGGERED' and not is_alert_already_sent(tp_key, min_interval_seconds=14400):
                     # Bắn Telegram lần đầu khi chạm mục tiêu
@@ -203,9 +280,9 @@ def scan_portfolio_alerts():
                         state['last_alert_time'] = now_ts
                         logger.info("Đã gửi cảnh báo TARGET cho %s", sym)
 
-            # 3. Giá trở lại vùng bình thường
+            # 4. Giá trở lại vùng bình thường
             else:
-                if last_alert in ['STOPLOSS_TRIGGERED', 'TARGET_TRIGGERED']:
+                if last_alert in ['STOPLOSS_TRIGGERED', 'NEAR_STOPLOSS', 'TARGET_TRIGGERED'] and dist_to_sl > 2.5 and pnl_pct > -4.5:
                     state['last_alert_type'] = 'NORMAL'
 
             save_alert_state(sym, state)
@@ -249,8 +326,12 @@ def send_daily_ribbon_digest():
             if flip_count >= 2:
                 note_whipsaw = f" <i>(⚠️ Trong phiên nhấp nháy giằng co {flip_count} lần)</i>"
 
+            note_near_sl = ""
+            if state.get('last_alert_type') == 'NEAR_STOPLOSS':
+                note_near_sl = " <b>[⚠️ CẬN SL]</b>"
+
             digest_items.append(
-                f"• <b>{sym}</b>: {color_icon} <b>{color_name}</b> | Giá chốt phiên: <b>{p:,.0f} đ</b> ({sign}{pct:.2f}%){note_whipsaw}"
+                f"• <b>{sym}</b>: {color_icon} <b>{color_name}</b> | Giá chốt phiên: <b>{p:,.0f} đ</b> ({sign}{pct:.2f}%){note_near_sl}{note_whipsaw}"
             )
 
             # Reset lại flip_count cho ngày hôm sau

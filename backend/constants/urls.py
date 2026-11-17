@@ -97,3 +97,13 @@ def build_vndirect_events_url(ticker: str, size: int = 5) -> str:
         f"{urlencode({'q': f'code:{ticker.strip().upper()}~locale:VN', 'sort': 'disclosureDate:desc', 'size': size})}"
     )
 
+
+# 5. VPS DATA FEED API (Bảng giá realtime chỉ số VN-Index, VN30, HNX, UPCoM)
+VPS_DATA_FEED_BASE_URL = os.environ.get('VPS_DATA_FEED_BASE_URL', 'https://bgapidatafeed.vps.com.vn').rstrip('/')
+
+
+def build_vps_index_detail_url(codes: str = '10') -> str:
+    """Tạo URL lấy chi tiết chỉ số thị trường realtime từ VPS Datafeed (10=VNINDEX, 11=VN30, 02=HNX, 03=UPCOM)."""
+    return f"{VPS_DATA_FEED_BASE_URL}/getlistindexdetail/{codes.strip()}"
+
+

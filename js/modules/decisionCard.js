@@ -739,6 +739,10 @@ export function syncChartPriceLines() {
           secTargetLabel = '';
         }
 
+        const isBullST = tplus.indicators && tplus.indicators.supertrend ? tplus.indicators.supertrend.isBullish : true;
+        const revTrig = isBullST ? tplus.invalidationTrigger : tplus.reversalTrigger;
+        const revLabel = isBullST ? `Mốc Invalid: ${formatVND(revTrig)}` : `Mốc XX (Lật Xanh): ${formatVND(revTrig)}`;
+
         setChartPriceLines({
           target: isProhibited ? target1Price : primaryTarget,
           targetLabel: isProhibited ? `Kháng cự hạ tỷ trọng: ${formatVND(target1Price)}` : primaryTargetLabel,
@@ -748,6 +752,8 @@ export function syncChartPriceLines() {
           buyZoneLabel: '',
           stopLoss: lockStopPrice || rawSL,
           stopLossLabel: holdingSLLabel,
+          reversalTrigger: revTrig,
+          reversalTriggerLabel: revLabel,
           isProhibited: isProhibited,
           isLockProfit: isLockProfit,
         });
@@ -767,6 +773,10 @@ export function syncChartPriceLines() {
           ? `Ngưỡng thoát vị thế: ${formatVND(rawSL)}` 
           : `Cắt lỗ (SL): ${formatVND(rawSL)}${slPctStr ? ` (${slPctStr})` : ''}`;
 
+        const isBullST = tplus.indicators && tplus.indicators.supertrend ? tplus.indicators.supertrend.isBullish : true;
+        const revTrig = isBullST ? tplus.invalidationTrigger : tplus.reversalTrigger;
+        const revLabel = isBullST ? `Mốc Invalid: ${formatVND(revTrig)}` : `Mốc XX (Lật Xanh): ${formatVND(revTrig)}`;
+
         setChartPriceLines({
           target: target1Price,
           targetLabel: isProhibited 
@@ -778,6 +788,8 @@ export function syncChartPriceLines() {
           buyZoneLabel: buyLabel,
           stopLoss: rawSL,
           stopLossLabel: defaultSLLabel,
+          reversalTrigger: revTrig,
+          reversalTriggerLabel: revLabel,
           isProhibited: isProhibited,
           isLockProfit: false,
         });

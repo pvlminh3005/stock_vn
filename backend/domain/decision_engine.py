@@ -51,6 +51,9 @@ def evaluate_tplus_strategy(
   st_flip_buy = st.get('isFlipBuy', False)
   st_flip_sell = st.get('isFlipSell', False)
   st_band = st.get('bandPrice', round(current_price * 0.95, -2))
+  ma50 = tech.get('ma50', 0.0)
+  reversal_trigger = st.get('reversalTrigger', st.get('resistanceBand', st_band))
+  invalidation_trigger = st.get('invalidationTrigger', st.get('supportBand', st_band))
 
   stoch_rsi = tech.get('stochRsi', {})
   stoch_k = stoch_rsi.get('k', 50.0)
@@ -255,6 +258,38 @@ def evaluate_tplus_strategy(
     new_subtag = 'AVOID_RISK'
     new_reason = 'Phát hiện nguy cơ kẹt sàn mất thanh khoản hoặc biến cố pháp lý. Tuyệt đối không mở vị thế mua mới.'
     new_alloc = 0.0
+  elif not st_bullish and current_price >= reversal_trigger:
+    # Đang trong VÂN HỒNG nhưng giá trong phiên chớm vượt Mốc XX (Reversal Trigger)
+    if is_adx_sideway:
+      new_action = 'WAIT'
+      new_badge = 'QUAN SÁT (CHỚM MỐC XX NHƯNG BẪY SIDEWAY / ADX < 20)'
+      new_subtag = 'WAIT_SIDEWAY'
+      new_reason = (
+          f"Giá ({current_price:,.0f} đ) chớm vượt mốc cản SuperTrend ({reversal_trigger:,.0f} đ) "
+          f"nhưng chỉ báo ADX ({adx_val:.1f} < 20) cho thấy thị trường đang sideway, dễ dính bẫy giá ảo (bull-trap). "
+          f"Đứng ngoài chờ nến xác nhận bứt phá rõ nét."
+      )
+      new_alloc = 0.0
+    elif rr_ratio < 1.2:
+      new_action = 'WAIT'
+      new_badge = f'QUAN SÁT (VƯỢT MỐC XX NHƯNG R:R MỎNG 1:{rr_ratio:.2f})'
+      new_subtag = 'WAIT_POOR_RR'
+      new_reason = (
+          f"Giá đã chạm mốc cản đảo chiều {reversal_trigger:,.0f} đ nhưng khoảng cách tới cản R1 ({resist_r1:,.0f} đ) quá gần, "
+          f"Net R:R chỉ đạt 1:{rr_ratio:.2f} (< 1.2). Không đạt biên độ an toàn để mở vị thế thăm dò."
+      )
+      new_alloc = 0.0
+    else:
+      new_action = 'BUY'
+      new_badge = f'🎯 NHẶT THĂM DÒ (CHỚM VƯỢT MỐC XX: {reversal_trigger:,.0f} Đ)'
+      new_subtag = 'PROBE_REVERSAL_TRIGGER'
+      probe_alloc = round(pilot_nav_pct * 0.5, 1)
+      new_alloc = max(2.0, probe_alloc)
+      new_reason = (
+          f"Giá hiện tại ({current_price:,.0f} đ) đã chớm bứt phá qua mốc cản đảo chiều SuperTrend ({reversal_trigger:,.0f} đ). "
+          f"Khuyến nghị nhặt sớm Bước 1 thăm dò ({new_alloc}% NAV) để có lợi thế giá vốn và vị thế T+0. "
+          f"Nếu đóng cửa phiên (ATC) giữ vững trên {reversal_trigger:,.0f} đ, hệ thống sẽ xác nhận lật VÂN XANH để giải ngân gia tăng phần còn lại."
+      )
   elif st_flip_buy and buy_ratio >= 48:
     if is_adx_sideway:
       new_action = 'WAIT'
@@ -283,6 +318,17 @@ def evaluate_tplus_strategy(
           f"Biên lợi nhuận quá mỏng, ưu tiên chờ nhịp chỉnh tích lũy nền."
       )
       new_alloc = 0.0
+    elif ma50 > 0 and current_price < ma50 * 0.95 and minus_di > plus_di:
+      new_action = 'BUY'
+      new_badge = '⚡ HỒI KỸ THUẬT (THĂM DÒ DƯỚI MA50)'
+      new_subtag = 'BUY_BOUNCE_IN_DOWNTREND'
+      new_alloc = round(pilot_nav_pct * 0.5, 1)
+      new_reason = (
+          f"Chỉ báo SuperTrend đảo chiều lật XANH quanh {current_price:,.0f} đ, nhưng cổ phiếu vẫn nằm sâu dưới MA50 ({ma50:,.0f} đ) "
+          f"và phe bán trung hạn còn lớn (-DI {minus_di:.1f} > +DI {plus_di:.1f}). "
+          f"Đây là nhịp HỒI KỸ THUẬT ngắn hạn tiềm ẩn rủi ro bẫy giá; chỉ giải ngân tỷ trọng thăm dò {new_alloc}% NAV, "
+          f"TUYỆT ĐỐI KHÔNG MUA ĐUỔI Ở CÁC PHIÊN TIẾP THEO (T+2, T+3) NẾU KHÔNG CÓ NỀN TÍCH LŨY."
+      )
     else:
       new_action = 'BUY'
       new_badge = 'MUA THEO XU HƯỚNG T+ (XANH VÀO)'
@@ -380,6 +426,15 @@ def evaluate_tplus_strategy(
           f"lực mua chủ động chiếm {buy_ratio}%, giá tăng {day_change_pct:+.2f}% giữ trên EMA9 ({ema9:,.0f} đ). Đạt chuẩn đánh sóng T+."
       )
       new_alloc = pilot_nav_pct
+  elif st_bullish and not st_flip_buy and ma50 > 0 and current_price < ma50 * 0.95 and minus_di > plus_di and (dist_to_s1 > 2.0 or day_change_pct < 0):
+    new_action = 'WAIT'
+    new_badge = 'QUAN SÁT (SÓNG HỒI DƯỚI MA50 - TRÁNH MUA ĐUỔI T+)'
+    new_subtag = 'WAIT_BOUNCE_EXTENDED'
+    new_reason = (
+        f"Cổ phiếu đang trong nhịp nảy hồi ngắn hạn dưới MA50 ({ma50:,.0f} đ, -DI {minus_di:.1f} > +DI {plus_di:.1f}). "
+        f"Đã qua điểm mua thăm dò ban đầu ({st_band:,.0f} đ); không mua đuổi ở các phiên sau để tránh rủi ro bull-trap và sụt giảm T+2."
+    )
+    new_alloc = 0.0
   elif (current_price >= ema9 or current_price >= ma20) and dist_to_s1 <= 3.5 and 45 <= rsi <= 66 and buy_ratio >= 50 and rr_ratio >= 1.4:
     new_action = 'BUY'
     new_badge = 'MUA NỀN (PULLBACK T+)'
@@ -488,6 +543,15 @@ def evaluate_tplus_strategy(
     hold_subtag = 'PYRAMID_ADD'
     hold_reason = f'Dòng tiền cá mập bùng nổ vượt trội (Mua CĐ {buy_ratio}%, Vol x{vol_ratio} TB20), cho phép mua gia tăng vị thế khi đã có sẵn đệm lãi.'
     hold_alloc = max_nav_pct
+  elif not st_bullish:
+    hold_action = 'SELL'
+    hold_badge = 'THOÁT HÀNG / ĐỨNG NGOÀI (VÙNG HỒNG DOWNTREND)'
+    hold_subtag = 'EXIT_DOWNTREND'
+    hold_reason = (
+        f"Cổ phiếu đang chìm trong VÙNG HỒNG SuperTrend (dưới dải cản {st_band:,.0f} đ). "
+        f"Kỷ luật bảo toàn vốn: Ưu tiên canh nhịp nảy hồi để thoát hàng hoặc hạ tỷ trọng tối đa, không gồng lỗ ngược trend."
+    )
+    hold_alloc = 0.0
 
   return {
       'horizon': 'Lướt sóng T+ (2-7 phiên)',
@@ -553,6 +617,12 @@ def evaluate_tplus_strategy(
       'sellPartialDisplay': f'Chốt 50% quanh {target1_val:,.0f} đ',
       'netRR': rr_ratio,
       'distSupportPct': dist_to_s1,
+      'reversalTrigger': reversal_trigger,
+      'reversalTriggerDisplay': f'{reversal_trigger:,.0f} đ',
+      'invalidationTrigger': invalidation_trigger,
+      'invalidationTriggerDisplay': f'{invalidation_trigger:,.0f} đ',
+      'isProbeReversal': new_subtag == 'PROBE_REVERSAL_TRIGGER',
+      'isBounceInDowntrend': new_subtag == 'BUY_BOUNCE_IN_DOWNTREND',
       'indicators': {
           'buyRatio': buy_ratio,
           'volRatio': vol_ratio,
@@ -983,6 +1053,12 @@ def evaluate_unified_decision(
           'price': tplus_data['trailingStop'],
           'display': tplus_data['trailingStopDisplay'],
           'basis': 'Chặn lãi động theo Fractal & mẫu hình nến',
+      },
+      'reversalTrigger': {
+          'label': 'Mốc XX (Kích hoạt Đảo chiều Vân Xanh)' if not tplus_data.get('indicators', {}).get('supertrend', {}).get('isBullish', False) else 'Mốc Invalid (Thủng mây quay lại Vân Hồng)',
+          'price': tplus_data.get('reversalTrigger', 0) if not tplus_data.get('indicators', {}).get('supertrend', {}).get('isBullish', False) else tplus_data.get('invalidationTrigger', 0),
+          'display': tplus_data.get('reversalTriggerDisplay', '--') if not tplus_data.get('indicators', {}).get('supertrend', {}).get('isBullish', False) else tplus_data.get('invalidationTriggerDisplay', '--'),
+          'basis': 'Mép trên SuperTrend (vượt qua để lật Xanh)' if not tplus_data.get('indicators', {}).get('supertrend', {}).get('isBullish', False) else 'Mép dưới SuperTrend (ngưỡng bảo vệ xu hướng tăng)',
       },
   }
 
