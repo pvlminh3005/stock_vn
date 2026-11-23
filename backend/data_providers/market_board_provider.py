@@ -231,18 +231,23 @@ def build_entrade_universe_board(symbols=None, max_workers=15) -> dict:
   return board_map
 
 
+_LAST_KNOWN_VNINDEX = None
+
+
 def get_vnindex_summary() -> dict:
   """
   Lấy dữ liệu thời gian thực của chỉ số VN-Index trực tiếp với cơ chế đa tầng:
   1. Tầng 1 (VPS Realtime Index Datafeed - Mã 10 = VN-INDEX):
      Lấy trực tiếp cIndex (giá khớp realtime), oIndex (giá tham chiếu phiên hôm nay),
-     khối lượng tích lũy vol và độ rộng thị trường (advances, declines, noChange).
+     khối lượng tích lũy vol, tổng giá trị giao dịch (value) và độ rộng (advances, declines, noChange).
   2. Tầng 2 (Entrade Intraday 1M + Tham chiếu 1D):
      Dự phòng nếu VPS gián đoạn: Lấy giá realtime từ nến 1 phút và tham chiếu từ nến 1D
      đúng theo ngày giao dịch.
   3. Tầng 3 (Entrade Daily EOD):
      Dự phòng ngoài giờ giao dịch hoặc cuối tuần.
   """
+  global _LAST_KNOWN_VNINDEX
+
   # Tầng 1: VPS Live Index Datafeed (Mã 10: VN-INDEX)
   try:
     vps_url = build_vps_index_detail_url('10')
@@ -255,18 +260,25 @@ def get_vnindex_summary() -> dict:
         change = round(curr - ref, 2)
         change_pct = round((change / ref * 100), 2)
         vol = int(item.get('vol', 0))
+        raw_val = float(item.get('value', 0.0))  # Triệu đồng
         ot = item.get('ot', '')
         advances = declines = no_change = None
         if ot and '|' in ot:
           parts = ot.split('|')
           if len(parts) >= 6:
             try:
+              if not raw_val and parts[2]:
+                raw_val = float(parts[2])
               advances = int(parts[3])
               declines = int(parts[4])
               no_change = int(parts[5])
             except (ValueError, TypeError):
               pass
-        return {
+
+        # raw_val là triệu đồng -> chia 1e6 để ra Ngàn Tỷ đồng (K Tỷ)
+        est_val_trillion = round(raw_val / 1e6, 2) if raw_val > 0 else 0.0
+
+        res = {
             'index': 'VNINDEX',
             'price': curr,
             'change': change,
@@ -277,7 +289,10 @@ def get_vnindex_summary() -> dict:
             'advances': advances,
             'declines': declines,
             'noChange': no_change,
+            'estValueTrillion': est_val_trillion,
         }
+        _LAST_KNOWN_VNINDEX = res
+        return res
   except Exception as e:
     logger.debug('Lỗi fetch VN-Index từ VPS Datafeed: %s', e)
 
@@ -293,6 +308,7 @@ def get_vnindex_summary() -> dict:
     daily_data = fetch_json(daily_url, timeout=4)
     daily_c = daily_data.get('c', [])
     daily_t = daily_data.get('t', [])
+    daily_v = daily_data.get('v', [])
 
     ref = 0.0
     if daily_c and daily_t:
@@ -312,8 +328,9 @@ def get_vnindex_summary() -> dict:
       curr = float(m1_c[-1])
       change = round(curr - ref, 2)
       change_pct = round((change / ref * 100), 2)
-      vol = int(sum(m1_v))
-      return {
+      vol = max(int(sum(m1_v)), int(daily_v[-1]) if daily_v else 0)
+      est_val_trillion = round((vol * 22000) / 1e12, 2) if vol > 0 else 0.0
+      res = {
           'index': 'VNINDEX',
           'price': curr,
           'change': change,
@@ -321,7 +338,13 @@ def get_vnindex_summary() -> dict:
           'volume': vol,
           'ref': ref,
           'source': 'ENTRADE_1M',
+          'advances': None,
+          'declines': None,
+          'noChange': None,
+          'estValueTrillion': est_val_trillion,
       }
+      _LAST_KNOWN_VNINDEX = res
+      return res
 
     # Tầng 3: Nến ngày 1D
     if daily_c and len(daily_c) >= 2:
@@ -329,19 +352,42 @@ def get_vnindex_summary() -> dict:
       prev = float(daily_c[-2])
       change = round(curr - prev, 2)
       change_pct = round((change / prev * 100), 2) if prev > 0 else 0.0
-      return {
+      vol = int(daily_v[-1]) if daily_v else 0
+      est_val_trillion = round((vol * 22000) / 1e12, 2) if vol > 0 else 0.0
+      res = {
           'index': 'VNINDEX',
           'price': curr,
           'change': change,
           'changePercent': change_pct,
-          'volume': int(daily_data.get('v', [0])[-1]),
+          'volume': vol,
           'ref': prev,
           'source': 'ENTRADE_1D',
+          'advances': None,
+          'declines': None,
+          'noChange': None,
+          'estValueTrillion': est_val_trillion,
       }
+      _LAST_KNOWN_VNINDEX = res
+      return res
   except Exception as e:
     logger.debug('Lỗi fetch VN-Index fallback từ Entrade: %s', e)
 
-  return {'index': 'VNINDEX', 'price': 1250.0, 'change': 0.0, 'changePercent': 0.0, 'volume': 0}
+  if _LAST_KNOWN_VNINDEX:
+    return _LAST_KNOWN_VNINDEX
+
+  return {
+      'index': 'VNINDEX',
+      'price': 0.0,
+      'change': 0.0,
+      'changePercent': 0.0,
+      'volume': 0,
+      'ref': 0.0,
+      'source': 'DATA_UNAVAILABLE',
+      'advances': None,
+      'declines': None,
+      'noChange': None,
+      'estValueTrillion': 0.0,
+  }
 
 
 def get_market_board_data(force_refresh=False) -> dict:

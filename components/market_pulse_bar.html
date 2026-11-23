@@ -1,0 +1,221 @@
+<!-- THANH THỊ TRƯỜNG CHUNG (VN-INDEX REALTIME & ĐÁNH GIÁ XU HƯỚNG REGIME) -->
+<div id="marketPulseSection" class="p-3.5 sm:p-4 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl backdrop-blur space-y-3">
+  <!-- Header: Tiêu đề, Badge Trạng thái Phiên, Countdown & Nút Làm Mới -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 flex-shrink-0 shadow-inner">
+        <i class="fa-solid fa-chart-line text-sm"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <h3 class="text-xs sm:text-sm font-black text-white tracking-wide uppercase flex items-center gap-1.5">
+            <span>THỊ TRƯỜNG CHUNG (VN-INDEX)</span>
+            <span class="text-[10px] font-mono px-2 py-0.2 rounded bg-blue-950 text-blue-300 border border-blue-700/60 font-bold">
+              Market Pulse
+            </span>
+          </h3>
+          <span id="marketSessionStatusBadge" class="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="marketSessionStatusText">Đang giao dịch</span>
+          </span>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-0.5">
+          Dữ liệu thời gian thực từ VPS Datafeed &amp; Hệ thống đánh giá chế độ thị trường định lượng
+        </p>
+      </div>
+    </div>
+
+    <!-- Controls: Đồng hồ đếm ngược chu kỳ fetch 60s & Nút làm mới tức thì -->
+    <div class="flex items-center gap-2 self-start sm:self-auto text-xs font-mono">
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300 shadow-inner" title="Tự động cập nhật theo chu kỳ 60 giây trong phiên">
+        <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+        <span class="text-slate-500 font-sans hidden sm:inline">Cập nhật:</span>
+        <span id="marketPulseCountdown" class="text-blue-400 font-bold font-mono">01:00</span>
+      </div>
+      <div class="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400">
+        <i class="fa-solid fa-clock-rotate-left text-slate-500 text-[10px]"></i>
+        <span id="marketPulseLastUpdated">Đang tải...</span>
+      </div>
+      <button id="btnRefreshMarketPulse" type="button"
+        class="min-h-[38px] sm:min-h-[32px] px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+        title="Làm mới điểm số VN-Index & Đánh giá thị trường ngay lập tức">
+        <i class="fa-solid fa-arrows-rotate text-xs" id="refreshMarketPulseIcon"></i>
+        <span id="btnRefreshMarketPulseText">Làm mới</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Body: 3 Khối Thông Tin (1. VN-Index Realtime & Độ rộng | 2. Tâm lý & Sức mạnh | 3. Đánh giá Xu hướng & Hành động) -->
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
+    
+    <!-- KHỐI 1: CHỈ SỐ VN-INDEX REALTIME & ĐỘ RỘNG THỊ TRƯỜNG (Col 1-5) -->
+    <div class="md:col-span-5 bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between shadow-inner">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800/60">
+        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-gauge-high text-blue-400 text-[11px]"></i> Chỉ Số VN-INDEX
+        </span>
+        <span class="text-[10px] text-slate-500 font-mono" id="marketDataSourceTag">VPS REALTIME</span>
+      </div>
+
+      <div class="my-2.5 flex items-baseline justify-between gap-3 flex-wrap">
+        <div class="flex items-baseline gap-2">
+          <span id="marketVnindexPrice" class="text-2xl sm:text-3xl font-black font-mono tracking-tight text-white">--</span>
+          <span class="text-xs text-slate-400 font-mono">điểm</span>
+        </div>
+        <div id="marketVnindexChangeBadge" class="inline-flex items-center gap-1 font-mono font-bold text-xs sm:text-sm px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300">
+          <span id="marketVnindexChangeIcon"><i class="fa-solid fa-minus"></i></span>
+          <span id="marketVnindexChange">--</span>
+          <span id="marketVnindexChangePct">(--%)</span>
+        </div>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800/60 space-y-2 text-xs">
+        <div class="flex items-center justify-between text-slate-400 text-[11px] font-mono">
+          <span>KL: <strong id="marketVnindexVolume" class="text-slate-200">--</strong> CP</span>
+          <span>GTGD: <strong id="marketVnindexValue" class="text-slate-200">--</strong></span>
+          <span>TC: <strong id="marketVnindexRef" class="text-slate-400">--</strong></span>
+        </div>
+
+        <!-- Độ rộng số mã tăng / giảm / đứng giá -->
+        <div class="flex items-center justify-between gap-1.5 pt-1">
+          <div class="flex-1 flex items-center justify-center gap-1 py-1 px-1.5 rounded bg-emerald-950/40 border border-emerald-800/40 text-[11px] font-mono font-bold text-emerald-400" title="Số mã tăng giá">
+            <i class="fa-solid fa-arrow-trend-up text-[10px]"></i>
+            <span id="marketBreadthAdvances">--</span> <span class="font-sans font-normal text-[10px] text-emerald-500 hidden sm:inline">Tăng</span>
+          </div>
+          <div class="flex-1 flex items-center justify-center gap-1 py-1 px-1.5 rounded bg-amber-950/40 border border-amber-800/40 text-[11px] font-mono font-bold text-amber-300" title="Số mã không đổi giá">
+            <i class="fa-solid fa-minus text-[10px]"></i>
+            <span id="marketBreadthNoChange">--</span> <span class="font-sans font-normal text-[10px] text-amber-500 hidden sm:inline">Đứng</span>
+          </div>
+          <div class="flex-1 flex items-center justify-center gap-1 py-1 px-1.5 rounded bg-rose-950/40 border border-rose-800/40 text-[11px] font-mono font-bold text-rose-400" title="Số mã giảm giá">
+            <i class="fa-solid fa-arrow-trend-down text-[10px]"></i>
+            <span id="marketBreadthDeclines">--</span> <span class="font-sans font-normal text-[10px] text-rose-500 hidden sm:inline">Giảm</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KHỐI 2: TÂM LÝ & ĐỘ RỘNG NỘI TẠI (Col 6-8) -->
+    <div class="md:col-span-3 bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between shadow-inner">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800/60">
+        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-compass text-amber-400 text-[11px]"></i> Tâm Lý &amp; Độ Rộng
+        </span>
+      </div>
+
+      <div class="my-2 space-y-2">
+        <!-- Tâm lý Fear & Greed -->
+        <div>
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-400 text-[11px]">Tâm lý thị trường:</span>
+            <span id="marketSentimentScore" class="font-mono font-bold text-sm text-white">--/100</span>
+          </div>
+          <div class="mt-1">
+            <span id="marketSentimentLabelBadge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300">
+              <span id="marketSentimentLabel">Đang tải...</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Tỷ lệ cổ phiếu trên MA20 -->
+        <div class="pt-2 border-t border-slate-800/60">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-400 text-[11px]">CP trên MA20 (Top 200):</span>
+            <span id="marketBreadthPct" class="font-mono font-bold text-xs text-white">--%</span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 mt-1.5 overflow-hidden">
+            <div id="marketBreadthProgressBar" class="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+        <span>Tiêu chí đạt:</span>
+        <span id="marketRegimeScore" class="font-mono font-bold text-blue-400">--/5 Điều kiện</span>
+      </div>
+    </div>
+
+    <!-- KHỐI 3: ĐÁNH GIÁ THỊ TRƯỜNG HIỆN TẠI & HÀNH ĐỘNG (Col 9-12) -->
+    <div class="md:col-span-4 bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between shadow-inner">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800/60">
+        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-bullseye text-emerald-400 text-[11px]"></i> Đánh Giá Hiện Tại
+        </span>
+        <!-- Regime Tag -->
+        <span id="marketRegimeBadge" class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+          Đang đánh giá...
+        </span>
+      </div>
+
+      <div class="my-2 space-y-1.5 text-xs">
+        <!-- Chẩn đoán ngắn -->
+        <p id="marketDiagnosisText" class="text-slate-200 text-xs leading-relaxed font-sans">
+          Đang đồng bộ dữ liệu đánh giá thị trường...
+        </p>
+
+        <!-- Khuyến nghị hành động -->
+        <div class="p-2 rounded-lg bg-slate-900/90 border border-slate-800/80 text-[11px]">
+          <span class="text-amber-400 font-semibold flex items-center gap-1 mb-0.5">
+            <i class="fa-solid fa-shield-halved text-[10px]"></i> Hành động khuyến nghị:
+          </span>
+          <p id="marketActionText" class="text-slate-300 leading-normal">
+            --
+          </p>
+        </div>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between">
+        <button id="btnOpenRegimeModal" type="button"
+          class="text-[11px] text-blue-400 hover:text-blue-300 inline-flex items-center gap-1.5 transition cursor-pointer font-semibold"
+          title="Xem chi tiết 5 tiêu chí định lượng chấm điểm thị trường">
+          <i class="fa-solid fa-circle-info text-[10px]"></i> Xem 5 tiêu chí kỹ thuật
+        </button>
+        <span id="marketRiskBudgetHint" class="text-[10px] text-slate-400 font-mono">
+          Risk: <strong id="marketRiskCoeff" class="text-slate-200">--</strong>
+        </span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL POPUP CHI TIẾT 5 TIÊU CHÍ REGIME -->
+<div id="modalRegimeDetails" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+  <div class="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <!-- Modal Header -->
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+      <div class="flex items-center gap-2">
+        <span class="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center text-xs">
+          <i class="fa-solid fa-sliders"></i>
+        </span>
+        <h4 class="text-sm font-bold text-white uppercase tracking-wider">Chi Tiết 5 Tiêu Chí Đánh Giá Thị Trường</h4>
+      </div>
+      <button id="btnCloseRegimeModal" type="button" class="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+
+    <!-- Modal Body -->
+    <div class="p-4 space-y-3 overflow-y-auto divide-y divide-slate-800/80 text-xs">
+      <div class="text-[11px] text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+        <span>Hệ thống chấm 5 điều kiện cốt lõi (1 điểm/điều kiện):</span>
+        <span id="modalRegimeScoreBadge" class="font-mono font-bold text-white px-2 py-0.5 rounded bg-blue-900/60 border border-blue-700/40">--/5 Đạt</span>
+      </div>
+
+      <div id="modalConditionsList" class="space-y-2.5 pt-2">
+        <!-- Render động từ JS -->
+        <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 animate-pulse text-slate-400">
+          Đang tải dữ liệu tiêu chí...
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Footer -->
+    <div class="p-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs">
+      <span class="text-slate-400 text-[11px]" id="modalRegimeAsOf">Cập nhật: --</span>
+      <button id="btnCloseRegimeModalBtn" type="button" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition cursor-pointer">
+        Đóng
+      </button>
+    </div>
+  </div>
+</div>
+

@@ -7,6 +7,7 @@ import { renderUnifiedDecisionHero } from './modules/decisionCard.js?v=5.8';
 import { initPortfolioBundle } from './modules/portfolioBundle.js?v=5.8';
 import { initTopTPlusBar, setActiveTopTPlusTicker } from './modules/topTPlusBar.js?v=5.8';
 import { initUserPortfolioModule } from './modules/portfolio.js?v=6.0';
+import { initMarketPulse } from './modules/marketPulse.js?v=6.0';
 
 // ==================== 1. TRẠNG THÁI TOÀN CỤC ====================
 let currentTicker = '';
@@ -817,6 +818,7 @@ function initApp() {
   initTopTPlusBar((ticker) => {
     loadStock(ticker);
   });
+  initMarketPulse();
   initUserPortfolioModule({
     onSelectTicker: (ticker) => loadStock(ticker)
   });

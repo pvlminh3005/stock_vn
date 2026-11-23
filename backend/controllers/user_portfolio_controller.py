@@ -82,64 +82,12 @@ def handle_get_portfolio() -> Dict[str, Any]:
 
     board_data = get_market_board_data() or {}
 
-    # Quét trước báo giá realtime duy nhất cho từng mã (song song nếu nhiều mã, RAM cache 15s)
-    # Triệt tiêu hoàn toàn việc gọi API Entrade lặp lại nhiều lần cho cùng 1 mã trong danh mục
-    unique_syms = list({t.symbol.strip().upper() for t in trades if t.symbol})
-    quotes_map: Dict[str, Dict[str, Any]] = {}
-    if len(unique_syms) == 1:
-        s = unique_syms[0]
-        quotes_map[s] = get_entrade_stock_quote(s, board_data)
-    elif len(unique_syms) > 1:
-        from concurrent.futures import ThreadPoolExecutor
-        def _fetch(sym_code):
-            return sym_code, get_entrade_stock_quote(sym_code, board_data)
-        with ThreadPoolExecutor(max_workers=min(10, len(unique_syms))) as pool:
-            for sym_code, q_item in pool.map(_fetch, unique_syms):
-                quotes_map[sym_code] = q_item
-
-    # 1. Xử lý nhật ký chi tiết từng lệnh (Enriched Trades)
-    enriched_trades = []
-    for t in trades:
-        sym = (t.symbol or '').strip().upper()
-        order_type = t.order_type
-        vol = t.volume
-        entry_price = t.price
-
-        q = quotes_map.get(sym) or get_entrade_stock_quote(sym, board_data, entry_price)
-        cur_p = q['current_price']
-        ref_p = q['ref_price']
-        chg_pct = q['change_pct']
-
-        invested_amt = vol * entry_price
-        cur_amt = vol * cur_p
-        pnl_val = (cur_amt - invested_amt) if order_type == PortfolioTrade.ORDER_BUY else 0.0
-        pnl_pct = round((pnl_val / invested_amt * 100), 2) if invested_amt > 0 else 0.0
-
-        enriched_trades.append({
-            'id': t.id,
-            'symbol': sym,
-            'order_type': order_type,
-            'volume': vol,
-            'price': entry_price,
-            'current_price': cur_p,
-            'ref_price': ref_p,
-            'change_pct': chg_pct,
-            'invested_amount': invested_amt,
-            'current_amount': cur_amt,
-            'pnl_val': round(pnl_val, 2),
-            'pnl_pct': pnl_pct,
-            'trade_date': t.trade_date,
-            'note': t.note,
-            'status': t.status,
-            'exchange': q.get('exchange', 'HOSE'),
-        })
-
-    # 2. Gom nhóm vị thế theo mã (Consolidated Holdings Engine - VWAP + Realized + Unrealized)
+    # 1. Gom nhóm vị thế theo mã trước để xác định mã ĐANG MỞ (holding_volume > 0) vs ĐÃ ĐÓNG (holding_volume == 0)
     sorted_trades = sorted(trades, key=lambda x: (x.trade_date, str(x.id or '')))
     holdings_map = {}
 
     for t in sorted_trades:
-        sym = t.symbol
+        sym = (t.symbol or '').strip().upper()
         if not sym:
             continue
         order_type = t.order_type
@@ -184,7 +132,86 @@ def handle_get_portfolio() -> Dict[str, Any]:
             h['total_sell_val'] += (vol * price)
             h['sell_trades_count'] += 1
 
-    # 3. Tính toán giá trị thị trường và PnL thời gian thực cho từng vị thế
+    active_syms = [s for s, h in holdings_map.items() if h['holding_volume'] > 0]
+    closed_syms = set(s for s, h in holdings_map.items() if h['holding_volume'] <= 0)
+
+    # 2. CHỈ quét báo giá realtime cho các mã ĐANG NẮM GIỮ (active_syms)
+    # Các mã đã đóng vị thế (closed_syms) tuyệt đối không query giá hôm nay để tránh sai lệch
+    quotes_map: Dict[str, Dict[str, Any]] = {}
+    if len(active_syms) == 1:
+        s = active_syms[0]
+        quotes_map[s] = get_entrade_stock_quote(s, board_data)
+    elif len(active_syms) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        def _fetch(sym_code):
+            return sym_code, get_entrade_stock_quote(sym_code, board_data)
+        with ThreadPoolExecutor(max_workers=min(10, len(active_syms))) as pool:
+            for sym_code, q_item in pool.map(_fetch, active_syms):
+                quotes_map[sym_code] = q_item
+
+    # 3. Xử lý nhật ký chi tiết từng lệnh (Enriched Trades)
+    enriched_trades = []
+    for t in trades:
+        sym = (t.symbol or '').strip().upper()
+        order_type = t.order_type
+        vol = t.volume
+        entry_price = t.price
+        is_closed = sym in closed_syms
+
+        invested_amt = vol * entry_price
+
+        if is_closed:
+            # Vị thế mã này đã đóng: Không biểu diễn giá thị trường hôm nay, không tính PnL ảo
+            enriched_trades.append({
+                'id': t.id,
+                'symbol': sym,
+                'order_type': order_type,
+                'volume': vol,
+                'price': entry_price,
+                'current_price': None,
+                'ref_price': None,
+                'change_pct': 0.0,
+                'invested_amount': invested_amt,
+                'current_amount': 0.0,
+                'pnl_val': 0.0,
+                'pnl_pct': 0.0,
+                'trade_date': t.trade_date,
+                'note': t.note,
+                'status': 'CLOSED',
+                'is_closed': True,
+                'exchange': 'HOSE',
+            })
+        else:
+            q = quotes_map.get(sym) or get_entrade_stock_quote(sym, board_data, entry_price)
+            cur_p = q['current_price']
+            ref_p = q['ref_price']
+            chg_pct = q['change_pct']
+
+            cur_amt = vol * cur_p
+            pnl_val = (cur_amt - invested_amt) if order_type == PortfolioTrade.ORDER_BUY else 0.0
+            pnl_pct = round((pnl_val / invested_amt * 100), 2) if invested_amt > 0 else 0.0
+
+            enriched_trades.append({
+                'id': t.id,
+                'symbol': sym,
+                'order_type': order_type,
+                'volume': vol,
+                'price': entry_price,
+                'current_price': cur_p,
+                'ref_price': ref_p,
+                'change_pct': chg_pct,
+                'invested_amount': invested_amt,
+                'current_amount': cur_amt,
+                'pnl_val': round(pnl_val, 2),
+                'pnl_pct': pnl_pct,
+                'trade_date': t.trade_date,
+                'note': t.note,
+                'status': t.status,
+                'is_closed': False,
+                'exchange': q.get('exchange', 'HOSE'),
+            })
+
+    # 4. Tính toán giá trị thị trường và PnL thời gian thực cho từng vị thế
     consolidated_holdings = []
     total_holding_cost = 0.0
     total_market_val = 0.0
@@ -193,54 +220,79 @@ def handle_get_portfolio() -> Dict[str, Any]:
     from backend.domain.portfolio_bundler import get_stock_sector
 
     for sym, h in holdings_map.items():
-        q = quotes_map.get(sym) or get_entrade_stock_quote(sym, board_data, h['avg_price'])
-        cur_p = q['current_price']
-        ref_p = q['ref_price']
-        chg_pct = q['change_pct']
-
         holding_vol = h['holding_volume']
         avg_p = h['avg_price']
         total_cost = h['total_cost']
-
-        cur_val = holding_vol * cur_p
-        unrealized_pnl = (cur_val - total_cost) if holding_vol > 0 else 0.0
-        unrealized_pnl_pct = round((unrealized_pnl / total_cost * 100), 2) if total_cost > 0 else 0.0
-
         realized_pnl = h['realized_pnl']
-        total_pnl = realized_pnl + unrealized_pnl
-
-        # Tỷ trọng danh mục (% NAV)
-        weight_pct = round((cur_val / total_nav * 100), 1) if total_nav > 0 else 0.0
-
-        if holding_vol > 0:
-            total_holding_cost += total_cost
-            total_market_val += cur_val
-        total_realized_pnl += realized_pnl
-
         sector_name = get_stock_sector(sym)
 
-        consolidated_holdings.append({
-            'symbol': sym,
-            'sector': sector_name,
-            'exchange': q.get('exchange', 'HOSE'),
-            'holding_volume': holding_vol,
-            'avg_price': round(avg_p, 2),
-            'current_price': cur_p,
-            'ref_price': ref_p,
-            'change_pct': chg_pct,
-            'total_cost': round(total_cost, 2),
-            'current_value': round(cur_val, 2),
-            'unrealized_pnl': round(unrealized_pnl, 2),
-            'unrealized_pnl_pct': unrealized_pnl_pct,
-            'realized_pnl': round(realized_pnl, 2),
-            'total_pnl': round(total_pnl, 2),
-            'weight_pct': weight_pct,
-            'status': 'HOLDING' if holding_vol > 0 else 'CLOSED',
-            'buy_trades_count': h['buy_trades_count'],
-            'sell_trades_count': h['sell_trades_count'],
-            'first_trade_date': h['first_trade_date'],
-            'last_trade_date': h['last_trade_date'],
-        })
+        if holding_vol > 0:
+            q = quotes_map.get(sym) or get_entrade_stock_quote(sym, board_data, avg_p)
+            cur_p = q['current_price']
+            ref_p = q['ref_price']
+            chg_pct = q['change_pct']
+
+            cur_val = holding_vol * cur_p
+            unrealized_pnl = cur_val - total_cost
+            unrealized_pnl_pct = round((unrealized_pnl / total_cost * 100), 2) if total_cost > 0 else 0.0
+            total_pnl = realized_pnl + unrealized_pnl
+
+            # Tỷ trọng danh mục (% NAV)
+            weight_pct = round((cur_val / total_nav * 100), 1) if total_nav > 0 else 0.0
+
+            total_holding_cost += total_cost
+            total_market_val += cur_val
+            total_realized_pnl += realized_pnl
+
+            consolidated_holdings.append({
+                'symbol': sym,
+                'sector': sector_name,
+                'exchange': q.get('exchange', 'HOSE'),
+                'holding_volume': holding_vol,
+                'avg_price': round(avg_p, 2),
+                'current_price': cur_p,
+                'ref_price': ref_p,
+                'change_pct': chg_pct,
+                'total_cost': round(total_cost, 2),
+                'current_value': round(cur_val, 2),
+                'unrealized_pnl': round(unrealized_pnl, 2),
+                'unrealized_pnl_pct': unrealized_pnl_pct,
+                'realized_pnl': round(realized_pnl, 2),
+                'total_pnl': round(total_pnl, 2),
+                'weight_pct': weight_pct,
+                'status': 'HOLDING',
+                'is_closed': False,
+                'buy_trades_count': h['buy_trades_count'],
+                'sell_trades_count': h['sell_trades_count'],
+                'first_trade_date': h['first_trade_date'],
+                'last_trade_date': h['last_trade_date'],
+            })
+        else:
+            # Vị thế đã đóng: Giá trị thị trường = 0, PnL chưa chốt = 0, KHÔNG lấy giá hôm nay
+            total_realized_pnl += realized_pnl
+            consolidated_holdings.append({
+                'symbol': sym,
+                'sector': sector_name,
+                'exchange': 'HOSE',
+                'holding_volume': 0,
+                'avg_price': round(avg_p, 2),
+                'current_price': None,
+                'ref_price': None,
+                'change_pct': 0.0,
+                'total_cost': 0.0,
+                'current_value': 0.0,
+                'unrealized_pnl': 0.0,
+                'unrealized_pnl_pct': 0.0,
+                'realized_pnl': round(realized_pnl, 2),
+                'total_pnl': round(realized_pnl, 2),
+                'weight_pct': 0.0,
+                'status': 'CLOSED',
+                'is_closed': True,
+                'buy_trades_count': h['buy_trades_count'],
+                'sell_trades_count': h['sell_trades_count'],
+                'first_trade_date': h['first_trade_date'],
+                'last_trade_date': h['last_trade_date'],
+            })
 
     # Sắp xếp: Ưu tiên mã đang giữ lên trước (theo giá trị thị trường giảm dần), mã đã đóng xuống dưới
     consolidated_holdings.sort(key=lambda x: (0 if x['holding_volume'] > 0 else 1, -x['current_value']))

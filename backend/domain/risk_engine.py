@@ -45,8 +45,9 @@ def calculate_market_fear_greed_index(market_board=None, market_item=None, techn
           gainers += 1
         elif m_p < r_p:
           losers += 1
-      total_bu += item.get('stockBUVol', 0)
-      total_sd += item.get('stockSDVol', 0)
+      # Hỗ trợ cả key Entrade ('buyVol', 'sellVol') và SSI ('stockBUVol', 'stockSDVol')
+      total_bu += float(item.get('buyVol') or item.get('stockBUVol') or 0.0)
+      total_sd += float(item.get('sellVol') or item.get('stockSDVol') or 0.0)
 
   # 1. Market breadth score
   total_mkt = gainers + losers
@@ -57,23 +58,44 @@ def calculate_market_fear_greed_index(market_board=None, market_item=None, techn
   tot_flow = total_bu + total_sd
   mkt_flow_score = (total_bu / tot_flow * 100.0) if tot_flow > 0 else 50.0
 
-  # 3. Stock RSI
-  stock_rsi = technical_info.get('rsi', 50.0) if technical_info else 50.0
+  # Phân tách: Đánh giá cho Thị Trường Chung (khi không có technical_info của 1 cổ phiếu cụ thể)
+  has_stock_tech = bool(technical_info and (technical_info.get('rsi') is not None or technical_info.get('buyRatio') is not None))
 
-  # 4. Stock active buy ratio
-  stock_buy_ratio = technical_info.get('buyRatio', 50.0) if technical_info else 50.0
+  if not has_stock_tech:
+    # Đối với thị trường chung: Tính theo Độ rộng (40%) + Dòng tiền chủ động toàn sàn (35%) + RSI của VN-Index (25%)
+    vni_rsi = 50.0
+    try:
+      from backend.domain.technicals import get_vnindex_series, calculate_rsi
+      vni_series = get_vnindex_series()
+      closes = vni_series.get('closes', [])
+      if closes and len(closes) >= 15:
+        vni_rsi = float(calculate_rsi(closes, 14) or 50.0)
+    except Exception:
+      vni_rsi = 50.0
 
-  # 5. Stock vol ratio
-  stock_vol_ratio = min(2.5, technical_info.get('volRatio', 1.0) if technical_info else 1.0)
-  vol_score = min(100.0, stock_vol_ratio * 50.0)
+    raw_score = (
+        breadth_score * 0.40 +
+        mkt_flow_score * 0.35 +
+        vni_rsi * 0.25
+    )
+  else:
+    # 3. Stock RSI
+    stock_rsi = technical_info.get('rsi', 50.0) if technical_info else 50.0
 
-  raw_score = (
-      breadth_score * 0.30 +
-      mkt_flow_score * 0.20 +
-      stock_rsi * 0.25 +
-      stock_buy_ratio * 0.15 +
-      vol_score * 0.10
-  )
+    # 4. Stock active buy ratio
+    stock_buy_ratio = technical_info.get('buyRatio', 50.0) if technical_info else 50.0
+
+    # 5. Stock vol ratio
+    stock_vol_ratio = min(2.5, technical_info.get('volRatio', 1.0) if technical_info else 1.0)
+    vol_score = min(100.0, stock_vol_ratio * 50.0)
+
+    raw_score = (
+        breadth_score * 0.30 +
+        mkt_flow_score * 0.20 +
+        stock_rsi * 0.25 +
+        stock_buy_ratio * 0.15 +
+        vol_score * 0.10
+    )
   fear_greed_score = int(round(max(5.0, min(95.0, raw_score))))
 
   if fear_greed_score > 80:

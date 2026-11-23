@@ -40,6 +40,7 @@ export const API_ENDPOINTS = {
   SEARCH: '/search',
   MARKET_REGIME: '/market-regime',
   MARKET_SENTIMENT: '/market-sentiment',
+  MARKET_OVERVIEW: '/market-overview',
   PORTFOLIO: '/portfolio',
   PORTFOLIO_BUNDLE: '/portfolio-bundle',
   PORTFOLIO_ALTERNATIVES: '/portfolio-alternatives',

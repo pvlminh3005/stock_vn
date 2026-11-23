@@ -136,9 +136,21 @@ def evaluate_market_regime(market_board=None, ssi_board=None):
 
   vni = get_vnindex_series()
   today = time.strftime('%Y-%m-%d', time.gmtime(now + VN_UTC_OFFSET_SEC))
-  dates, closes, vols = vni.get('dates', []), vni.get('closes', []), vni.get('volumes', [])
-  if dates and dates[-1] == today:
-    dates, closes, vols = dates[:-1], closes[:-1], vols[:-1]
+  dates = list(vni.get('dates', []))
+  closes = [float(c) for c in vni.get('closes', [])]
+  vols = [int(v) for v in vni.get('volumes', [])]
+
+  # Đồng bộ giá realtime hôm nay vào nến cuối để so sánh MA50 / MA200 chuẩn xác
+  from backend.data_providers.market_board_provider import get_vnindex_summary
+  live_vni = get_vnindex_summary()
+  live_price = float(live_vni.get('price') or 0.0)
+  if live_price > 0:
+    if dates and dates[-1] == today:
+      closes[-1] = live_price
+    else:
+      dates.append(today)
+      closes.append(live_price)
+      vols.append(int(live_vni.get('volume') or 0))
 
   conditions = []
 
@@ -181,21 +193,28 @@ def evaluate_market_regime(market_board=None, ssi_board=None):
   else:
     _add('>= 50% mã trên MA20 (Top 200 ADTV)', None, 'Đang tải dữ liệu độ rộng thị trường, chưa đủ dữ liệu')
 
-  if len(vols) >= 20:
-    v5 = sum(vols[-5:]) / 5.0
-    v20 = sum(vols[-20:]) / 20.0
+  # Khối lượng 5 phiên so với 20 phiên: lấy các phiên đã hoàn tất để tránh bị méo khi đang trong phiên
+  vols_completed = vols[:-1] if (dates and dates[-1] == today and len(vols) > 20) else vols
+  if len(vols_completed) >= 20:
+    v5 = sum(vols_completed[-5:]) / 5.0
+    v20 = sum(vols_completed[-20:]) / 20.0
     ratio = v5 / v20 if v20 else 0
-    _add('Thanh khoản 5 phiên >= 90% TB20', ratio >= 0.9, f'KL 5 phiên bằng {ratio * 100:.0f}% TB20')
+    _add('Thanh khoản 5 phiên >= 90% TB20', ratio >= 0.9, f'KL 5 phiên bằng {ratio * 100:.0f}% TB20 (theo các phiên hoàn tất)')
   else:
     _add('Thanh khoản 5 phiên >= 90% TB20', None, 'Chưa đủ dữ liệu khối lượng VN-Index')
 
-  if universe and n >= 6:
+  # Phân kỳ: kiểm tra 5 phiên đã hoàn tất gần nhất
+  dates_c = dates[:-1] if (dates and dates[-1] == today and len(dates) > 6) else dates
+  closes_c = closes[:-1] if (dates and dates[-1] == today and len(closes) > 6) else closes
+  nc = len(closes_c)
+
+  if universe and nc >= 6:
     top = universe[:BREADTH_AD_UNIVERSE_SIZE]
     stock_maps = [dict(zip(u['dates'], u['closes'])) for u in top]
     divergent_days = []
-    for i in range(n - 5, n):
-      d, d_prev = dates[i], dates[i - 1]
-      vni_chg = (closes[i] - closes[i - 1]) / closes[i - 1] * 100 if closes[i - 1] else 0
+    for i in range(nc - 5, nc):
+      d, d_prev = dates_c[i], dates_c[i - 1]
+      vni_chg = (closes_c[i] - closes_c[i - 1]) / closes_c[i - 1] * 100 if closes_c[i - 1] else 0
       adv = sum(1 for m in stock_maps if d in m and d_prev in m and m[d] > m[d_prev])
       dec = sum(1 for m in stock_maps if d in m and d_prev in m and m[d] < m[d_prev])
       ad_ratio = adv / dec if dec else float('inf')

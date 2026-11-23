@@ -84,11 +84,11 @@ function setOrderType(type) {
 }
 
 /**
- * Điền tự động thông tin từ một lệnh đã chọn lên form nhập
- * (Giữ ngày hiện tại, note để trống để tiện bổ sung lệnh Mua/Bán mới)
+ * Điền tự động thông tin từ một vị thế trong Danh Mục Vị Thế lên form nhập lệnh
+ * (Nạp mã, khối lượng nắm giữ, giá thị trường hiện tại, ngày hôm nay)
  */
-function fillTradeForm(trade) {
-  if (!trade) return;
+function fillHoldingForm(holding) {
+  if (!holding) return;
 
   const symInput = document.getElementById('tradeSymbolInput');
   const volInput = document.getElementById('tradeVolumeInput');
@@ -97,14 +97,23 @@ function fillTradeForm(trade) {
   const dateInput = document.getElementById('tradeDateInput');
   const form = document.getElementById('portfolioTradeForm');
 
-  if (symInput) symInput.value = (trade.symbol || '').toUpperCase();
-  if (volInput) volInput.value = formatNumber(trade.volume);
-  if (priceInput) priceInput.value = formatPriceInput(trade.price);
+  if (symInput) symInput.value = (holding.symbol || '').toUpperCase();
+
+  // Khối lượng: nếu đang có cổ phiếu (> 0), nạp sẵn khối lượng đang giữ để tiện Bán / sửa
+  if (volInput) {
+    volInput.value = holding.holding_volume > 0 ? formatNumber(holding.holding_volume) : '';
+  }
+
+  // Giá: ưu tiên giá thị trường hiện tại, nếu chưa có thì lấy giá vốn trung bình
+  const refPrice = holding.current_price > 0 ? holding.current_price : holding.avg_price;
+  if (priceInput && refPrice > 0) {
+    priceInput.value = formatPriceInput(refPrice);
+  }
 
   // Note để trống theo yêu cầu của user
   if (noteInput) noteInput.value = '';
 
-  // Ngày thì vẫn giữ hiện tại lúc bấm nút edit
+  // Ngày thì vẫn giữ hiện tại lúc bấm nút
   if (dateInput) {
     const now = new Date();
     const year = now.getFullYear();
@@ -113,8 +122,13 @@ function fillTradeForm(trade) {
     dateInput.value = `${year}-${month}-${day}`;
   }
 
-  // Loại Lệnh (BUY / SELL)
-  setOrderType((trade.order_type || 'BUY').toUpperCase());
+  // Nếu đang có vị thế nắm giữ (> 0), mặc định gợi ý loại lệnh BÁN (chốt lời / cắt lỗ)
+  // Nếu vị thế đã đóng (= 0), mặc định gợi ý loại lệnh MUA
+  if (holding.holding_volume > 0) {
+    setOrderType('SELL');
+  } else {
+    setOrderType('BUY');
+  }
 
   // Cuộn mượt tới form và highlight nhẹ viền form
   if (form) {
@@ -276,14 +290,14 @@ export function initUserPortfolioModule(callbacks = {}) {
       return;
     }
 
-    // G2. Nút Bút chì (Edit / Nạp thông tin lệnh lên form nhập)
-    const editBtn = target.closest('.edit-trade-btn');
-    if (editBtn) {
-      const id = editBtn.getAttribute('data-id');
-      const trades = _portfolioData.trades || [];
-      const trade = trades.find(t => String(t.id) === String(id));
-      if (trade) {
-        fillTradeForm(trade);
+    // G2. Nút Bút chì ở Danh mục vị thế (Nạp thông tin mã lên form nhập lệnh)
+    const editHoldingBtn = target.closest('.edit-holding-btn');
+    if (editHoldingBtn) {
+      const sym = editHoldingBtn.getAttribute('data-symbol');
+      const holdings = _portfolioData.holdings || [];
+      const holding = holdings.find(h => (h.symbol || '').toUpperCase() === (sym || '').toUpperCase());
+      if (holding) {
+        fillHoldingForm(holding);
       }
       return;
     }
@@ -471,10 +485,10 @@ function updateFilterCounters() {
   } else {
     const trades = _portfolioData.trades || [];
     if (countAll) countAll.textContent = trades.length;
-    if (countBuy) countBuy.textContent = trades.filter(t => t.order_type === 'BUY').length;
-    if (countSell) countSell.textContent = trades.filter(t => t.order_type === 'SELL').length;
-    if (countProfit) countProfit.textContent = trades.filter(t => t.order_type === 'BUY' && t.pnl_val > 0).length;
-    if (countLoss) countLoss.textContent = trades.filter(t => t.order_type === 'BUY' && t.pnl_val < 0).length;
+    if (countBuy) countBuy.textContent = trades.filter(t => t.order_type === 'BUY' && !t.is_closed).length;
+    if (countSell) countSell.textContent = trades.filter(t => t.order_type === 'SELL' || t.is_closed).length;
+    if (countProfit) countProfit.textContent = trades.filter(t => !t.is_closed && t.order_type === 'BUY' && t.pnl_val > 0).length;
+    if (countLoss) countLoss.textContent = trades.filter(t => !t.is_closed && t.order_type === 'BUY' && t.pnl_val < 0).length;
   }
 }
 
@@ -652,15 +666,18 @@ function renderHoldingsTable(callbacks = {}) {
           ${formatNumber(h.holding_volume)}
           ${!isHolding ? '<span class="text-[9px] text-slate-500 ml-1 block font-sans">Đã đóng</span>' : ''}
         </td>
-        <td class="py-2.5 px-3 text-right font-mono text-amber-300 font-semibold">
-          ${formatNumber(h.avg_price)} đ
+        <td class="py-2.5 px-3 text-right font-mono text-slate-400 font-semibold">
+          ${isHolding ? `${formatNumber(h.avg_price)} đ` : `<span class="text-slate-600 text-[11px] font-sans">-</span>`}
         </td>
         <td class="py-2.5 px-3 text-right font-mono font-bold">
-          <div class="text-white">${formatNumber(h.current_price)} đ</div>
-          <div class="text-[10px] ${changeColor}">(${changeSign}${h.change_pct}%)</div>
+          ${isHolding && h.current_price
+            ? `<div class="text-white">${formatNumber(h.current_price)} đ</div>
+               <div class="text-[10px] ${changeColor}">(${changeSign}${h.change_pct}%)</div>`
+            : `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-slate-900 text-slate-500 border border-slate-800 font-sans">Đã tất toán</span>`
+          }
         </td>
         <td class="py-2.5 px-3 text-right text-slate-200 font-mono">
-          ${formatPortfolioVND(h.current_value)}
+          ${isHolding ? formatPortfolioVND(h.current_value) : `<span class="text-slate-600 text-[11px] font-sans">0 đ</span>`}
         </td>
         <td class="py-2.5 px-3 text-right font-bold font-mono ${colorU}">
           ${isHolding
@@ -676,12 +693,17 @@ function renderHoldingsTable(callbacks = {}) {
           <div>${signT}${formatPortfolioVND(h.total_pnl)}</div>
         </td>
         <td class="py-2.5 px-3 text-right font-mono text-slate-300">
-          <span class="px-1.5 py-0.5 rounded bg-slate-800/80 text-[11px] font-semibold">${h.weight_pct}%</span>
+          <span class="px-1.5 py-0.5 rounded bg-slate-800/80 text-[11px] font-semibold">${isHolding ? `${h.weight_pct}%` : '0%'}</span>
         </td>
         <td class="py-2.5 px-3 text-center">
-          <button type="button" class="view-stock-btn px-2 py-1 rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-bold transition cursor-pointer" data-symbol="${h.symbol}" title="Phân tích mã ${h.symbol}">
-            <i class="fa-solid fa-chart-line mr-0.5"></i> Soi Kỹ Thuật
-          </button>
+          <div class="flex items-center justify-center gap-1.5">
+            <button type="button" class="edit-holding-btn p-1 text-slate-400 hover:text-emerald-400 transition cursor-pointer" data-symbol="${h.symbol}" title="Nạp mã ${h.symbol} lên form lệnh">
+              <i class="fa-solid fa-pen-to-square text-xs"></i>
+            </button>
+            <button type="button" class="view-stock-btn px-2 py-1 rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-bold transition cursor-pointer" data-symbol="${h.symbol}" title="Phân tích mã ${h.symbol}">
+              <i class="fa-solid fa-chart-line mr-0.5"></i> Soi Kỹ Thuật
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -701,10 +723,10 @@ function renderPortfolioTable(callbacks = {}) {
 
   let filtered = trades.filter(t => {
     if (_searchTerm && !t.symbol.includes(_searchTerm)) return false;
-    if (_currentFilter === 'BUY') return t.order_type === 'BUY';
-    if (_currentFilter === 'SELL') return t.order_type === 'SELL';
-    if (_currentFilter === 'PROFIT') return t.order_type === 'BUY' && t.pnl_val > 0;
-    if (_currentFilter === 'LOSS') return t.order_type === 'BUY' && t.pnl_val < 0;
+    if (_currentFilter === 'BUY') return t.order_type === 'BUY' && !t.is_closed;
+    if (_currentFilter === 'SELL') return t.order_type === 'SELL' || t.is_closed;
+    if (_currentFilter === 'PROFIT') return !t.is_closed && t.order_type === 'BUY' && t.pnl_val > 0;
+    if (_currentFilter === 'LOSS') return !t.is_closed && t.order_type === 'BUY' && t.pnl_val < 0;
     return true;
   });
 
@@ -732,7 +754,7 @@ function renderPortfolioTable(callbacks = {}) {
     const changeColor = t.change_pct > 0 ? 'text-emerald-400' : t.change_pct < 0 ? 'text-rose-400' : 'text-amber-300';
 
     html += `
-      <tr class="hover:bg-slate-900/80 transition">
+      <tr class="hover:bg-slate-900/80 transition ${t.is_closed ? 'opacity-70 bg-slate-950/40' : ''}">
         <td class="py-2.5 px-3 font-bold sticky-col-first-cell bg-slate-950/90">
           <div class="flex items-center gap-1.5">
             <button type="button" class="view-stock-btn text-white hover:text-blue-400 transition cursor-pointer underline decoration-dotted font-mono" data-symbol="${t.symbol}">
@@ -753,29 +775,32 @@ function renderPortfolioTable(callbacks = {}) {
         </td>
         <td class="py-2.5 px-3 text-right font-bold text-slate-200">${formatNumber(t.volume)}</td>
         <td class="py-2.5 px-3 text-right text-slate-300">${formatNumber(t.price)} đ</td>
-        <td class="py-2.5 px-3 text-right font-bold">
-          <div class="text-white">${formatNumber(t.current_price)} đ</div>
-          <div class="text-[10px] ${changeColor}">(${changeSign}${t.change_pct}%)</div>
+        <td class="py-2.5 px-3 text-right font-bold font-mono">
+          ${!t.is_closed && t.current_price
+            ? `<div class="text-white">${formatNumber(t.current_price)} đ</div>
+               <div class="text-[10px] ${changeColor}">(${changeSign}${t.change_pct}%)</div>`
+            : `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-slate-900 text-slate-500 border border-slate-800 font-sans">Đã chốt xong</span>`
+          }
         </td>
-        <td class="py-2.5 px-3 text-right text-slate-300">${formatPortfolioVND(t.order_type === 'BUY' ? t.current_amount : t.invested_amount)}</td>
-        <td class="py-2.5 px-3 text-right font-bold ${pnlColor}">
-          ${isBuy
-        ? `<div>${pnlSign}${formatPortfolioVND(t.pnl_val)}</div>
-                 <div class="text-[10px]">(${pnlSign}${t.pnl_pct.toFixed(2)}%)</div>`
-        : `<span class="text-slate-500 text-[11px] font-sans">Đã chốt bán</span>`
-      }
+        <td class="py-2.5 px-3 text-right text-slate-300 font-mono">
+          ${!t.is_closed && t.order_type === 'BUY'
+            ? formatPortfolioVND(t.current_amount)
+            : formatPortfolioVND(t.invested_amount)
+          }
+        </td>
+        <td class="py-2.5 px-3 text-right font-bold ${pnlColor} font-mono">
+          ${!t.is_closed && isBuy
+            ? `<div>${pnlSign}${formatPortfolioVND(t.pnl_val)}</div>
+               <div class="text-[10px]">(${pnlSign}${t.pnl_pct.toFixed(2)}%)</div>`
+            : `<span class="text-slate-500 text-[11px] font-sans">Đã tất toán</span>`
+          }
         </td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px] font-sans">${t.trade_date || '-'}</td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px] font-sans max-w-[150px] truncate" title="${t.note || ''}">${t.note || '-'}</td>
         <td class="py-2.5 px-3 text-center">
-          <div class="flex items-center justify-center gap-1.5">
-            <button type="button" class="edit-trade-btn p-1 text-slate-400 hover:text-emerald-400 transition cursor-pointer" data-id="${t.id}" title="Nạp thông tin lệnh ${t.symbol} lên form">
-              <i class="fa-solid fa-pen-to-square text-xs"></i>
-            </button>
-            <button type="button" class="delete-trade-btn p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer" data-id="${t.id}" title="Xóa lệnh này">
-              <i class="fa-solid fa-trash-can text-xs"></i>
-            </button>
-          </div>
+          <button type="button" class="delete-trade-btn p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer" data-id="${t.id}" title="Xóa lệnh này khỏi sổ">
+            <i class="fa-solid fa-trash-can text-xs"></i>
+          </button>
         </td>
       </tr>
     `;

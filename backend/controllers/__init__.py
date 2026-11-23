@@ -8,6 +8,7 @@ from backend.controllers.market_controller import (
     handle_chart,
     handle_market_regime,
     handle_market_sentiment,
+    handle_market_overview,
 )
 from backend.controllers.screener_controller import (
     handle_search,
@@ -34,6 +35,7 @@ __all__ = [
     'handle_chart',
     'handle_market_regime',
     'handle_market_sentiment',
+    'handle_market_overview',
     'handle_search',
     'handle_screener',
     'handle_top_tplus',

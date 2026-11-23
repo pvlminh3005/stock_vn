@@ -57,12 +57,16 @@ _VNINDEX_CACHE = {'timestamp': 0, 'data': None}
 _WEEKLY_CHART_CACHE = {}
 
 
-def get_vnindex_series(days=DAILY_HISTORY_DAYS):
-  """Nến ngày VN-Index kèm ngày giao dịch (YYYY-MM-DD theo giờ VN) và khối lượng."""
+def get_vnindex_series(days=DAILY_HISTORY_DAYS, include_live=True):
+  """Nến ngày VN-Index kèm ngày giao dịch (YYYY-MM-DD theo giờ VN) và khối lượng.
+
+  Nếu include_live=True và đang trong/sau phiên giao dịch hôm nay, tự động ghép nến realtime
+  từ get_vnindex_summary() để bảo đảm dữ liệu đồng bộ 100% thời gian thực.
+  """
   global _VNINDEX_CACHE
   now = time.time()
   cached = _VNINDEX_CACHE.get('data')
-  if cached and now - _VNINDEX_CACHE['timestamp'] < 60:
+  if cached and now - _VNINDEX_CACHE['timestamp'] < 30:
     return cached
   try:
     now_ts = int(now)
@@ -70,10 +74,32 @@ def get_vnindex_series(days=DAILY_HISTORY_DAYS):
     url = build_entrade_chart_url('index', {'from': from_ts, 'to': now_ts, 'symbol': 'VNINDEX', 'resolution': '1D'})
     data = fetch_json(url)
     if data.get('c'):
+      dates = [vn_date(t) for t in data.get('t', [])]
+      closes = [float(c) for c in data.get('c', [])]
+      volumes = [int(v) for v in data.get('v', [])]
+
+      if include_live:
+        now_vn = time.gmtime(now + VN_UTC_OFFSET_SEC)
+        today_str = time.strftime('%Y-%m-%d', now_vn)
+        # Ghép nến realtime vào các ngày giao dịch từ 9h sáng trở đi
+        if now_vn.tm_wday < 5 and (now_vn.tm_hour * 60 + now_vn.tm_min >= 540):
+          from backend.data_providers.market_board_provider import get_vnindex_summary
+          live_sum = get_vnindex_summary()
+          live_price = float(live_sum.get('price') or 0.0)
+          live_vol = int(live_sum.get('volume') or 0)
+          if live_price > 0:
+            if dates and dates[-1] == today_str:
+              closes[-1] = live_price
+              volumes[-1] = max(volumes[-1], live_vol)
+            else:
+              dates.append(today_str)
+              closes.append(live_price)
+              volumes.append(live_vol)
+
       series = {
-          'dates': [vn_date(t) for t in data.get('t', [])],
-          'closes': data.get('c', []),
-          'volumes': data.get('v', []),
+          'dates': dates,
+          'closes': closes,
+          'volumes': volumes,
       }
       _VNINDEX_CACHE['timestamp'] = now
       _VNINDEX_CACHE['data'] = series

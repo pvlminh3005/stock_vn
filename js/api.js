@@ -102,6 +102,13 @@ export async function getMarketSentiment() {
   return await res.json();
 }
 
+// API lấy tổng quan toàn diện thị trường (VN-Index, Đánh giá Regime, Tâm lý, Độ rộng)
+export async function getMarketOverview() {
+  const res = await safeFetch(API_ENDPOINTS.MARKET_OVERVIEW);
+  if (!res.ok) throw new Error(`Lỗi tải dữ liệu thị trường chung: ${res.status}`);
+  return await res.json();
+}
+
 // ==================== PORTFOLIO BUNDLE (TAB 2) ====================
 
 // API lấy gói danh mục tối ưu theo số vốn

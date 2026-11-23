@@ -56,6 +56,7 @@ from backend.controllers import (
     handle_chart,
     handle_market_regime,
     handle_market_sentiment,
+    handle_market_overview,
     handle_search,
     handle_screener,
     handle_top_tplus,
@@ -139,6 +140,9 @@ def _route_market_regime(params):
 def _route_market_sentiment(params):
   return 200, handle_market_sentiment()
 
+def _route_market_overview(params):
+  return 200, handle_market_overview()
+
 def _route_screener(params):
   return 200, handle_screener()
 
@@ -204,6 +208,7 @@ GET_ROUTES = {
     '/api/stock': _route_stock,
     '/api/market-regime': _route_market_regime,
     '/api/market-sentiment': _route_market_sentiment,
+    '/api/market-overview': _route_market_overview,
     '/api/screener': _route_screener,
     '/api/top-tplus': _route_top_tplus,
     '/api/search': _route_search,

@@ -4,10 +4,14 @@
  * và các bộ xử lý input trực tiếp cho toàn bộ ứng dụng.
  */
 
-// 1. Định dạng số nguyên / khối lượng với dấu phẩy phân cách hàng nghìn (ví dụ: 1,000, 10,000)
-export function formatNumber(num) {
+// 1. Định dạng số / khối lượng với dấu phẩy phân cách hàng nghìn (hỗ trợ số chữ số thập phân decimals)
+export function formatNumber(num, decimals = 0) {
   if (num === null || num === undefined || isNaN(num)) return "0";
-  return Math.round(Number(num)).toLocaleString('en-US');
+  const n = Number(num);
+  if (decimals > 0) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+  return Math.round(n).toLocaleString('en-US');
 }
 
 // 2. Định dạng hiển thị tiền VND (phân cách hàng nghìn bằng dấu phẩy, ví dụ: 500,000,000)
